@@ -37,7 +37,7 @@ html_theme_options = {
     "source_directory": "docs/",
     "light_logo": "fast-flow-black.png",
     "dark_logo": "fast-flow-white.png",
-    "announcement": "<em>THIS IS WORK IN PROGRESS</em>!",
+    "announcement": 'Interested in contributing? Head to the <a href="https://github.com/FAST-HEP/fasthep-flow">GitHub repository</a> and open a pull request!',
 }
 html_css_files = ["css/custom.css"]
 
