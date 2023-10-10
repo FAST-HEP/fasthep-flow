@@ -9,13 +9,13 @@ Here's a simplified example of a YAML file:
 stages:
   - name: printEcho
     type: "airflow.operators.bash.BashOperator"
-      kwargs:
-          bash_command: echo "Hello World!"
+    kwargs:
+      bash_command: echo "Hello World!"
   - name: printPython
     type: "airflow.operators.bash.PythonOperator"
-      kwargs:
-        python_callable: print
-        op_args: ["Hello World!"]
+    kwargs:
+      python_callable: print
+      op_args: ["Hello World!"]
 
 ```
 
@@ -28,13 +28,13 @@ To make it easier to use Python callables, `fasthep-flow` provides a `pycall` op
 stages:
   - name: printEcho
     type: "airflow.operators.bash.BashOperator"
-      kwargs:
-          bash_command: echo "Hello World!"
+    kwargs:
+      bash_command: echo "Hello World!"
   - name: printPython
     type: "fasthep_flow.operators.pycall.PyCallOperator"
-      args: ["Hello World!"]
-      kwargs:
-        callable: print
+    args: ["Hello World!"]
+    kwargs:
+      callable: print
 ```
 
 :::{note}
