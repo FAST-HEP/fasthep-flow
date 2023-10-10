@@ -29,7 +29,11 @@ classifiers = [
   "Typing :: Typed",
 ]
 dynamic = ["version"]
-dependencies = []
+dependencies = [
+  "apache-airflow >=2.7",
+  "pyyaml >=5.4",
+  "omegaconf >=2.1",
+]
 
 [project.optional-dependencies]
 test = [
@@ -45,6 +49,8 @@ docs = [
   "myst_parser>=0.13",
   "sphinx_copybutton",
   "sphinx_autodoc_typehints",
+  "sphinxcontrib-mermaid",
+  "sphinx-inline-tabs",
   "furo>=2023.08.17",
 ]
 
@@ -160,3 +166,6 @@ messages_control.disable = [
   "missing-module-docstring",
   "wrong-import-position",
 ]
+
+[project.scripts]
+fasthep-flow = "fasthep_flow.cli:main"
