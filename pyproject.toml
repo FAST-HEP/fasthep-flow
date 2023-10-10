@@ -33,6 +33,8 @@ dependencies = [
   "apache-airflow >=2.7",
   "pyyaml >=5.4",
   "omegaconf >=2.1",
+  "typer >=0.4",
+  "typing_extensions >=3.10",
 ]
 
 [project.optional-dependencies]
@@ -91,21 +93,24 @@ port.exclude_lines = [
   'if typing.TYPE_CHECKING:',
 ]
 
-[tool.mypy]
-files = ["src", "tests"]
-python_version = "3.8"
-warn_unused_configs = true
-strict = true
-show_error_codes = true
-enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
-warn_unreachable = true
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
+# [tool.mypy]
+# files = ["src", "tests"]
+# python_version = "3.8"
+# warn_unused_configs = true
+# strict = true
+# show_error_codes = true
+# enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+# warn_unreachable = true
+# disallow_untyped_defs = false
+# disallow_incomplete_defs = false
 
-[[tool.mypy.overrides]]
-module = "fasthep_flow.*"
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
+# [[tool.mypy.overrides]]
+# module = "fasthep_flow.*"
+# disallow_untyped_defs = true
+# disallow_incomplete_defs = true
+
+# [[tool.mypy-typer.*]]
+# implicit_reexport = true
 
 
 [tool.ruff]

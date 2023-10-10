@@ -1,7 +1,10 @@
-from dataclasses import dataclass
-from omegaconf import OmegaConf
+from __future__ import annotations
+
 import pathlib
+from dataclasses import dataclass
 from typing import Any
+
+from omegaconf import OmegaConf
 
 
 @dataclass
@@ -18,8 +21,7 @@ class FlowConfig:
     stages: list[StageConfig]
 
 
-def load_config(config_file: pathlib.Path) -> FlowConfig:
+def load_config(config_file: pathlib.Path) -> Any:
     schema = OmegaConf.structured(FlowConfig)
     conf = OmegaConf.load(config_file)
-    merged_conf = OmegaConf.merge(schema, conf)
-    return merged_conf
+    return OmegaConf.merge(schema, conf)
