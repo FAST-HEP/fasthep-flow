@@ -19,13 +19,17 @@ each task, and then generate the DAG. The DAG will have a task for each step,
 and the dependencies between the tasks will be defined by the `needs` key in the
 YAML file. More on this under [Configuration](./configuration.md).
 
-:::{tip}
+```{tip}
 
 - `fasthep-flow` is still in early development, and the API is not yet stable.
   Please report any issues you find on the
   [GitHub issue tracker](https://github.com/FAST-HEP/fasthep-flow/issues).
 - Curious how this looks in action? Have a quick look at the
   [CMS Public Tutorial example](./examples/cms_pub_example.md).
+
+```
+
+## Documentation
 
 ```{toctree}
 
