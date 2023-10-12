@@ -8,6 +8,8 @@ executed on a local machine or on a cluster using
 [CERN's HTCondor](https://batchdocs.web.cern.ch/local/submit.html) (via Dask) or
 [Google Cloud Composer](https://cloud.google.com/composer).
 
+## Basic usage
+
 Here's a simplified example of a YAML file:
 
 ```yaml
@@ -47,7 +49,25 @@ stages:
       callable: print
 ```
 
-:::{note}
-
+```{note}
 - you can test the validity of a config via `fasthep-flow lint <config.yaml>`
 - there are many more custom operators available, see [here](operators.md)
+```
+
+## Global settings
+
+```yaml
+global:
+  portability:
+    process_on: cpu | gpu | gpu_if_available
+  histogram:
+    prefix: h_
+    folder_rule: from_name | fixed | None
+    folder: None
+```
+
+## Executor settings
+
+```yaml
+executor: TODO
+```
