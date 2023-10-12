@@ -32,6 +32,7 @@ YAML file. More on this under [Configuration](./configuration.md).
 ## Documentation
 
 ```{toctree}
+:maxdepth: 2
 changelog.md
 installation.md
 concepts.md
