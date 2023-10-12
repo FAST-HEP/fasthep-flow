@@ -32,12 +32,13 @@ YAML file. More on this under [Configuration](./configuration.md).
 ## Documentation
 
 ```{toctree}
-
 changelog.md
 installation.md
 concepts.md
 configuration.md
 operators.md
+executors.md
 examples/index.md
+advanced_examples/index.md
 developers_corner.md
 ```
