@@ -17,7 +17,7 @@ In `fasthep-flow`'s YAML files draws inspiration from Continuous Integration
 a task that can be run in parallel. `fasthep-flow` will check the parameters of
 each task, and then generate the DAG. The DAG will have a task for each step,
 and the dependencies between the tasks will be defined by the `needs` key in the
-YAML file. More on this under [Configuration](./configuration.md).
+YAML file. More on this under [Configuration](./configuration/index.md).
 
 ```{tip}
 
@@ -36,7 +36,7 @@ YAML file. More on this under [Configuration](./configuration.md).
 changelog.md
 installation.md
 concepts.md
-configuration.md
+configuration/index.md
 operators.md
 executors.md
 examples/index.md
