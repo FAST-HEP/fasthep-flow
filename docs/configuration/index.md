@@ -8,6 +8,13 @@ executed on a local machine or on a cluster using
 [CERN's HTCondor](https://batchdocs.web.cern.ch/local/submit.html) (via Dask) or
 [Google Cloud Composer](https://cloud.google.com/composer).
 
+```{toctree}
+:hidden: true
+global_settings.md
+register.md
+environments.md
+```
+
 ## Basic usage
 
 Here's a simplified example of a YAML file:
@@ -15,11 +22,11 @@ Here's a simplified example of a YAML file:
 ```yaml
 stages:
   - name: printEcho
-    type: "airflow.operators.bash.BashOperator"
+    type: "airflow::BashOperator"
     kwargs:
       bash_command: echo "Hello World!"
   - name: printPython
-    type: "airflow.operators.bash.PythonOperator"
+    type: "airflow::PythonOperator"
     kwargs:
       python_callable: print
       op_args: ["Hello World!"]
@@ -39,11 +46,11 @@ using the `pycall` operator as follows:
 ```yaml
 stages:
   - name: printEcho
-    type: "airflow.operators.bash.BashOperator"
+    type: "airflow::BashOperator"
     kwargs:
       bash_command: echo "Hello World!"
   - name: printPython
-    type: "fasthep_flow.operators.pycall.PyCallOperator"
+    type: "fasthep_flow::PyCallOperator"
     args: ["Hello World!"]
     kwargs:
       callable: print
@@ -51,23 +58,5 @@ stages:
 
 ```{note}
 - you can test the validity of a config via `fasthep-flow lint <config.yaml>`
-- there are many more custom operators available, see [here](operators.md)
-```
-
-## Global settings
-
-```yaml
-global:
-  portability:
-    process_on: cpu | gpu | gpu_if_available
-  histogram:
-    prefix: h_
-    folder_rule: from_name | fixed | None
-    folder: None
-```
-
-## Executor settings
-
-```yaml
-executor: TODO
+- there are many more custom operators available, see [here](../operators.md)
 ```
