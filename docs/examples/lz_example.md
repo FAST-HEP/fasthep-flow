@@ -96,6 +96,20 @@ done for us. We just need to use the identifier to select the single scatters.
           ]
 ```
 
+The `fasthep_carpenter.operators.HistogramOperator` takes a list of histograms
+to create. Each histogram is defined with a `name`, `input`, and `edges` or
+`bins`. The `name` is the name of the histogram, the `input` is the variable to
+histogram, and the `edges` are the bin edges. The `input` can be any variable
+defined in the workflow, and the `edges` can be any list of numbers. The `bins`
+are a list, one entry for each axis of the histogram. Each entry is a dictionary
+with the keys `low`, `high`, and `nbins`. The `low` and `high` are the low and
+high edges of the histogram, and `nbins` is the number of bins.
+
+```{note}
+As you might have noticed, one of the inputs to the histogram includes a function call.
+This is a feature of `fasthep-flow` that allows you to use expressions here. Alternatively, we would have to define a new variable with the expression and then use that variable in the histogram.
+```
+
 ### Making paper-ready plots
 
 The final step is to make a paper-ready plot. We will use the
