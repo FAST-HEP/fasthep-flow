@@ -4,6 +4,7 @@
 
 ## Adding a new feature
 
-## Adding a new operator
-
-## Adding a new executor
+```{toctree}
+operators.md
+executors.md
+```
