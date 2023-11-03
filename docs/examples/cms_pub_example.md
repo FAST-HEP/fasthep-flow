@@ -53,7 +53,7 @@ The data for this tutorial are available on CERNBOX:
 You can download manually or using the `fasthep-cli`:
 
 ```bash
-fasthep-cli download --json /path/to/json --destination /path/to/data
+fasthep download --json /path/to/json --destination /path/to/data
 ```
 
 ```{note}
