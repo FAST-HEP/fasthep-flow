@@ -25,3 +25,22 @@
 [rtd-link]:                 https://fasthep-flow.readthedocs.io/en/latest/?badge=latest
 
 <!-- prettier-ignore-end -->
+
+## Introduction
+
+## Documentation
+
+## Installation
+
+## Examples
+
+## Contributing
+
+## License
+
+## Acknowledgements
+
+Special thanks to the gracious help of FAST-HEP contributors:
+
+<!-- readme: m-glowacki,seriksen,collaborators,contributors -start -->
+<!-- readme: m-glowacki,seriksen,collaborators,contributors -end -->
