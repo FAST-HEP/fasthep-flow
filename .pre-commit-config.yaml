@@ -58,6 +58,7 @@ repos:
         args: []
         additional_dependencies:
           - pytest
+          - pydantic
 
   - repo: https://github.com/codespell-project/codespell
     rev: "v2.2.5"
