@@ -41,5 +41,7 @@ operators.md
 executors.md
 examples/index.md
 advanced_examples/index.md
+command_line_interface.md
+interactive_python.md
 devcon/index.md
 ```
