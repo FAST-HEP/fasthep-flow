@@ -41,5 +41,5 @@ operators.md
 executors.md
 examples/index.md
 advanced_examples/index.md
-developers_corner.md
+devcon/index.md
 ```
