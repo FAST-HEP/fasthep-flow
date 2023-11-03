@@ -25,3 +25,8 @@ run on a local machine or as a distributed cluster using a batch system (e.g.
 HTCondor, LSF, PBS, SGE, SLURM) or other distributed systems such as LHCb's
 DIRAC. This is the recommended executor for running `fasthep-flow` workflows on
 distributed resources.
+
+## Custom executors
+
+Documentation on how to create custom executors can be found in the
+[developer's corner](devcon/executors.md).

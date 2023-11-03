@@ -20,3 +20,8 @@ There are four types of operators:
 4. **Filter**: These are used to filter data. They are similar to data transform
    operators, but instead of adding data, they restrict part of the data to
    continue in the workflow.
+
+## Custom operators
+
+Documentation on how to create custom operators can be found in the
+[developer's corner](devcon/operators.md).
