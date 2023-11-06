@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from fasthep_flow.config import FlowConfig, load_config
+from fasthep_flow.config import FlowConfig, StageConfig, load_config
 
 
 # This would be a fixture providing various YAML configurations
@@ -28,3 +29,10 @@ def test_load_config_parses_correctly(valid_config_yaml: str, tmp_path: Path):
     parsed_config = load_config(temp_config_file)
     assert parsed_config is not None
     assert isinstance(parsed_config, FlowConfig)
+
+
+def test_invalid_type():
+    with pytest.raises(ValidationError) as excinfo:
+        StageConfig(name="test", type="invalid.type")
+
+    assert "Could not import invalid.type" in str(excinfo.value)
