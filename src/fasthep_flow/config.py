@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import importlib
 import pathlib
+from dataclasses import field
 from typing import Any
 
-from omegaconf import OmegaConf
-from pydantic import Field, validator
+from omegaconf import OmegaConf, SCMode
+from pydantic import validator
 from pydantic.dataclasses import dataclass
 
 
@@ -15,9 +16,9 @@ class StageConfig:
 
     name: str
     type: str
-    needs: list[str] | None = Field(default_factory=list)
-    args: list[Any] | None = Field(default_factory=list)
-    kwargs: dict[str, Any] | None = Field(default_factory=dict)
+    needs: list[Any] | None = field(default_factory=list)
+    args: list[Any] | None = field(default_factory=list)
+    kwargs: dict[Any, Any] | None = field(default_factory=dict)
 
     @validator("type")
     def validate_type(cls, v: str) -> str:
@@ -47,4 +48,8 @@ def load_config(config_file: pathlib.Path) -> Any:
     schema = OmegaConf.structured(FlowConfig)
     conf = OmegaConf.load(config_file)
     merged_conf = OmegaConf.merge(schema, conf)
-    return OmegaConf.to_object(merged_conf)
+    return OmegaConf.to_container(
+        merged_conf,
+        resolve=True,
+        structured_config_mode=SCMode.INSTANTIATE,
+    )
