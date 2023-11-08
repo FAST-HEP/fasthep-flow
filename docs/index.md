@@ -39,6 +39,7 @@ concepts.md
 configuration/index.md
 operators.md
 executors.md
+provenance.md
 examples/index.md
 advanced_examples/index.md
 command_line_interface.md
