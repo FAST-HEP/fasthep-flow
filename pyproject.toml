@@ -30,7 +30,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-  "apache-airflow >=2.7",
+  "prefect",
   "pyyaml >=5.4",
   "omegaconf >=2.1",
   "typer >=0.4",
@@ -45,6 +45,7 @@ test = [
 dev = [
   "pytest >=6",
   "pytest-cov >=3",
+  "ruff",
 ]
 docs = [
   "sphinx>=7.0",
