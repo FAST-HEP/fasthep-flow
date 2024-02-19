@@ -1,0 +1,5 @@
+stages:
+  - name: "hello_world in bash"
+    type: "fasthep_flow.operators.BashOperator"
+    kwargs:
+      bash_command: echo "Hello World!"
