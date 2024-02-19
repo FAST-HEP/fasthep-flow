@@ -30,7 +30,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-  "hydra",
+  "hydra-core",
   "prefect",
   "pyyaml >=5.4",
   "omegaconf >=2.1",
