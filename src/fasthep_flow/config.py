@@ -36,6 +36,13 @@ class StageConfig:
         # Return the original string if everything is fine
         return v
 
+    def resolve(self) -> Any:
+        """Resolve the stage to a class."""
+        module_path, class_name = self.type.rsplit(".", 1)
+        mod = importlib.import_module(module_path)
+        class_ = getattr(mod, class_name)
+        return class_(*self.args, **self.kwargs)
+
 
 @dataclass
 class FlowConfig:
@@ -55,10 +62,3 @@ def load_config(config_file: pathlib.Path) -> Any:
     """Load a config file and return the structured config."""
     conf = OmegaConf.load(config_file)
     return FlowConfig.from_dictconfig(conf)
-    # schema = OmegaConf.structured(FlowConfig)
-    # merged_conf = OmegaConf.merge(schema, conf)
-    # return OmegaConf.to_container(
-    #     merged_conf,
-    #     resolve=True,
-    #     structured_config_mode=SCMode.INSTANTIATE,
-    # )
