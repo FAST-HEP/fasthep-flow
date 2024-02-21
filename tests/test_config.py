@@ -14,7 +14,7 @@ def valid_config_yaml():
     return """
 stages:
   - name: printEcho
-    type: "airflow.operators.bash.BashOperator"
+    type: "fasthep_flow.operators.BashOperator"
     kwargs:
       bash_command: echo "Hello World!"
 """

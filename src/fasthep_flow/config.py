@@ -5,8 +5,8 @@ import pathlib
 from dataclasses import field
 from typing import Any
 
-from omegaconf import OmegaConf, SCMode
-from pydantic import validator
+from omegaconf import DictConfig, ListConfig, OmegaConf
+from pydantic import field_validator
 from pydantic.dataclasses import dataclass
 
 
@@ -20,7 +20,8 @@ class StageConfig:
     args: list[Any] | None = field(default_factory=list)
     kwargs: dict[Any, Any] | None = field(default_factory=dict)
 
-    @validator("type")
+    @field_validator("type")
+    @classmethod
     def validate_type(cls, v: str) -> str:
         # Split the string to separate the module from the class name
         module_path, class_name = v.rsplit(".", 1)
@@ -42,14 +43,22 @@ class FlowConfig:
 
     stages: list[StageConfig]
 
+    @staticmethod
+    def from_dictconfig(config: DictConfig | ListConfig) -> FlowConfig:
+        """Create a FlowConfig from a dictionary."""
+        schema = OmegaConf.structured(FlowConfig)
+        merged_conf = OmegaConf.merge(schema, config)
+        return FlowConfig(**OmegaConf.to_container(merged_conf))
+
 
 def load_config(config_file: pathlib.Path) -> Any:
     """Load a config file and return the structured config."""
-    schema = OmegaConf.structured(FlowConfig)
     conf = OmegaConf.load(config_file)
-    merged_conf = OmegaConf.merge(schema, conf)
-    return OmegaConf.to_container(
-        merged_conf,
-        resolve=True,
-        structured_config_mode=SCMode.INSTANTIATE,
-    )
+    return FlowConfig.from_dictconfig(conf)
+    # schema = OmegaConf.structured(FlowConfig)
+    # merged_conf = OmegaConf.merge(schema, conf)
+    # return OmegaConf.to_container(
+    #     merged_conf,
+    #     resolve=True,
+    #     structured_config_mode=SCMode.INSTANTIATE,
+    # )
