@@ -21,16 +21,16 @@ class LocalBashOperator(Operator):
         self.configure(**kwargs)
 
     def configure(self, **kwargs: Any) -> None:
-        self.command = kwargs.pop("bash_command")
+        self.bash_command = kwargs.pop("bash_command")
         self.arguments = kwargs.pop("arguments")
 
     def __call__(self, **kwargs: Any) -> dict[str, Any]:
-        command = plumbum.local[self.command]
+        command = plumbum.local[self.bash_command]
         exit_code, stdout, stderr = command.run(*self.arguments)
         return {"stdout": stdout, "stderr": stderr, "exit_code": exit_code}
 
     def __repr__(self) -> str:
-        return f"LocalBashOperator(bash_command={self.command}, arguments={self.arguments})"
+        return f"LocalBashOperator(bash_command={self.bash_command}, arguments={self.arguments})"
 
 
 BashOperator = LocalBashOperator
