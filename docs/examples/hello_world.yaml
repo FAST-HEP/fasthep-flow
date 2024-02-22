@@ -2,4 +2,10 @@ stages:
   - name: "hello_world in bash"
     type: "fasthep_flow.operators.BashOperator"
     kwargs:
-      bash_command: echo "Hello World!"
+      bash_command: echo
+      arguments: ["Hello World!"]
+  - name: "touch /tmp/date.txt"
+    type: "fasthep_flow.operators.BashOperator"
+    kwargs:
+      bash_command: touch
+      arguments: ["/tmp/date.txt"]
