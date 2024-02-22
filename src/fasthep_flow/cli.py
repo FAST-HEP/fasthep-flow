@@ -7,6 +7,7 @@ import typer
 from typing_extensions import Annotated
 
 from .config import FlowConfig, load_config
+from .workflow import Workflow
 
 app = typer.Typer()
 
@@ -49,7 +50,8 @@ def execute(
 
     # initialize hydra
     cfg = init_config(config, overrides)
-    typer.echo(cfg)
+    workflow = Workflow(config=cfg)
+    workflow.run()
 
 
 @app.command("list")
