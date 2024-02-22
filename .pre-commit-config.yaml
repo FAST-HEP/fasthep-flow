@@ -57,7 +57,9 @@ repos:
         files: src|tests
         args: []
         additional_dependencies:
+          - plumbum
           - pytest
+          - pydantic
 
   - repo: https://github.com/codespell-project/codespell
     rev: "v2.2.5"

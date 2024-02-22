@@ -159,3 +159,6 @@ Thumbs.db
 
 # copier
 .copier*
+
+# VSCode
+.vscode/

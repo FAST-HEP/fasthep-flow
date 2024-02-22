@@ -4,6 +4,7 @@ Documentation is useful, but sometimes you just want to see some code. This
 section contains some real-life examples of how to use `fasthep-flow`.
 
 ```{toctree}
+hello_world.md
 atlas_example.md
 cms_pub_example.md
 dune_example.md

@@ -1,10 +1,6 @@
 stages:
   - name: printEcho
-    type: "airflow.operators.bash.BashOperator"
+    type: "fasthep_flow.operators.BashOperator"
     kwargs:
-      bash_command: echo "Hello World!"
-  - name: printPython
-    type: "airflow.operators.bash.PythonOperator"
-    kwargs:
-      python_callable: print
-      op_args: ["Hello World!"]
+      bash_command: echo
+      arguments: ["Hello World!"]
