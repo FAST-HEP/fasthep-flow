@@ -29,6 +29,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
+  "eval_type_backport",
   "hydra-core",
   "plumbum",
   "prefect",
