@@ -9,11 +9,13 @@ try:
     import plumbum
 except ImportError as e:
     # if it fails, raise an error
-    error_message = "The plumbum package is required for the (Local|Remote)BashOperator"
-    raise ImportError(error_message) from e
+    msg = "The plumbum package is required for the (Local|Remote)BashOperator"  # pylint: disable=invalid-name
+    raise ImportError(msg) from e
 
 
 class LocalBashOperator(Operator):
+    """A local bash operator. This operator runs a bash command on the local machine."""
+
     bash_command: str
     arguments: list[str]
 
@@ -21,6 +23,7 @@ class LocalBashOperator(Operator):
         self.configure(**kwargs)
 
     def configure(self, **kwargs: Any) -> None:
+        """Configure the operator."""
         self.bash_command = kwargs.pop("bash_command")
         self.arguments = kwargs.pop("arguments")
 

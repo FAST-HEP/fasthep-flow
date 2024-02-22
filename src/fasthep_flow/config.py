@@ -23,6 +23,7 @@ class StageConfig:
     @field_validator("type")
     @classmethod
     def validate_type(cls, v: str) -> str:
+        """Validate the type field. Any specified type needs to be a Python class that can be imported"""
         # Split the string to separate the module from the class name
         module_path, class_name = v.rsplit(".", 1)
         try:
