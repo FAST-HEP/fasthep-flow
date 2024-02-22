@@ -13,7 +13,7 @@ class Workflow:
     ]  # this should be prefect.Task, but that's not working with pydantic v2 for now
 
     def __init__(self, config: FlowConfig) -> None:
-        from prefect import Task
+        from prefect import Task  # pylint: disable=import-outside-toplevel
 
         stages = config.stages
         self.tasks = []
@@ -32,7 +32,7 @@ class Workflow:
 
     def run(self) -> None:
         """Function to execute the workflow. Wraps __call__ to convert the workflow into a Prefect flow."""
-        from prefect import Flow
+        from prefect import Flow  # pylint: disable=import-outside-toplevel
 
         f = Flow(
             self.__call__,
