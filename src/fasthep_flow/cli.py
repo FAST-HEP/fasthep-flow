@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import hydra
 import typer
-from typing_extensions import Annotated
 
 from .config import FlowConfig, load_config
 from .workflow import Workflow
