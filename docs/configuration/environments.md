@@ -17,7 +17,7 @@ Let's start with a simple example:
 ```yaml
 stages:
   - name: runROOTMacro
-    type: "airflow::BashOperator"
+    type: "fasthep_flow.operators.BashOperator"
     kwargs:
       bash_command: root -bxq <path to ROOT macro>
     environment:
@@ -25,7 +25,7 @@ stages:
       variables: <path to .env>
       executor: LocalExecutor
   - name: runStatsCode
-    type: "airflow::BashOperator"
+    type: "fasthep_flow.operators.BashOperator"
     kwargs:
       bash_command: ./localStatsCode.sh
     environment:

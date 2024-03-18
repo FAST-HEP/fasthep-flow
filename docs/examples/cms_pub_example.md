@@ -58,7 +58,7 @@ fasthep download --json /path/to/json --destination /path/to/data
 
 ```{note}
 While you can automate the data download and curator steps, we will do them manually in this example.
-Both could be added as stages of the type `airflow.operators.bash.BashOperator`.
+Both could be added as stages of the type `fasthep_flow.operators.bash.BashOperator`.
 
 ```
 
@@ -233,11 +233,11 @@ by [fasthep-carpenter](https://fast-hep.github.io/fasthep-carpenter/).
 ### Making paper-ready plots
 
 The final step is to make a paper-ready plot. We will use the
-`airflow.operators.bash.BashOperator` for this:
+`fasthep_flow.operators.bash.BashOperator` for this:
 
 ```yaml
 - name: Make paper-ready plot
-  type: airflow.operators.bash.BashOperator
+  type: fasthep_flow.operators.bash.BashOperator
   kwargs:
     bash_command: |
       fasthep plotter \

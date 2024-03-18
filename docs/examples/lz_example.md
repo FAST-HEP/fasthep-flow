@@ -113,11 +113,11 @@ This is a feature of `fasthep-flow` that allows you to use expressions here. Alt
 ### Making paper-ready plots
 
 The final step is to make a paper-ready plot. We will use the
-`airflow.operators.bash.BashOperator` for this:
+`fasthep_flow.operators.bash.BashOperator` for this:
 
 ```yaml
 - name: Make paper-ready plot
-  type: airflow.operators.bash.BashOperator
+  type: fasthep_flow.operators.bash.BashOperator
   kwargs:
     bash_command: |
       fasthep plotter \

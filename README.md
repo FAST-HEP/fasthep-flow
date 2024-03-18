@@ -4,7 +4,6 @@
 [![Documentation Status][rtd-badge]][rtd-link]
 
 [![PyPI version][pypi-version]][pypi-link]
-[![Conda-Forge][conda-badge]][conda-link]
 [![PyPI platforms][pypi-platforms]][pypi-link]
 
 [![GitHub Discussion][github-discussions-badge]][github-discussions-link]
@@ -14,8 +13,6 @@
 <!-- prettier-ignore-start -->
 [actions-badge]:            https://github.com/FAST-HEP/fasthep-flow/workflows/CI/badge.svg
 [actions-link]:             https://github.com/FAST-HEP/fasthep-flow/actions
-[conda-badge]:              https://img.shields.io/conda/vn/conda-forge/fasthep-flow
-[conda-link]:               https://github.com/conda-forge/fasthep-flow-feedstock
 [github-discussions-badge]: https://img.shields.io/static/v1?label=Discussions&message=Ask&color=blue&logo=github
 [github-discussions-link]:  https://github.com/FAST-HEP/fasthep-flow/discussions
 [pypi-link]:                https://pypi.org/project/fasthep-flow/
