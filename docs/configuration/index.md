@@ -13,6 +13,7 @@ a local machine or on a cluster using
 global_settings.md
 register.md
 environments.md
+variations.md
 ```
 
 ## Basic usage
