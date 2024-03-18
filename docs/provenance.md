@@ -43,7 +43,5 @@ provenance:
       - performance # Metrics to measure the efficiency of the analysis
       - environment # Software environment, including library versions
       - hardware # Hardware specifications where the analysis was run
-  airflow:
-    include:
-      - db # Database configurations and states within Airflow
+  metadata: metadata.json # Specifies the file to store the provenance metadata
 ```

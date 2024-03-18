@@ -31,7 +31,7 @@ stages:
 ```
 
 ```{note}
-There are protected namespaces, which you cannot use like this. These are `airflow` and anything starting with `fasthep`.
+There are protected namespaces, which you cannot use like this. These are anything starting with `fasthep`.
 ```
 
 ## Registering a stage that can run on GPU

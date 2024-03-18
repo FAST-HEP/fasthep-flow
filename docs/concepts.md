@@ -3,9 +3,11 @@
 `fasthep-flow` does not implement any processing itself, but rather delegates
 between user workflow description (the
 [YAML configuration file](./configuration.md)), the workflow stages (e.g.
-**Python Callables**), the **Apache Airflow DAG** and the **Executor** engine.
-Unless excplicitely stated, every workflow has to start with a **Data Stage**,
-has one or more **Processing stages**, and end with an **Output stage**.
+**Python Callables**), the **workflow DAG** and the **Executor** engine. Unless
+excplicitely stated, every workflow has to start with a **Data Stage**, has one
+or more **Processing stages**, and end with an **Output stage**.
+
+## Stages
 
 **Data Stage**: The data stage is any callable that returns data. This can be a
 function that reads data from a file, or a function that generates data. The
