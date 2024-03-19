@@ -7,6 +7,7 @@ import hydra
 import typer
 
 from .config import FlowConfig, load_config
+from .orchestration import prefect_workflow
 from .workflow import Workflow
 
 app = typer.Typer()
@@ -51,7 +52,9 @@ def execute(
     # initialize hydra
     cfg = init_config(config, overrides)
     workflow = Workflow(config=cfg)
-    results = workflow.run()
+    flow = prefect_workflow(workflow)
+    results = flow()
+    # results = workflow.run()
     typer.echo(f"Results: {results}")
 
 
