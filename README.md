@@ -31,6 +31,10 @@
 
 ## Examples
 
+```bash
+fasthep-flow execute docs/examples/hello_world.yaml
+```
+
 ## Contributing
 
 ## License
