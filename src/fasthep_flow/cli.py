@@ -43,7 +43,7 @@ def print_defaults() -> None:
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True}
 )
 def execute(
-    config: Path, overrides: Annotated[list[str] | None, typer.Argument()] = None
+    config: Path, overrides: Annotated[list[str] | None, typer.Argument([])] = None
 ) -> None:
     """Execute a config file."""
     typer.echo(f"Executing {config}...")
@@ -51,7 +51,8 @@ def execute(
     # initialize hydra
     cfg = init_config(config, overrides)
     workflow = Workflow(config=cfg)
-    workflow.run()
+    results = workflow.run()
+    typer.echo(f"Results: {results}")
 
 
 @app.command("list")
