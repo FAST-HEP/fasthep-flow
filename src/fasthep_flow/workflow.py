@@ -1,43 +1,46 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from .config import FlowConfig
 
 
+@dataclass
+class Task:
+    name: str
+    type: str
+    kwargs: dict[str, Any]
+    payload: Any
+
+    def __call__(self) -> Any:
+        return self.payload()
+
+
+@dataclass
 class Workflow:
     """Wrapper for any compute graph implementation we want to support. Currently using Prefect."""
 
-    tasks: list[
-        Any
-    ]  # this should be prefect.Task, but that's not working with pydantic v2 for now
+    tasks: list[Task]  # TODO: Maybe this should be an OrderedDict
 
     def __init__(self, config: FlowConfig) -> None:
-        from prefect import Task  # pylint: disable=import-outside-toplevel
-
         stages = config.stages
         self.tasks = []
         for stage in stages:
             self.tasks.append(
                 Task(
-                    stage.resolve(),
                     name=stage.name,
+                    type=stage.type,
+                    kwargs=stage.kwargs if stage.kwargs is not None else {},
+                    payload=stage.resolve() if hasattr(stage, "resolve") else None,
+                    # TODO: pass information about the task's dependencies and execution environment
                 )
             )
 
-    def __call__(self) -> None:
+    def __call__(self) -> Any:
         """Function to execute all tasks in the workflow."""
-        for t in self.tasks:
-            t()
+        for task in self.tasks:
+            yield task.payload()
 
-    def run(self) -> None:
-        """Function to execute the workflow. Wraps __call__ to convert the workflow into a Prefect flow."""
-        from prefect import Flow  # pylint: disable=import-outside-toplevel
-
-        f = Flow(
-            self.__call__,
-            name="config name",
-            flow_run_name="fasthep-flow",
-            version="0.0.1",
-        )
-        f()
+    def run(self) -> Any:
+        return list(self.__call__())
