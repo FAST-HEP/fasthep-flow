@@ -1,3 +1,8 @@
+"""Orchestration module for the fasthep-flow package.
+This module contains functions to convert a fasthep-flow workflow into various other workflows,
+e.g. Prefect, NetworkX, etc., to either execute them or visualize them.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -26,8 +31,9 @@ def prefect_workflow(workflow: Workflow) -> Any:
     def prefect_wrapper() -> Any:
         """Function to execute all tasks in the workflow."""
         for task in workflow.tasks:
-            pt = Task(task.payload, name=task.name)
-            pt()
+            # TODO: add subflows
+            prefect_task = Task(task.payload, name=task.name)
+            prefect_task()
 
     return Flow(
         prefect_wrapper,

@@ -8,6 +8,8 @@ from .config import FlowConfig
 
 @dataclass
 class Task:
+    """Wrapper for any compute task implementation we want to support."""
+
     name: str
     type: str
     kwargs: dict[str, Any]
@@ -19,7 +21,7 @@ class Task:
 
 @dataclass
 class Workflow:
-    """Wrapper for any compute graph implementation we want to support. Currently using Prefect."""
+    """Wrapper for any compute graph implementation we want to support."""
 
     tasks: list[Task]  # TODO: Maybe this should be an OrderedDict
 
@@ -43,4 +45,5 @@ class Workflow:
             yield task.payload()
 
     def run(self) -> Any:
-        return list(self.__call__())
+        """Function to execute all tasks in the workflow."""
+        return list(self())
