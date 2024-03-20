@@ -1,3 +1,4 @@
+"""Type hints for the version module."""
 from __future__ import annotations
 
 version: str

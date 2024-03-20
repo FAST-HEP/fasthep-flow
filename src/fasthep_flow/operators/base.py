@@ -1,3 +1,4 @@
+"""Definition of the Operator protocol."""
 from __future__ import annotations
 
 from typing import Any, Protocol
@@ -5,7 +6,8 @@ from typing import Any, Protocol
 
 class Operator(Protocol):
     """The base class for all operators.
-    Only named parameters are allowed, since we need to have a way to pass the YAML configuration to the operator.
+    Only named parameters are allowed,
+    since we need to have a way to pass the YAML configuration to the operator.
     """
 
     def __call__(self, **kwargs: Any) -> dict[str, Any]:

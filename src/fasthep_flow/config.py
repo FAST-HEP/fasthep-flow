@@ -1,3 +1,5 @@
+"""Definitions for the configuration for describing the workflow."""
+
 from __future__ import annotations
 
 import importlib
@@ -22,20 +24,21 @@ class StageConfig:
 
     @field_validator("type")
     @classmethod
-    def validate_type(cls, v: str) -> str:
-        """Validate the type field. Any specified type needs to be a Python class that can be imported"""
+    def validate_type(cls, value: str) -> str:
+        """Validate the type field
+        Any specified type needs to be a Python class that can be imported"""
         # Split the string to separate the module from the class name
-        module_path, class_name = v.rsplit(".", 1)
+        module_path, class_name = value.rsplit(".", 1)
         try:
             # Import the module
             mod = importlib.import_module(module_path)
             # this must be a class
             getattr(mod, class_name)
-        except ImportError as e:
+        except ImportError as previous_error:
             msg = f"Could not import {module_path}.{class_name}"
-            raise ValueError(msg) from e
+            raise ValueError(msg) from previous_error
         # Return the original string if everything is fine
-        return v
+        return value
 
     def resolve(self) -> Any:
         """Resolve the stage to a class."""
