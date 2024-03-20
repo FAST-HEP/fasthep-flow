@@ -43,5 +43,23 @@ def prefect_workflow(workflow: Workflow) -> Any:
     )
 
 
+# def gitlab_ci_workflow(workflow: Workflow):
+#     """Convert a workflow into a GitLab CI workflow."""
+
+# def github_actions_workflow(workflow: Workflow):
+#     """Convert a workflow into a GitHub Actions workflow."""
+
+# def coffea_workflow(workflow: Workflow):
+#     """Convert a workflow into a coffea processor."""
+
+# def dask_workflow(workflow: Workflow):
+#     """Convert a workflow into a dask graph."""
+
+# def luigi_workflow(workflow: Workflow):
+#     """Convert a workflow into a luigi graph."""
+
+# def parsl_workflow(workflow: Workflow):
+#     """Convert a workflow into a parsl graph."""
+
 # def networkx_workflow(workflow: Workflow):
 #     """Convert a workflow into a networkx directed graph."""
