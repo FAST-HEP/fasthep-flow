@@ -1,3 +1,4 @@
+"""Module for defining basic operators."""
 from __future__ import annotations
 
 from .base import Operator

@@ -1,3 +1,4 @@
+"""Workflow and Task classes to define and execute a compute graph."""
 from __future__ import annotations
 
 from dataclasses import dataclass
