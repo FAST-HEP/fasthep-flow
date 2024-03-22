@@ -31,26 +31,33 @@ class LocalPythonOperator(Operator):
 
         if isinstance(self.callable, str):
             obj = None
+            callable_str = self.callable
             # breakpoint()
             try:
-                obj = eval(compile(self.callable, '<string>', 'eval'),
-                           globals(),
-                           locals())
+                exec(compile('self.callable = ' + callable_str, '<string>', 'exec'),
+                     globals(),
+                     locals())
+                obj = self.callable
             except (SyntaxError, AttributeError) as e:
                 raise e
 
             if not callable(obj):
-                msg = f"provided string `{self.callable}` did not compile to a callable"
+                self.callable = None
+                msg = f"provided string `{callable_str}` did not compile to a callable"
                 raise AttributeError(msg)
 
-            self.callable = obj
         return
 
     def __call__(self, **kwargs: Any) -> dict[str, Any]:
+        args = ast.literal_eval("(" + ",".join(self.arguments) + ",)")
+        breakpoint()
+        out = self.callable(*args)
         stdout, stderr, exit_code = "", "", 0
+
         return {"stdout": stdout, "stderr": stderr, "exit_code": exit_code}
 
     def __repr__(self) -> str:
-        return f"LocalPythonOperator(callable={self.python_callable}, arguments={self.arguments})"
+        return f"LocalPythonOperator(callable={self.callable}, arguments={self.arguments})"
+
 
 PythonOperator = LocalPythonOperator
