@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+from collections.abc import Callable
 from typing import Any
 
 from .base import Operator
@@ -8,35 +10,40 @@ from .base import Operator
 class LocalPythonOperator(Operator):
     """A local python operator. This operator runs python callables on the local machine."""
 
-    python_callable: str
+    callable: str | Callable[Any, Any]
     arguments: list[str]
 
     def __init__(self, **kwargs: Any):
         self.configure(**kwargs)
 
     def configure(self, **kwargs: Any) -> None:
-        """Configure the operator."""
-        self.python_callable = kwargs.pop("callable")
-        self.arguments = kwargs.pop("arguments")
+        """
+        Configure the operator. Allows for unqualified names as well as
+        qualified names via imports and aliased imports
+        """
+        self.callable = kwargs["callable"]
+        self.arguments = kwargs.pop("arguments", None)
 
-        for module, alias in kwargs.pop("aliases"):
-            if self.python_callable.startswith(alias + '.'):
-                self.python_callable = self.python_callable.replace(alias, module, 1)
+        # # WIP: this could later be replaced as parsing is updated
+        # for module, alias in kwargs.pop("aliases"):
+        #     if self.callable.startswith(alias + '.'):
+        #         self.callable = self.callable.replace(alias, module, 1)
 
-        # verify valid callable
-        try:
-            module_name, callable_name = self.python_callable.split('.', 1)
-            module = import_module(module_name) # could throw ImportError
+        if isinstance(self.callable, str):
+            obj = None
+            # breakpoint()
+            try:
+                obj = eval(compile(self.callable, '<string>', 'eval'),
+                           globals(),
+                           locals())
+            except (SyntaxError, AttributeError) as e:
+                raise e
 
-            if not callable(getattr(module, callable_name)): # could throw AttributeError
-                return # how to fail
+            if not callable(obj):
+                msg = f"provided string `{self.callable}` did not compile to a callable"
+                raise AttributeError(msg)
 
-        except ImportError:
-            return # how should this fail?
-
-        except AttributeError:
-            return
-
+            self.callable = obj
         return
 
     def __call__(self, **kwargs: Any) -> dict[str, Any]:
@@ -46,3 +53,4 @@ class LocalPythonOperator(Operator):
     def __repr__(self) -> str:
         return f"LocalPythonOperator(callable={self.python_callable}, arguments={self.arguments})"
 
+PythonOperator = LocalPythonOperator

@@ -4,7 +4,7 @@ from fasthep_flow.operators.python import PythonOperator
 
 
 def test_python_operator():
-    operator = PythonOperator(callable="print", arguments=["Hello World!"])
+    operator = PythonOperator(callable="print", arguments=['"Hello World!"'])
     result = operator()
     assert result["stdout"] == "Hello World!\n"
     assert result["stderr"] == ""
