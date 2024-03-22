@@ -23,7 +23,7 @@ stages:
     environment:
       image: docker.io/rootproject/root:6.28.04-ubuntu22.04
       variables: <path to .env>
-      executor: LocalExecutor
+      flow: prefect::SequentialTaskRunner
   - name: runStatsCode
     type: "fasthep_flow.operators.BashOperator"
     kwargs:
@@ -38,23 +38,30 @@ stages:
 ```
 
 There is a lot to unpack here, so let's start bit by bit. The first stage uses
-`environment::image`, `environment::variables`, and `environment::executor`. The
+`environment::image`, `environment::variables`, and `environment::flow`. The
 `image` is a container image, here Docker, while `variables` defines the
 environmental variables. The values for `variables` can either be a path to an
-`.env` file or a dictionary of key-value pairs (see 2nd example). The `executor`
-defines the executor to use for this stage. The default is `DaskExecutor`, but
-here we are using `LocalExecutor` to run the stage locally.
+`.env` file or a dictionary of key-value pairs (see 2nd example).
 
 ```{note}
 A `.env` file is a file specifying variables in the format `VARIABLE=VALUE` - one per line. For example, `STATS_METHOD=CLs` is a valid `.env` file.
 ```
+
+The `flow`defines the orchestration of the workflow to use for this stage. The
+default orchestration is defined in the global settings, usually set to
+`prefect::DaskTaskRunner`. In this case, we are using the
+`prefect::SequentialTaskRunner` to run the stage locally.
+
+````{note}
+The `flow` setting has to use the same prefix as the global setting and has to match a defined orchestration.```
+
 
 In the second stage, we use `environment::image`, `environment::variables` and
 `environment::resources`. We've already discussed the firs two, but we use the
 dictionary variable definition here, instead of the `.env` file. The new
 additin, `resources`, is the same as for the global setting. Here you can define
 memory, CPU, and GPU resources for the stage. These will be passed to the
-executor.
+orchestration layer.
 
 The full set of options for `environment` is:
 
@@ -62,7 +69,10 @@ The full set of options for `environment` is:
 environment:
   variables: <path to .env> | { <key>: <value>, ... }
   image: <image name>
-  executor: LocalExecutor | DaskExecutor | any other supported executor
+  workflow:
+    transform: prefect
+    kwargs:
+      runner: SequentialTaskRunner | DaskTaskRunner | any other supported value
   resources: # see details in global settings
   extra_data: TBC
-```
+````

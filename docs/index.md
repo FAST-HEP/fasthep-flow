@@ -39,7 +39,7 @@ installation.md
 concepts.md
 configuration/index.md
 operators.md
-executors.md
+orchestration.md
 provenance.md
 examples/index.md
 advanced_examples/index.md

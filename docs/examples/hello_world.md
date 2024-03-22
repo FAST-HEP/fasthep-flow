@@ -57,7 +57,7 @@ first, and then running it on the specified cluster (e.g. HTCondor or Google
 Cloud Composer). For now, let's just run it on a local Dask cluster.
 
 ```bash
-fasthep-flow execute hello_world.yaml --executor DaskLocal
+fasthep-flow execute hello_world.yaml --workflow="{'transform':'prefect', 'kwargs':{'runner': 'DaskTaskRunner'}}"
 ```
 
 This will start a Dask cluster on your local machine, and run the flow on it.
@@ -70,7 +70,7 @@ In a real-world scenario, you would want to keep track of the provenance of your
 flow. This is done automatically by `fasthep-flow`, and you can find the
 provenance in the `output/provenance` folder.
 
-For more information, see [Provenance](./provenance.md).
+For more information, see [Provenance](../provenance.md).
 
 So what does this look like for our hello world example?
 
@@ -82,8 +82,8 @@ tree output
 
 This was a very simple example, but it shows the basic concepts of
 `fasthep-flow`. For more realistic examples, see the experiment specific
-examples in [Examples](./examples/index.md). For more advanced examples, see
-[Advanced Examples](./advanced_examples/index.md).
+examples in [Examples](./index.md). For more advanced examples, see
+[Advanced Examples](../advanced_examples/index.md).
 
 ```
 

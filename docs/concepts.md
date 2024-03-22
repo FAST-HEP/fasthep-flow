@@ -2,10 +2,10 @@
 
 `fasthep-flow` does not implement any processing itself, but rather delegates
 between user workflow description (the
-[YAML configuration file](./configuration.md)), the workflow stages (e.g.
-**Python Callables**), the **workflow DAG** and the **Executor** engine. Unless
-excplicitely stated, every workflow has to start with a **Data Stage**, has one
-or more **Processing stages**, and end with an **Output stage**.
+[YAML configuration file](./configuration/index.md)), the workflow stages (e.g.
+**Python Callables**), the **workflow DAG** and the **Orchestration** layer.
+Unless excplicitely stated, every workflow has to start with a **Data Stage**,
+has one or more **Processing stages**, and end with an **Output stage**.
 
 ## Stages
 

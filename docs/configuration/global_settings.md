@@ -12,15 +12,16 @@ global:
     prefix: h_
     folder_rule: from_name | fixed | None
     folder: None
-  executor: DaskExecutor
-  output_dir: /path/to/output/dir
+  flow: prefect::DaskTaskRunner
+  output:
+    directory: /path/to/output/dir
   variables: <path to .env> | { <key>: <value>, ... }
 ```
 
 ## Resources
 
 The `resources` key defines the resources to use for the workflow. How these are
-interpreted depends on the executor and stages used.
+interpreted depends on the flow and stages used.
 
 - `memory`: the amount of memory to use for the workflow. This is passed to the
   executor.
