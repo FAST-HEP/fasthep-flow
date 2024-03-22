@@ -39,12 +39,8 @@ def print_defaults() -> None:
     typer.echo("Printing defaults...")
 
 
-@app.command(
-    context_settings={"ignore_unknown_options": True, "allow_extra_args": True}
-)
-def execute(
-    config: Path, overrides: Annotated[list[str] | None, typer.Argument()] = None
-) -> None:
+@app.command(context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+def execute(config: Path, overrides: Annotated[list[str] | None, typer.Argument()] = None) -> None:
     """Execute a config file."""
     typer.echo(f"Executing {config}...")
 

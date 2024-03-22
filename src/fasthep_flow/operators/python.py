@@ -4,7 +4,6 @@ from typing import Any
 
 from .base import Operator
 
-from importlib import import_module
 
 class LocalPythonOperator(Operator):
     """A local python operator. This operator runs python callables on the local machine."""

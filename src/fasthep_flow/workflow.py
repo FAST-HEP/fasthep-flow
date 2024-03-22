@@ -8,9 +8,7 @@ from .config import FlowConfig
 class Workflow:
     """Wrapper for any compute graph implementation we want to support. Currently using Prefect."""
 
-    tasks: list[
-        Any
-    ]  # this should be prefect.Task, but that's not working with pydantic v2 for now
+    tasks: list[Any]  # this should be prefect.Task, but that's not working with pydantic v2 for now
 
     def __init__(self, config: FlowConfig) -> None:
         from prefect import Task  # pylint: disable=import-outside-toplevel
