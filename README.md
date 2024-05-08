@@ -45,27 +45,30 @@ Special thanks to the gracious help of FAST-HEP contributors:
 
 <!-- readme: m-glowacki,seriksen,collaborators,contributors -start -->
 <table>
-<tr>
-    <td align="center">
-        <a href="https://github.com/m-glowacki">
-            <img src="https://avatars.githubusercontent.com/u/69155366?v=4" width="100;" alt="m-glowacki"/>
-            <br />
-            <sub><b>Maciek Glowacki</b></sub>
-        </a>
-    </td>
-    <td align="center">
-        <a href="https://github.com/seriksen">
-            <img src="https://avatars.githubusercontent.com/u/5619270?v=4" width="100;" alt="seriksen"/>
-            <br />
-            <sub><b>Null</b></sub>
-        </a>
-    </td>
-    <td align="center">
-        <a href="https://github.com/kreczko">
-            <img src="https://avatars.githubusercontent.com/u/1213276?v=4" width="100;" alt="kreczko"/>
-            <br />
-            <sub><b>Luke Kreczko</b></sub>
-        </a>
-    </td></tr>
+	<tbody>
+		<tr>
+            <td align="center">
+                <a href="https://github.com/m-glowacki">
+                    <img src="https://avatars.githubusercontent.com/u/69155366?v=4" width="100;" alt="m-glowacki"/>
+                    <br />
+                    <sub><b>Maciek Glowacki</b></sub>
+                </a>
+            </td>
+            <td align="center">
+                <a href="https://github.com/seriksen">
+                    <img src="https://avatars.githubusercontent.com/u/5619270?v=4" width="100;" alt="seriksen"/>
+                    <br />
+                    <sub><b>Null</b></sub>
+                </a>
+            </td>
+            <td align="center">
+                <a href="https://github.com/kreczko">
+                    <img src="https://avatars.githubusercontent.com/u/1213276?v=4" width="100;" alt="kreczko"/>
+                    <br />
+                    <sub><b>Luke Kreczko</b></sub>
+                </a>
+            </td>
+		</tr>
+	<tbody>
 </table>
 <!-- readme: m-glowacki,seriksen,collaborators,contributors -end -->
