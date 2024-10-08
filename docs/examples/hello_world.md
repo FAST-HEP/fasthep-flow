@@ -4,7 +4,7 @@ Sometimes you just want to see some code. This section contains some real-life
 examples of how to use `fasthep-flow`.
 
 ```yaml
-stages:
+tasks:
   - name: "hello_world in bash"
     type: "fasthep_flow.operators.BashOperator"
     kwargs:

@@ -22,8 +22,8 @@ perspecite, they are effectively independent branches. To split a workflow, you
 will need to use the `needs` keyword:
 
 ```yaml
-stages:
-  - name: Data Input Stage
+tasks:
+  - name: Data Input task
     ...
   - name: Common selection
     ...
@@ -48,7 +48,7 @@ This will create a DAG like this:
 
 ```{mermaid}
 flowchart TD
-    A[Data Input Stage] --> B(Common selection)
+    A[Data Input task] --> B(Common selection)
     B --> C[signal selection]
     B --> D[control selection]
     C --> E[Create histograms for signal region]

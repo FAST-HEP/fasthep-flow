@@ -2,7 +2,7 @@
 
 Operators are used here as a general term of callable code blocks that operate
 on data. These are similar to Ansible's modules, or Airflow's operators. In
-`fasthep-flow`, operators are used to define stages in a workflow. The operators
+`fasthep-flow`, operators are used to define tasks in a workflow. The operators
 are defined in the YAML file, and then integrated into the workflow when the DAG
 is generated. The defined operators can be used to transform data, filter data,
 or generate data. Operators defined in the YAML file are expected to be

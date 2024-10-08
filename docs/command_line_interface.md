@@ -41,7 +41,7 @@ fasthep flow run \
 ```
 
 You can also specify the number of events to process, the executor to use, and
-the stage to run:
+the task to run:
 
 ```bash
 fasthep flow run \
@@ -49,8 +49,8 @@ fasthep flow run \
     --output examples/output/cms_pub_example \
     --n-events 1000 \
     --executor dask-local \
-    --stages "Select events", "Histograms after selection"
+    --tasks "Select events", "Histograms after selection"
 ```
 
 This will run the workflow for 1000 events, using the `dask-local` executor, and
-only run the `Select events` and `Histograms after selection` stages.
+only run the `Select events` and `Histograms after selection` tasks.

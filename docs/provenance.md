@@ -22,7 +22,7 @@ researchers to replicate and build upon the work.
 To integrate provenance into our workflows, we introduce a dedicated provenance
 section within the YAML configuration. This section describes which metadata
 should be captured, e.g. version of the dataset used, the origin of the data,
-the specific parameters set for each analysis stage, and the individual
+the specific parameters set for each analysis task, and the individual
 responsible for each step (taken from git history). By embedding this
 information directly into the workflow configuration, we ensure that every step
 of data processing is transparent and traceable. This not only adheres to best

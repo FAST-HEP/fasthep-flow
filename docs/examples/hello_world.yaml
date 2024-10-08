@@ -1,4 +1,4 @@
-stages:
+tasks:
   - name: "hello_world in bash"
     type: "fasthep_flow.operators.BashOperator"
     kwargs:

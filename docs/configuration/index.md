@@ -21,7 +21,7 @@ variations.md
 Here's a simplified example of a YAML file:
 
 ```yaml
-stages:
+tasks:
   - name: printEcho
     type: "fasthep_flow.operators.BashOperator"
     kwargs:
@@ -33,13 +33,13 @@ stages:
       op_args: ["Hello World!"]
 ```
 
-This YAML file defines two stages, `printEcho` and `printPython`. The
-`printEcho` stage uses the `BashOperator`, and the `printPython` stage uses the
-`PythonOperator`. The `printEcho` stage passes the argument
-`echo "Hello World!"` to the `bash_command` argument of the `BashOperator`. To
-make it easier to use Python callables, `fasthep-flow` provides the
-`PythonOperator`. This operator takes a Python callable and its arguments, and
-then calls the callable with the arguments.
+This YAML file defines two tasks, `printEcho` and `printPython`. The `printEcho`
+task uses the `BashOperator`, and the `printPython` task uses the
+`PythonOperator`. The `printEcho` task passes the argument `echo "Hello World!"`
+to the `bash_command` argument of the `BashOperator`. To make it easier to use
+Python callables, `fasthep-flow` provides the `PythonOperator`. This operator
+takes a Python callable and its arguments, and then calls the callable with the
+arguments.
 
 ```{note}
 - you can test the validity of a config via `fasthep-flow lint <config.yaml>`

@@ -1,7 +1,7 @@
 # Global Settings
 
-In addition to the stages, the YAML file can also contain global settings. These
-settings apply to all stages, unless overridden by the stage.
+In addition to the tasks, the YAML file can also contain global settings. These
+settings apply to all tasks, unless overridden by the task.
 
 ```yaml
 global:
@@ -21,20 +21,20 @@ global:
 ## Resources
 
 The `resources` key defines the resources to use for the workflow. How these are
-interpreted depends on the flow and stages used.
+interpreted depends on the flow and tasks used.
 
 - `memory`: the amount of memory to use for the workflow. This is passed to the
   executor.
 - `process_on`: the type of resource to use for the workflow. This is passed to
-  the stages.
+  the tasks.
 
 For `process_on`, the following values are supported:
 
 - `cpu`: run on a CPU. This is the default.
-- `gpu`: run on a GPU. This will fail if no GPU is available or the stage cannot
+- `gpu`: run on a GPU. This will fail if no GPU is available or the task cannot
   run on GPU.
 - `gpu_if_available`: run on a GPU if available, otherwise run on a CPU.
 
-Stages that can support GPUs will need to register their CPU and GPU versions
-with `fasthep-flow` (see [here](register.md)). If a stage is not registered with
+tasks that can support GPUs will need to register their CPU and GPU versions
+with `fasthep-flow` (see [here](register.md)). If a task is not registered with
 a GPU version, then `gpu_if_available` will run the CPU version.
