@@ -28,13 +28,13 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
+  "dask[distributed,dataframe]",
   "eval_type_backport",
   "hydra-core",
   "plumbum",
-  "prefect",
-  "prefect-dask",
   "pyyaml >=5.4",
   "omegaconf >=2.1",
+  "sf-hamilton[visualization,dask-complete]",
   "typer >=0.4",
   "typing_extensions >=3.10",
 ]
