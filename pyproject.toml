@@ -32,6 +32,7 @@ dependencies = [
   "eval_type_backport",
   "hydra-core",
   "plumbum",
+  "pydantic",
   "pyyaml >=5.4",
   "omegaconf >=2.1",
   "sf-hamilton[visualization,dask-complete]",
