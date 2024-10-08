@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
 
 import hydra
 import typer
@@ -31,7 +30,11 @@ def init_config(config: Path, overrides: list[str] | None = None) -> FlowConfig:
 def lint(config: Path) -> None:
     """Lint a config file. Throws errors if the config is invalid."""
     typer.echo(f"Linting {config}")
-    load_config(config)
+    try:
+        load_config(config)
+    except Exception as e:
+        typer.echo(f"Error: {e}")
+        raise typer.Exit(code=1) from e
     typer.echo("Looks good to me!")
 
 
@@ -44,9 +47,7 @@ def print_defaults() -> None:
 @app.command(
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True}
 )
-def execute(
-    config: Path, overrides: Annotated[list[str] | None, typer.Argument([])] = None
-) -> None:
+def execute(config: Path, overrides: list[str] | None = None) -> None:
     """Execute a config file."""
     typer.echo(f"Executing {config}...")
 
