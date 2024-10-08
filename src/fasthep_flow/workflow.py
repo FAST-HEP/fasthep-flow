@@ -27,15 +27,15 @@ class Workflow:
     tasks: list[Task]  # TODO: Maybe this should be an OrderedDict
 
     def __init__(self, config: FlowConfig) -> None:
-        stages = config.stages
+        tasks = config.tasks
         self.tasks = []
-        for stage in stages:
+        for task in tasks:
             self.tasks.append(
                 Task(
-                    name=stage.name,
-                    type=stage.type,
-                    kwargs=stage.kwargs if stage.kwargs is not None else {},
-                    payload=stage.resolve() if hasattr(stage, "resolve") else None,
+                    name=task.name,
+                    type=task.type,
+                    kwargs=task.kwargs if task.kwargs is not None else {},
+                    payload=task.resolve() if hasattr(task, "resolve") else None,
                     # TODO: pass information about the task's dependencies and execution environment
                 )
             )

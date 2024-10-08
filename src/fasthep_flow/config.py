@@ -13,8 +13,8 @@ from pydantic.dataclasses import dataclass
 
 
 @dataclass
-class StageConfig:
-    """A stage in the workflow."""
+class TaskConfig:
+    """A task in the workflow."""
 
     name: str
     type: str
@@ -41,7 +41,7 @@ class StageConfig:
         return value
 
     def resolve(self) -> Any:
-        """Resolve the stage to a class."""
+        """Resolve the task to a class."""
         module_path, class_name = self.type.rsplit(".", 1)
         mod = importlib.import_module(module_path)
         class_ = getattr(mod, class_name)
@@ -52,7 +52,7 @@ class StageConfig:
 class FlowConfig:
     """The workflow."""
 
-    stages: list[StageConfig]
+    tasks: list[TaskConfig]
 
     @staticmethod
     def from_dictconfig(config: DictConfig | ListConfig) -> FlowConfig:

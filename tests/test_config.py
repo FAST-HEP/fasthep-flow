@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from fasthep_flow.config import FlowConfig, StageConfig, load_config
+from fasthep_flow.config import FlowConfig, TaskConfig, load_config
 
 
 def test_load_config_parses_correctly(simple_config_yaml: Path):
@@ -16,7 +16,7 @@ def test_load_config_parses_correctly(simple_config_yaml: Path):
 
 def test_invalid_type():
     with pytest.raises(ValidationError) as excinfo:
-        StageConfig(name="test", type="invalid.type")
+        TaskConfig(name="test", type="invalid.type")
 
     assert "Could not import invalid.type" in str(excinfo.value)
 
