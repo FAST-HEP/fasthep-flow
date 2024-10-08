@@ -53,6 +53,7 @@ class FlowConfig:
     """The workflow."""
 
     tasks: list[TaskConfig]
+    metadata: dict[str, Any] | None = field(default_factory=dict[str, Any], init=False)
 
     @staticmethod
     def from_dictconfig(config: DictConfig | ListConfig) -> FlowConfig:
@@ -65,4 +66,6 @@ class FlowConfig:
 def load_config(config_file: pathlib.Path) -> Any:
     """Load a config file and return the structured config."""
     conf = OmegaConf.load(config_file)
-    return FlowConfig.from_dictconfig(conf)
+    flow = FlowConfig.from_dictconfig(conf)
+    flow.metadata = {"config_file": str(config_file), "name": config_file.stem}
+    return flow
