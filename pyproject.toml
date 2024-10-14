@@ -30,6 +30,7 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
   "dask[distributed,dataframe]",
+  "dill",
   "eval_type_backport",
   "hydra-core",
   "plumbum",
