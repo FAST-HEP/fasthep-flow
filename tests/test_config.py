@@ -21,14 +21,14 @@ def test_invalid_type():
     assert "Could not import invalid.type" in str(excinfo.value)
 
 
-def test_first_stage(simple_config_yaml: Path):
+def test_first_task(simple_config_yaml: Path):
     # Now call load_config with the path to the temporary file
     parsed_config = load_config(simple_config_yaml)
-    first_stage = parsed_config.stages[0]
-    assert first_stage.name == "printEcho"
-    assert first_stage.type == "fasthep_flow.operators.BashOperator"
-    assert first_stage.kwargs == {"bash_command": "echo", "arguments": ["Hello World!"]}
+    first_task = parsed_config.tasks[0]
+    assert first_task.name == "printEcho"
+    assert first_task.type == "fasthep_flow.operators.BashOperator"
+    assert first_task.kwargs == {"bash_command": "echo", "arguments": ["Hello World!"]}
 
-    resolved = first_stage.resolve()
+    resolved = first_task.resolve()
     assert resolved.bash_command == "echo"
     assert resolved.arguments == ["Hello World!"]
