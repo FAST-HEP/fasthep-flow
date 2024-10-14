@@ -11,6 +11,10 @@ from omegaconf import DictConfig, ListConfig, OmegaConf
 from pydantic import field_validator
 from pydantic.dataclasses import dataclass
 
+ALIASES = {
+    "fasthep_flow.operators.BashOperator": "fasthep_flow.operators.bash.LocalBashOperator",
+}
+
 
 @dataclass
 class TaskConfig:
@@ -28,6 +32,8 @@ class TaskConfig:
         """Validate the type field
         Any specified type needs to be a Python class that can be imported"""
         # Split the string to separate the module from the class name
+        if value in ALIASES:
+            value = ALIASES[value]
         module_path, class_name = value.rsplit(".", 1)
         try:
             # Import the module
@@ -53,7 +59,8 @@ class FlowConfig:
     """The workflow."""
 
     tasks: list[TaskConfig]
-    metadata: dict[str, Any] | None = field(default_factory=dict[str, Any], init=False)
+    # optional metadata
+    metadata: dict[str, Any] = field(default_factory=dict[str, Any])
 
     @staticmethod
     def from_dictconfig(config: DictConfig | ListConfig) -> FlowConfig:
@@ -61,6 +68,26 @@ class FlowConfig:
         schema = OmegaConf.structured(FlowConfig)
         merged_conf = OmegaConf.merge(schema, config)
         return FlowConfig(**OmegaConf.to_container(merged_conf))
+
+    def __post_init__(self) -> None:
+        """Post init function to set metadata."""
+        self.metadata = {"config_file": "", "name": "fasthep-flow"}
+
+    @property
+    def config_file(self) -> str:
+        """Return the path to the config file."""
+        if "config_file" not in self.metadata:
+            msg = "config_file is not set in metadata for FlowConfig"
+            raise ValueError(msg)
+        return str(self.metadata["config_file"])
+
+    @property
+    def name(self) -> str:
+        """Return the name of the config."""
+        if "name" not in self.metadata:
+            msg = "name is not set in metadata for FlowConfig"
+            raise ValueError(msg)
+        return str(self.metadata["name"])
 
 
 def load_config(config_file: pathlib.Path) -> Any:
