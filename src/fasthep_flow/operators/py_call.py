@@ -1,4 +1,5 @@
 """Python related operators."""
+
 from __future__ import annotations
 
 import io
@@ -6,7 +7,7 @@ from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
 
-from .base import Operator
+from .base import Operator, ResultType
 
 
 class PythonOperator(Operator):
@@ -26,11 +27,12 @@ class PythonOperator(Operator):
         with redirect_stdout(stdout), redirect_stderr(stderr):
             result = self.python_callable(*self.arguments)
         result = self.python_callable(*self.arguments)
-        return {
-            "result": result,
-            "stdout": stdout.getvalue(),
-            "stderr": stderr.getvalue(),
-        }
+        return ResultType(
+            result=result,
+            stdout=stdout.getvalue(),
+            stderr=stderr.getvalue(),
+            exit_code=0,
+        ).to_dict()
 
     def __repr__(self) -> str:
         return f"PythonOperator(python_callable={self.python_callable}, arguments={self.arguments})"

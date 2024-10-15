@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import Operator
+from .base import Operator, ResultType
 
 try:
     # try to import plumbum
@@ -31,7 +31,9 @@ class LocalBashOperator(Operator):
     def __call__(self, **kwargs: Any) -> dict[str, Any]:
         command = plumbum.local[self.bash_command]
         exit_code, stdout, stderr = command.run(*self.arguments)
-        return {"stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+        return ResultType(
+            result=None, stdout=stdout, stderr=stderr, exit_code=exit_code
+        ).to_dict()
 
     def __repr__(self) -> str:
         return f'LocalBashOperator(bash_command="{self.bash_command}", arguments={self.arguments})'
