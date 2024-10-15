@@ -29,3 +29,9 @@ def test_run_workflow(config):
     assert len(results) == 1
     result = results[0]
     assert result["stdout"] == "Hello World!\n"
+
+
+def test_task_names(config):
+    workflow = Workflow(config=config)
+    assert workflow.task_names
+    assert workflow.task_names == ["printEcho"]
