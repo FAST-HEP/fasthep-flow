@@ -6,10 +6,12 @@ e.g. Prefect, NetworkX, etc., to either execute them or visualize them.
 from __future__ import annotations
 
 import logging
+from functools import partial
 from pathlib import Path
 from typing import Any
 
-from hamilton import driver, telemetry
+from dask.distributed import Client, LocalCluster
+from hamilton import base, driver, telemetry
 
 from .workflow import Workflow, load_tasks_module
 
@@ -17,38 +19,55 @@ telemetry.disable_telemetry()  # we don't want to send telemetry data for this e
 
 logger = logging.getLogger(__name__)
 
-# def get_runner(runner: str) -> Any:
-#     """Get the task runner for the given name."""
-#     from prefect.task_runners import ConcurrentTaskRunner, SequentialTaskRunner
-#     from prefect_dask import DaskTaskRunner
 
-#     runners: dict[str, Any] = {
-#         "Dask": DaskTaskRunner,
-#         "Sequential": SequentialTaskRunner,
-#         "Concurrent": ConcurrentTaskRunner,
-#     }
+def create_dask_cluster() -> Any:
+    cluster = LocalCluster()
+    client = Client(cluster)
+    logger.info(client.cluster)
 
-#     return runners[runner]
+    return client
 
 
-# def create_dask_cluster() -> Any:
-#     cluster = LocalCluster()
-#     client = Client(cluster)
-#     logger.info(client.cluster)
-#     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-
-#     return client
+DASK_CLIENTS = {
+    "local": create_dask_cluster,
+}
 
 
-def workflow_to_hamilton_dag(workflow: Workflow, output_path: str) -> Any:
+def create_dask_adapter(client_type: str) -> Any:
+    from hamilton.plugins import h_dask
+
+    client = DASK_CLIENTS[client_type]()
+
+    return h_dask.DaskGraphAdapter(
+        client,
+        base.DictResult(),
+        visualize_kwargs={"filename": "run_with_delayed", "format": "png"},
+        use_delayed=True,
+        compute_at_end=True,
+    )
+
+
+def create_local_adapter() -> Any:
+    return base.SimplePythonGraphAdapter(base.DictResult())
+
+
+PRECONFIGURED_ADAPTERS = {
+    "dask:local": partial(create_dask_adapter, client_type="local"),
+    "local": create_local_adapter,
+}
+
+
+def workflow_to_hamilton_dag(
+    workflow: Workflow,
+    output_path: str,
+    # method: str = "local"
+) -> Any:
     """Convert a workflow into a Hamilton flow."""
     task_functions = load_tasks_module(workflow)
-    return (
-        driver.Builder()
-        .with_modules(task_functions)
-        .with_cache(Path(output_path) / ".hamilton_cache")
-        .build()
-    )
+    # adapter = PRECONFIGURED_ADAPTERS[method]()
+    cache_dir = Path(output_path) / ".hamilton_cache"
+
+    return driver.Builder().with_modules(task_functions).with_cache(cache_dir).build()
 
 
 # def gitlab_ci_workflow(workflow: Workflow):
