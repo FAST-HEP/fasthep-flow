@@ -46,10 +46,10 @@ TBD
 ### Input data
 
 The first step is to define the input data. In this case, we will use the output
-from the fasthep-curator step and pass it to the first stage of the workflow.
+from the fasthep-curator step and pass it to the first task of the workflow.
 
 ```yaml
-stages:
+tasks:
   - name: Input data
     type: fasthep_carpenter.operators.InputDataOperator
     kwargs:

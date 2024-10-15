@@ -34,7 +34,7 @@ class LocalBashOperator(Operator):
         return {"stdout": stdout, "stderr": stderr, "exit_code": exit_code}
 
     def __repr__(self) -> str:
-        return f"LocalBashOperator(bash_command={self.bash_command}, arguments={self.arguments})"
+        return f'LocalBashOperator(bash_command="{self.bash_command}", arguments={self.arguments})'
 
 
 BashOperator = LocalBashOperator

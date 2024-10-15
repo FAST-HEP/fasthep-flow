@@ -58,7 +58,7 @@ fasthep download --json /path/to/json --destination /path/to/data
 
 ```{note}
 While you can automate the data download and curator steps, we will do them manually in this example.
-Both could be added as stages of the type `fasthep_flow.operators.bash.BashOperator`.
+Both could be added as tasks of the type `fasthep_flow.operators.bash.BashOperator`.
 
 ```
 
@@ -67,10 +67,10 @@ Both could be added as stages of the type `fasthep_flow.operators.bash.BashOpera
 ### Input data
 
 The first step is to define the input data. In this case, we will use the output
-from the fasthep-curator step and pass it to the first stage of the workflow.
+from the fasthep-curator step and pass it to the first task of the workflow.
 
 ```yaml
-stages:
+tasks:
   - name: Input data
     type: fasthep_carpenter.operators.InputDataOperator
     kwargs:
@@ -87,7 +87,7 @@ completeness.
 
 ### Creating variables
 
-Adding onto the `stages`:
+Adding onto the `tasks`:
 
 ```yaml
 - name: Create variables
@@ -168,7 +168,7 @@ defined in the workflow, and the `edges` can be any list of numbers. The
 workflow.
 
 ```{note}
-All histograms will be created in a folder named after the name of the stage with spaces replaced with `_`. All histograms will be prepended by `hist_`. This behaviour can be changed by setting the `histogram['folder_rule']` and `histogram['prefix']` in the `global` section of the `fasthep-flow` configuration file.
+All histograms will be created in a folder named after the name of the task with spaces replaced with `_`. All histograms will be prepended by `hist_`. This behaviour can be changed by setting the `histogram['folder_rule']` and `histogram['prefix']` in the `global` section of the `fasthep-flow` configuration file.
 ```
 
 ### Selecting events
@@ -193,7 +193,7 @@ The `fasthep_carpenter.operators.SelectorOperator` takes a list of conditions to
 select events. Each condition is defined with a `when` key, and a list of
 conditions. The `when` key can be `all` or `any`, and the conditions can be any
 variable defined in the workflow. The `when` key is optional, and defaults to
-`all`. Selection stages are special, since they also keep track of the number of
+`all`. Selection tasks are special, since they also keep track of the number of
 events before and after the selection.
 
 ### Creating histograms after selection

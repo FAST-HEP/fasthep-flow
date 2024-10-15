@@ -1,4 +1,4 @@
-stages:
+tasks:
   - name: printEcho
     type: "fasthep_flow.operators.BashOperator"
     kwargs:

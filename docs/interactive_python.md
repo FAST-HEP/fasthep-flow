@@ -18,13 +18,13 @@ results = workflow.run()
 ```
 
 Similarly to the CLI, you can specify the number of events to process, the
-executor to use, and the stage to run:
+executor to use, and the task to run:
 
 ```python
 results = workflow.run(
     n_events=1000,
     executor="dask-local",
-    stages=["Select events", "Histograms after selection"],
+    tasks=["Select events", "Histograms after selection"],
 )
 
 ffi.pretty_print(results)
@@ -39,7 +39,7 @@ ffi.pretty_print(results)
 ### Inspecting the workflow
 
 Sometimes it is useful to inspect the workflow, e.g. to see what variables are
-available at a given stage, optimizations applied, etc. This can be done using
+available at a given task, optimizations applied, etc. This can be done using
 the `inspect` method:
 
 ```python

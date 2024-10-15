@@ -6,5 +6,5 @@
 
 ```{toctree}
 operators.md
-executors.md
+orchestration.md
 ```

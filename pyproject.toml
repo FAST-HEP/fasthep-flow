@@ -20,21 +20,23 @@ classifiers = [
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering",
   "Typing :: Typed",
 ]
 dynamic = ["version"]
 dependencies = [
+  "dask[distributed,dataframe]",
+  "dill",
   "eval_type_backport",
   "hydra-core",
   "plumbum",
-  "prefect",
-  "prefect-dask",
+  "pydantic",
   "pyyaml >=5.4",
   "omegaconf >=2.1",
+  "sf-hamilton[visualization,dask-complete]",
   "typer >=0.4",
   "typing_extensions >=3.10",
 ]
@@ -141,20 +143,6 @@ isort.required-imports = ["from __future__ import annotations"]
 [tool.ruff.per-file-ignores]
 "tests/**" = ["T20"]
 "noxfile.py" = ["T20"]
-
-
-[tool.pylint]
-py-version = "3.10"
-ignore-paths = [".*/_version.py"]
-reports.output-format = "colorized"
-similarities.ignore-imports = "yes"
-messages_control.disable = [
-  "design",
-  "fixme",
-  "line-too-long",
-  "missing-module-docstring",
-  "wrong-import-position",
-]
 
 [project.scripts]
 fasthep-flow = "fasthep_flow.cli:main"
