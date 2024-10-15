@@ -6,6 +6,7 @@ e.g. Prefect, NetworkX, etc., to either execute them or visualize them.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from hamilton import driver, telemetry
@@ -39,10 +40,15 @@ logger = logging.getLogger(__name__)
 #     return client
 
 
-def workflow_to_hamilton_dag(workflow: Workflow) -> Any:
+def workflow_to_hamilton_dag(workflow: Workflow, output_path: str) -> Any:
     """Convert a workflow into a Hamilton flow."""
     task_functions = load_tasks_module(workflow)
-    return driver.Builder().with_modules(task_functions).with_cache().build()
+    return (
+        driver.Builder()
+        .with_modules(task_functions)
+        .with_cache(Path(output_path) / ".hamilton_cache")
+        .build()
+    )
 
 
 # def gitlab_ci_workflow(workflow: Workflow):

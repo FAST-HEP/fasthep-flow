@@ -61,7 +61,7 @@ def execute(
     cfg = init_config(config, overrides)
     workflow = Workflow(config=cfg)
     save_path = workflow.save(Path(save_path))
-    dag = workflow_to_hamilton_dag(workflow)
+    dag = workflow_to_hamilton_dag(workflow, save_path)
     dag.visualize_execution(
         final_vars=workflow.task_names,
         output_file_path=Path(workflow.save_path) / "dag.png",
