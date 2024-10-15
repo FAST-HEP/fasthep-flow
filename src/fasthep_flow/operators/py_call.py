@@ -11,6 +11,8 @@ from .base import Operator, ResultType
 
 
 class PythonOperator(Operator):
+    """A Python operator. This operator wraps a Python callable."""
+
     python_callable: Callable[..., Any]
     arguments: list[Any]
 

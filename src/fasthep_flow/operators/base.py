@@ -32,6 +32,7 @@ class ResultType:
     exit_code: int
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the ResultType to a dictionary."""
         return {
             "result": self.result,
             "stdout": self.stdout,
