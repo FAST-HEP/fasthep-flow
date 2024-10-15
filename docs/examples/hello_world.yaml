@@ -9,3 +9,8 @@ tasks:
     kwargs:
       bash_command: touch
       arguments: ["/tmp/date.txt"]
+  - name: printPython
+    type: "fasthep_flow.operators.PythonOperator"
+    kwargs:
+      python_callable: print
+      arguments: ["Hello World!"]
