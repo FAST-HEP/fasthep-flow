@@ -32,8 +32,7 @@ class TaskConfig:
         """Validate the type field
         Any specified type needs to be a Python class that can be imported"""
         # Split the string to separate the module from the class name
-        if value in ALIASES:
-            value = ALIASES[value]
+        value = ALIASES.get(value, value)
         module_path, class_name = value.rsplit(".", 1)
         try:
             # Import the module

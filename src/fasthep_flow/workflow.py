@@ -54,6 +54,7 @@ def {task_name}() -> dict[str, Any]:
 
 
 def get_task_source(obj: Any, task_name: str) -> str:
+    """Retrieve the source code of a task object and return a function definition."""
     # Capture the object definition
     obj_attrs = {}
 
@@ -72,11 +73,21 @@ def get_task_source(obj: Any, task_name: str) -> str:
 
 
 def get_config_hash(config_file: Path) -> str:
+    """Reads the config file and returns a shortened hash."""
     with config_file.open("rb") as f:
         return hashlib.file_digest(f, "sha256").hexdigest()[:8]
 
 
 def create_save_path(base_path: Path, workflow_name: str, config_hash: str) -> Path:
+    """
+    Creates a save path for the workflow and returns the generated path.
+
+    @param base_path: Base path for the save location.
+    @param workflow_name: Name of the workflow.
+    @param config_hash: Hash of the configuration file.
+
+    returns: Path to the save location.
+    """
     date = datetime.now().strftime("%Y.%m.%d")
     # TODO: instead of date, create a "touched" file that is updated every time the workflow is saved
     path = Path(f"{base_path}/{workflow_name}/{date}/{config_hash}/").resolve()
@@ -163,6 +174,10 @@ class Workflow:
 
     @staticmethod
     def load(path: Path | str) -> Workflow:
+        """
+        Load a workflow from a file.
+        @param path: Path to the directory containing the workflow file.
+        """
         path = Path(path)
         workflow_file = path / "workflow.pkl"
         with workflow_file.open("rb") as f:
@@ -172,6 +187,7 @@ class Workflow:
 
 
 def load_tasks_module(workflow: Workflow) -> ModuleType:
+    """Load tasks from a tasks.py file in the workflow save path."""
     task_location = workflow.save_path
     task_spec = importlib.machinery.PathFinder().find_spec("tasks", [task_location])
     if task_spec is None:

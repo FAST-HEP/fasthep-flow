@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_dask_cluster() -> Any:
+    """Create a Dask cluster - to be used with Hamilton Dask adapter."""
     cluster = LocalCluster()
     client = Client(cluster)
     logger.info(client.cluster)
@@ -34,6 +35,7 @@ DASK_CLIENTS = {
 
 
 def create_dask_adapter(client_type: str) -> Any:
+    """Create a Hamilton adapter for Dask execution"""
     from hamilton.plugins import h_dask
 
     client = DASK_CLIENTS[client_type]()
@@ -48,6 +50,7 @@ def create_dask_adapter(client_type: str) -> Any:
 
 
 def create_local_adapter() -> Any:
+    """Create a Hamilton adapter for local execution."""
     return base.SimplePythonGraphAdapter(base.DictResult())
 
 
@@ -62,7 +65,7 @@ def workflow_to_hamilton_dag(
     output_path: str,
     # method: str = "local"
 ) -> Any:
-    """Convert a workflow into a Hamilton flow."""
+    """Convert a workflow into a Hamilton DAG."""
     task_functions = load_tasks_module(workflow)
     # adapter = PRECONFIGURED_ADAPTERS[method]()
     cache_dir = Path(output_path) / ".hamilton_cache"
