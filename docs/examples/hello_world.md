@@ -25,17 +25,17 @@ step-by-step.
 ## Creating a flow
 
 The first thing that `fasthep-flow` does is to create a flow. This is done by
-creating a `prefect.Flow` object, and adding a task for each step in the YAML
+creating a `fasthep-flow` object, and adding a task for each task in the YAML
 file. The task is created by the `fasthep-flow` operator, and the parameters are
 passed to the task as keyword arguments.
 
 We can do this ourselves by creating a flow and adding a task to it.
 
 ```python
-from fasthep.operators import BashOperator
-from prefect import Flow
+from fasthep_flow.operators import BashOperator
+from fasthep_flow import Workflow
 
-flow = Flow("hello_world")
+flow = Workflow("hello_world")
 task = BashOperator(bash_command="echo 'Hello World!'")
 flow.add_task(task)
 ```
@@ -57,7 +57,7 @@ first, and then running it on the specified cluster (e.g. HTCondor or Google
 Cloud Composer). For now, let's just run it on a local Dask cluster.
 
 ```bash
-fasthep-flow execute hello_world.yaml --workflow="{'transform':'prefect', 'kwargs':{'runner': 'DaskTaskRunner'}}"
+fasthep-flow execute hello_world.yaml --workflow="{'transform':'hamilton', 'kwargs':{'adapter': 'DaskGraphAdapter'}}"
 ```
 
 This will start a Dask cluster on your local machine, and run the flow on it.

@@ -6,40 +6,12 @@ of tasks. Internally, a workflow is represented as a directed acyclic graph
 workflows and to run on distributed resources, `fasthep-flow` allows for
 conversions to other tools/frameworks to optimize the execution.
 
-## Prefect
+## Hamilton
 
-[prefect](https://docs.prefect.io/latest/) uses TaskRunners to execute tasks.
-The default executor is the [SequentialTaskRunner](#sequentialtaskrunner), which
-runs all tasks in sequence on the local machine. A full list of executors can be
-found in the
-[prefect documentation](https://docs.prefect.io/latest/concepts/task-runners/).
+After the internal workflow creation, the workflow is converted into a
+[Hamilton DAG](https://hamilton.dagworks.io/en/latest/). Hamilton is a
+general-purpose framework to write dataflows using regular Python functions.
 
-Since prefect is not widely used in High Energy Particle Physics, let's go over
-the task runners that are most relevant to us.
+### Work in progress
 
-### SequentialTaskRunner
-
-The `SequentialTaskRunner` (see
-[prefect docs](https://docs.prefect.io/latest/api-ref/prefect/task-runners/#prefect.task_runners.SequentialTaskRunner))
-runs each task in a separate process on the local machine. This is the default
-executor for `fasthep-flow`.
-
-### ConcurrentTaskRunner
-
-[prefect docs](https://docs.prefect.io/latest/api-ref/prefect/task-runners/#prefect.task_runners.ConcurrentTaskRunner))
-runs each task in a separate thread on the local machine.
-
-### DaskTaskRunner
-
-The `DaskTaskRunner` (see
-[prefect docs](https://prefecthq.github.io/prefect-dask/)) runs each task in a
-separate process on a Dask cluster. A Dask cluster can be run on a local machine
-or as a distributed cluster using a batch system (e.g. HTCondor, LSF, PBS, SGE,
-SLURM) or other distributed systems such as LHCb's DIRAC. This is the
-recommended executor for running `fasthep-flow` workflows on distributed
-resources.
-
-## Custom orchestration
-
-Documentation on how to create custom orchestration can be found in the
-[developer's corner](devcon/orchestration.md).
+Hamilton allows for scaling execution via Dask, PySpark and Ray.
