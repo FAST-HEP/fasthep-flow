@@ -23,7 +23,7 @@ tasks:
     environment:
       image: docker.io/rootproject/root:6.28.04-ubuntu22.04
       variables: <path to .env>
-      flow: prefect::SequentialTaskRunner
+      flow: sequential::local
   - name: runStatsCode
     type: "fasthep_flow.operators.BashOperator"
     kwargs:
@@ -49,8 +49,8 @@ A `.env` file is a file specifying variables in the format `VARIABLE=VALUE` - on
 
 The `flow`defines the orchestration of the workflow to use for this task. The
 default orchestration is defined in the global settings, usually set to
-`prefect::DaskTaskRunner`. In this case, we are using the
-`prefect::SequentialTaskRunner` to run the task locally.
+`dask::local`. In this case, we are using the `sequential::local` to run the
+task locally.
 
 ````{note}
 The `flow` setting has to use the same prefix as the global setting and has to match a defined orchestration.```
@@ -69,10 +69,6 @@ The full set of options for `environment` is:
 environment:
   variables: <path to .env> | { <key>: <value>, ... }
   image: <image name>
-  workflow:
-    transform: prefect
-    kwargs:
-      runner: SequentialTaskRunner | DaskTaskRunner | any other supported value
   resources: # see details in global settings
   extra_data: TBC
 ````

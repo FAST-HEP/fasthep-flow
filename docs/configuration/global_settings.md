@@ -12,7 +12,7 @@ global:
     prefix: h_
     folder_rule: from_name | fixed | None
     folder: None
-  flow: prefect::DaskTaskRunner
+  flow: dask::local
   output:
     directory: /path/to/output/dir
   variables: <path to .env> | { <key>: <value>, ... }
