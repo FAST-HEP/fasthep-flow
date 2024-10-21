@@ -28,7 +28,7 @@ jobs:
       - uses: pre-commit/action@v3.0.1
         with:
           extra_args: --hook-stage manual --all-files
-      - uses: wntrblm/nox@2024.04.15
+      - uses: wntrblm/nox@2024.10.09
         with:
           python-versions: "3.12"
       - name: Run PyLint
