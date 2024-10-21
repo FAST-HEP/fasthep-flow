@@ -24,10 +24,13 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.12"
       - uses: pre-commit/action@v3.0.1
         with:
           extra_args: --hook-stage manual --all-files
+      - uses: wntrblm/nox@2024.04.15
+        with:
+          python-versions: "3.12"
       - name: Run PyLint
         run: |
           echo "::add-matcher::$GITHUB_WORKSPACE/.github/matchers/pylint.json"
