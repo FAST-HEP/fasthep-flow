@@ -2,10 +2,52 @@
 
 `fasthep-flow` does not implement any processing itself, but rather delegates
 between user workflow description (the
-[YAML configuration file](./configuration/index.md)), the workflow tasks (e.g.
-**Python Callables**), the **workflow DAG** and the **Orchestration** layer.
-Unless excplicitely stated, every workflow has to start with a **Data task**,
-has one or more **Processing tasks**, and end with an **Output task**.
+[YAML configuration file](./configuration/index.md)), the workflow
+representation (e.g. **Python Callables**), the **workflow management** and the
+**Execution Environment**.
+
+<!-- Unless excplicitely stated, every workflow has to start with a **Data task**,
+has one or more **Processing tasks**, and end with an **Output task**. -->
+
+A simplified few of this approach is shown below:
+
+```{mermaid}
+flowchart LR
+    YAML
+    subgraph Config interpretation
+    FAST-HEP["fasthep-flow"]
+    Your["custom"]
+    end
+    subgraph Internal Workflow Representation
+    Repr[fasthep_flow.Workflow]
+    end
+    subgraph External Workflow management
+    Hamilton
+    Pipefunc
+    Snakemake
+    end
+    subgraph Execution Environment
+    local
+    Dask
+    Other
+    end
+    YAML --> FAST-HEP
+    YAML --> Your
+    FAST-HEP --> Repr
+    Your --> Repr
+    Repr --> Hamilton
+    Repr --> Pipefunc
+    Repr --> Snakemake
+    Hamilton --> local
+    Hamilton --> Dask
+    Hamilton --> Other
+    Pipefunc --> local
+    Pipefunc --> Dask
+    Pipefunc --> Other
+    Snakemake --> local
+    Snakemake --> Other
+
+```
 
 ## Tasks
 
