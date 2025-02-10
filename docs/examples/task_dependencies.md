@@ -1,8 +1,8 @@
-# Job Dependencies
+# Task Dependencies
 
-By default all jobs are run in sequence and each job takes the output of the
-previous job as input. However, you can specify dependencies between jobs to run
-them in parallel.
+By default all tasks are run in sequence and each task takes the output of the
+previous task as input. However, you can specify dependencies between tasks to
+run them in parallel.
 
 ```yaml
 tasks:
