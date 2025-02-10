@@ -1,4 +1,5 @@
 """Command line interface for fasthep-flow."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -66,6 +67,8 @@ def execute(
     dag.visualize_execution(
         final_vars=workflow.task_names,
         output_file_path=Path(workflow.save_path) / "dag.png",
+        orient="TB",
+        show_legend=False,
     )
     # TODO: if specified, run a specific task/node with execute_node
     results = dag.execute(workflow.task_names, inputs={})
