@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from fasthep_flow import FlowConfig, Workflow
+from fasthep_flow import FlowConfig
+from fasthep_flow.workflow import create_workflow
 
 
 @pytest.fixture()
@@ -11,7 +12,7 @@ def config(simple_dict_config):
 
 
 def test_create_workflow(config):
-    workflow = Workflow(config=config)
+    workflow = create_workflow(config)
     assert workflow.tasks
     assert len(workflow.tasks) == 1
     task = workflow.tasks[0]
@@ -23,7 +24,7 @@ def test_create_workflow(config):
 
 
 def test_run_workflow(config):
-    workflow = Workflow(config=config)
+    workflow = create_workflow(config)
     results = workflow.run()
     assert results
     assert len(results) == 1
@@ -32,6 +33,6 @@ def test_run_workflow(config):
 
 
 def test_task_names(config):
-    workflow = Workflow(config=config)
+    workflow = create_workflow(config)
     assert workflow.task_names
     assert workflow.task_names == ["printEcho"]

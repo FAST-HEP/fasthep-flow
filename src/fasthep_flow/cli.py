@@ -8,7 +8,7 @@ import typer
 
 from .config import FlowConfig, load_config
 from .orchestration import workflow_to_hamilton_dag
-from .workflow import Workflow
+from .workflow import create_workflow
 
 app = typer.Typer()
 
@@ -59,7 +59,8 @@ def execute(
     typer.echo(f"Executing {config}...")
 
     cfg = init_config(config, overrides)
-    workflow = Workflow(config=cfg)
+    workflow = create_workflow(cfg)
+    # workflow = Workflow(config=cfg)
     save_path = workflow.save(Path(save_path))
     dag = workflow_to_hamilton_dag(workflow, save_path)
     dag.visualize_execution(
