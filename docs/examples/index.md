@@ -5,6 +5,7 @@ section contains some real-life examples of how to use `fasthep-flow`.
 
 ```{toctree}
 hello_world.md
+job_dependencies.md
 atlas_example.md
 cms_pub_example.md
 dune_example.md
