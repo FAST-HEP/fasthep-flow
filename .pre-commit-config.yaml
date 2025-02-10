@@ -58,6 +58,7 @@ repos:
         args: []
         additional_dependencies:
           - dill
+          - jinja2
           - plumbum
           - pytest
           - pydantic
