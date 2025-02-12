@@ -18,6 +18,7 @@ from types import ModuleType
 from typing import Any
 
 import dill
+import jinja2
 
 from .config import FlowConfig
 
@@ -33,6 +34,7 @@ class Task:
     type: str
     kwargs: dict[str, Any]
     payload: Any
+    needs: list[str] = field(default_factory=list)
 
     def __call__(self) -> Any:
         return self.payload()
@@ -48,8 +50,16 @@ class Task:
 
 
 TASK_SOURCE_TEMPLATE = """
-def {task_name}() -> dict[str, Any]:
-    return {task_definition}()
+{% if needs -%}
+def {{task_name}}(
+{% for need in needs -%}
+    {{need}}: dict[str, Any],
+{%- endfor %}
+) -> dict[str, Any]:
+{%- else -%}
+def {{task_name}}() -> dict[str, Any]:
+{%- endif %}
+    return {{task_definition}}()
 """
 
 
@@ -67,8 +77,8 @@ def get_task_source(obj: Any, task_name: str) -> str:
     task_source = dill.source.getsource(obj)
     task_definition = str(task_source.replace(task_base_source, "").strip())
 
-    return TASK_SOURCE_TEMPLATE.format(
-        task_name=task_name, task_definition=task_definition
+    return jinja2.Template(TASK_SOURCE_TEMPLATE).render(
+        task_name=task_name, task_definition=task_definition, needs=obj.needs
     )
 
 
@@ -99,26 +109,12 @@ def create_save_path(base_path: Path, workflow_name: str, config_hash: str) -> P
 class Workflow:
     """Wrapper for any compute graph implementation we want to support."""
 
-    config: FlowConfig
+    # config: FlowConfig
+    metadata: dict[str, Any] = field(default_factory=dict[str, Any])
     tasks: list[Task] = field(default_factory=list)
     task_names: list[str] = field(default_factory=list)
     name: str = "fasthep-flow"
     save_path: str = "~/.fasthep/flow/"
-
-    def __post_init__(self) -> None:
-        self.name = self.config.metadata.get("name", self.name)
-        for task in self.config.tasks:
-            # TODO: set ouput_path for each task
-            self.tasks.append(
-                Task(
-                    name=task.name,
-                    type=task.type,
-                    kwargs=task.kwargs if task.kwargs is not None else {},
-                    payload=task.resolve() if hasattr(task, "resolve") else None,
-                    # TODO: pass information about the task's dependencies and execution environment
-                )
-            )
-        self.task_names = [task.safe_name for task in self.tasks]
 
     def __call__(self) -> Any:
         """Function to execute all tasks in the workflow."""
@@ -153,7 +149,7 @@ class Workflow:
         """
         base_path = Path(base_path).expanduser().resolve()
 
-        config_file = Path(self.config.config_file)
+        config_file = Path(self.metadata["config_file"])
         config_hash = get_config_hash(config_file)
         path = create_save_path(base_path, self.name, config_hash)
         # TODO: check if things exist and skip if they do
@@ -200,3 +196,29 @@ def load_tasks_module(workflow: Workflow) -> ModuleType:
     task_spec.loader.exec_module(task_functions)
     sys.modules["tasks"] = task_functions
     return task_functions
+
+
+def create_workflow(config: FlowConfig) -> Workflow:
+    """Create a workflow from a configuration."""
+    name = config.metadata.get("name", Workflow.name)
+    tasks = []
+    for task in config.tasks:
+        # TODO: set ouput_path for each task
+        tasks.append(
+            Task(
+                name=task.name,
+                type=task.type,
+                kwargs=task.kwargs if task.kwargs is not None else {},
+                payload=task.resolve() if hasattr(task, "resolve") else None,
+                needs=task.needs if task.needs else [],
+                # TODO: pass information about the task's dependencies and execution environment
+            )
+        )
+    task_names = [task.safe_name for task in tasks]
+
+    return Workflow(
+        metadata=config.metadata,
+        tasks=tasks,
+        task_names=task_names,
+        name=name,
+    )

@@ -1,4 +1,5 @@
 """Command line interface for fasthep-flow."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,7 +9,7 @@ import typer
 
 from .config import FlowConfig, load_config
 from .orchestration import workflow_to_hamilton_dag
-from .workflow import Workflow
+from .workflow import create_workflow
 
 app = typer.Typer()
 
@@ -59,12 +60,15 @@ def execute(
     typer.echo(f"Executing {config}...")
 
     cfg = init_config(config, overrides)
-    workflow = Workflow(config=cfg)
+    workflow = create_workflow(cfg)
+    # workflow = Workflow(config=cfg)
     save_path = workflow.save(Path(save_path))
     dag = workflow_to_hamilton_dag(workflow, save_path)
     dag.visualize_execution(
         final_vars=workflow.task_names,
         output_file_path=Path(workflow.save_path) / "dag.png",
+        orient="TB",
+        show_legend=False,
     )
     # TODO: if specified, run a specific task/node with execute_node
     results = dag.execute(workflow.task_names, inputs={})

@@ -1,0 +1,33 @@
+tasks:
+  - name: "A"
+    type: "fasthep_flow.operators.BashOperator"
+    kwargs:
+      bash_command: echo
+      arguments: ["A"]
+  - name: "B"
+    type: "fasthep_flow.operators.BashOperator"
+    kwargs:
+      bash_command: echo
+      arguments: ["B"]
+  - name: "C"
+    type: "fasthep_flow.operators.BashOperator"
+    kwargs:
+      bash_command: echo
+      arguments: ["C"]
+    needs:
+      - "A"
+  - name: "D"
+    type: "fasthep_flow.operators.BashOperator"
+    kwargs:
+      bash_command: echo
+      arguments: ["D"]
+    needs:
+      - "B"
+  - name: "Y"
+    type: "fasthep_flow.operators.BashOperator"
+    kwargs:
+      bash_command: echo
+      arguments: ["Y"]
+    needs:
+      - "C"
+      - "D"
