@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import pathlib
 from dataclasses import field
 from typing import Any
 
@@ -147,11 +146,3 @@ class FlowConfig:
             msg = "name is not set in metadata for FlowConfig"
             raise ValueError(msg)
         return str(self.metadata["name"])
-
-
-def load_config(config_file: pathlib.Path) -> Any:
-    """Load a config file and return the structured config."""
-    conf = OmegaConf.load(config_file)
-    flow = FlowConfig.from_dictconfig(conf)
-    flow.metadata = {"config_file": str(config_file), "name": config_file.stem}
-    return flow
