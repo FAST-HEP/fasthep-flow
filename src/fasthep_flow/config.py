@@ -34,15 +34,21 @@ def _validate_class_import(value: str) -> str:
     return value
 
 
-def _rename_keys(cfg: dict[Any, Any], key_map: dict[str, str]) -> dict[str, Any]:
+def _rename_keys(
+    cfg: dict[Any, Any] | list[Any] | Any, key_map: dict[str, str]
+) -> dict[str, Any] | list[Any] | Any:
     """
     Recursively rename keys in a dictionary based on key_map.
     """
-    new_cfg = {}
-    for key, value in cfg.items():
-        new_key = key_map.get(key, key)
-        new_cfg[new_key] = _rename_keys(value, key_map)
-    return new_cfg
+    if isinstance(cfg, dict):
+        new_cfg = {}
+        for key, value in cfg.items():
+            new_key = key_map.get(key, key)
+            new_cfg[new_key] = _rename_keys(value, key_map)
+        return new_cfg
+    if isinstance(cfg, list):
+        return [_rename_keys(item, key_map) for item in cfg]
+    return cfg
 
 
 def _preprocess_config(cfg: DictConfig | ListConfig) -> DictConfig | ListConfig:
