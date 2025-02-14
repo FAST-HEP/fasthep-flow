@@ -59,6 +59,7 @@ repos:
         additional_dependencies:
           - dill
           - jinja2
+          - loguru
           - plumbum
           - pytest
           - pydantic
