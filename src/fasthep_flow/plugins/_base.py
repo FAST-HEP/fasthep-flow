@@ -6,10 +6,10 @@ from typing import Any, Protocol
 
 
 class PluginInterface(Protocol):
-    def before_run(self, func: Callable[..., Any], *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    def before(self, func: Callable[..., Any], *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         pass
 
-    def after_run(  # type: ignore[no-untyped-def]
+    def after(  # type: ignore[no-untyped-def]
         self,
         func: Callable[..., Any],
         result: Any,
@@ -26,11 +26,11 @@ def task_wrapper(  # type: ignore[no-untyped-def]
     def _wrapper(*args, **kwargs):  # type: ignore[no-untyped-def]
         if plugins:
             for plugin in plugins:
-                plugin.before_run(func, *args, **kwargs)
+                plugin.before(func, *args, **kwargs)
         result = func(*args, **kwargs)
         if plugins:
             for plugin in plugins:
-                plugin.after_run(func, result, *args, **kwargs)
+                plugin.after(func, result, *args, **kwargs)
         return result
 
     return _wrapper
