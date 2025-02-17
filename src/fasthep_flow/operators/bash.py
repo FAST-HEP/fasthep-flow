@@ -1,4 +1,5 @@
 """Bash related operators."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -19,6 +20,7 @@ class LocalBashOperator(Operator):
 
     bash_command: str
     arguments: list[str]
+    strip_trailing_newline: bool = True
 
     def __init__(self, **kwargs: Any):
         self.configure(**kwargs)
@@ -31,6 +33,9 @@ class LocalBashOperator(Operator):
     def __call__(self, **kwargs: Any) -> dict[str, Any]:
         command = plumbum.local[self.bash_command]
         exit_code, stdout, stderr = command.run(*self.arguments)
+        if self.strip_trailing_newline:
+            stdout = stdout.rstrip("\n")
+            stderr = stderr.rstrip("\n")
         return ResultType(
             result=None, stdout=stdout, stderr=stderr, exit_code=exit_code
         ).to_dict()

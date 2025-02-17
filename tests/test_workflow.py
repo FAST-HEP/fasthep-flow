@@ -32,7 +32,7 @@ def test_run_workflow(workflow):
     assert results
     assert len(results) == 1
     result = results[0]
-    assert result["stdout"] == "Hello World!\n"
+    assert result["stdout"] == "Hello World!"
 
 
 def test_task_names(workflow):
@@ -41,8 +41,9 @@ def test_task_names(workflow):
 
 
 def test_get_task_source(workflow):
-    source = get_task_source(workflow.tasks[0], "printEcho")
-    assert "def printEcho" in source
+    source = get_task_source(workflow.tasks[0])
+    assert "printEcho" in source
+    assert "payload" in source
 
 
 def test_parallel(parallel_workflow):
