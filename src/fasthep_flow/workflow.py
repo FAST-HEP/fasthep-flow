@@ -118,7 +118,10 @@ class Workflow:
         with task_file.open("w") as f:
             template = templates.get_template("hamilton/task_source.py.j2")
             content = template.render(
-                dynamic_imports=imports, task_sources=task_definitions
+                dynamic_imports=imports,
+                task_sources=task_definitions,
+                enable_cache=True,
+                task_cache_format="json",
             )
             f.write(content)
 

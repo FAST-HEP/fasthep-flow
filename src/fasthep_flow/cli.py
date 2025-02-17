@@ -72,6 +72,8 @@ def execute(
     )
     # TODO: if specified, run a specific task/node with execute_node
     results = dag.execute(workflow.task_names, inputs={})
+    if dag.cache and dag.cache.run_ids:
+        dag.cache.view_run(output_file_path=Path(workflow.save_path) / "cache.png")
     typer.echo(f"Results: {results}")
 
 
