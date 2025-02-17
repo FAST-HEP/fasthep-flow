@@ -41,3 +41,4 @@ tasks:
       - name: "fasthep_flow.plugins.LocalOutputPlugin"
         with:
           checksum: "adler32"
+          output_path: "/tmp/fasthep_flow"

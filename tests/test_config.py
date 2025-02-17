@@ -26,7 +26,7 @@ def just_login_plugin() -> PluginConfig:
 def just_output_plugin() -> PluginConfig:
     return PluginConfig(
         name="fasthep_flow.plugins.LocalOutputPlugin",
-        kwargs={"checksum": "adler32"},
+        kwargs={"checksum": "adler32", "output_path": "/tmp/fasthep_flow"},
     )
 
 
