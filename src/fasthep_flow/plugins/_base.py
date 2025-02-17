@@ -6,8 +6,10 @@ from typing import Any, Protocol
 
 
 class PluginInterface(Protocol):
+    """Interface for defining a plugin."""
+
     def before(self, func: Callable[..., Any], *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
-        pass
+        """Function to run before the task."""
 
     def after(  # type: ignore[no-untyped-def]
         self,
@@ -16,12 +18,14 @@ class PluginInterface(Protocol):
         *args,
         **kwargs,
     ) -> None:
-        pass
+        """Function to run after the task."""
 
 
 def task_wrapper(  # type: ignore[no-untyped-def]
     func: Callable[..., Any], plugins: list[PluginInterface] | None = None
 ):
+    """Decorator to wrap a task function with plugins."""
+
     @wraps(func)
     def _wrapper(*args, **kwargs):  # type: ignore[no-untyped-def]
         if plugins:

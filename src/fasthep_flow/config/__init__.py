@@ -18,9 +18,9 @@ def load_config(config_file: pathlib.Path) -> Any:
     conf = OmegaConf.load(config_file)
     # read version from config
     version = conf.get("version", DEFAULT_VERSION)
-    FlowConfig = importlib.import_module(f".{version}", __package__).FlowConfig
+    cfg_class = importlib.import_module(f".{version}", __package__).FlowConfig
 
-    flow = FlowConfig.from_dictconfig(conf)
+    flow = cfg_class.from_dictconfig(conf)
     flow.metadata = {"config_file": str(config_file), "name": config_file.stem}
     return flow
 

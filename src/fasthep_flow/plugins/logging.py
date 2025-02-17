@@ -9,6 +9,8 @@ from ._base import PluginInterface
 
 
 class LoggingPlugin(PluginInterface):
+    """Plugin to log task execution."""
+
     def before(self, func: Callable[..., Any], *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         logger.info(f"Running {func.__name__} with args {args} and kwargs {kwargs}")
 

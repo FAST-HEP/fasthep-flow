@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import hydra
@@ -55,15 +56,24 @@ def execute(
     config: Path,
     overrides: list[str] | None = None,
     save_path: str = "~/.fasthep/flow/",
+    dev: bool = typer.Option(
+        False, help="Run in development mode. Will delete the save path."
+    ),
 ) -> None:
     """Execute a config file."""
     typer.echo(f"Executing {config}...")
 
     cfg = init_config(config, overrides)
     workflow = create_workflow(cfg)
-    # workflow = Workflow(config=cfg)
-    save_path = workflow.save(Path(save_path))
-    dag = workflow_to_hamilton_dag(workflow, save_path)
+    workflow.save(Path(save_path))
+    if dev:
+        typer.echo(f"Development mode enabled. Deleting {workflow.save_path}")
+        delete = typer.confirm("Are you sure you want to delete this directory?")
+        if delete:
+            shutil.rmtree(workflow.save_path)
+            typer.echo(f"Development mode enabled. Recreating {workflow.save_path}")
+            save_path = workflow.save(Path(save_path))
+    dag = workflow_to_hamilton_dag(workflow, workflow.save_path)
     dag.visualize_execution(
         final_vars=workflow.task_names,
         output_file_path=Path(workflow.save_path) / "dag.png",
