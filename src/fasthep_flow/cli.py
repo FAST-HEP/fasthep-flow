@@ -85,6 +85,7 @@ def execute(
     if dag.cache and dag.cache.run_ids:
         dag.cache.view_run(output_file_path=Path(workflow.save_path) / "cache.png")
     typer.echo(f"Results: {results}")
+    typer.echo(f"Output saved to {workflow.save_path}")
 
 
 @app.command("list")
