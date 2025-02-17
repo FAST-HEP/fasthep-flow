@@ -45,7 +45,7 @@ def test_invalid_type():
     with pytest.raises(ValidationError) as excinfo:
         TaskConfig(name="test", type="invalid.type")
 
-    assert "Could not import invalid.type" in str(excinfo.value)
+    assert "Unable to import invalid.type" in str(excinfo.value)
 
 
 def test_first_task(simple_config_yaml: Path):

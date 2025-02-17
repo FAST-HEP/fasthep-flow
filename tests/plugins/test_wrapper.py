@@ -22,7 +22,8 @@ def test_task_wrapper(capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
-    result = task_wrapper(function_for_test, plugins=[PrintPlugin()])(1, 2, 3, a=4, b=5)
+    plugins = {"function_for_test": [PrintPlugin()]}
+    result = task_wrapper(function_for_test, plugins=plugins)(1, 2, 3, a=4, b=5)
     assert result == result_unwrapped
     captured = capsys.readouterr()
     assert (

@@ -103,6 +103,7 @@ class Workflow:
                 task_sources=task_definitions,
                 enable_cache=True,
                 task_cache_format="json",
+                config_file=self.metadata["config_file"],
             )
             f.write(content)
 
