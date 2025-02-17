@@ -48,6 +48,11 @@ class Task:
     def __name__(self) -> str:
         return self.safe_name
 
+    @property
+    def safe_needs(self) -> list[str]:
+        """Return a safe name for the task."""
+        return [name.translate(REPLACE_TABLE) for name in self.needs]
+
 
 def get_task_source(obj: Any) -> str:
     """Retrieve the source code of a task object and return a function definition."""
@@ -111,7 +116,7 @@ class Workflow:
         imports = {}
         task_definitions = {}
         for task in self.tasks:
-            task_definitions[task.safe_name] = (get_task_source(task), task.needs)
+            task_definitions[task.safe_name] = (get_task_source(task), task.safe_needs)
             module_path, class_name = task.type.rsplit(".", 1)
             imports[module_path] = class_name
         templates = template_environment()
