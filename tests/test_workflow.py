@@ -41,8 +41,9 @@ def test_task_names(workflow):
 
 
 def test_get_task_source(workflow):
-    source = get_task_source(workflow.tasks[0], "printEcho")
-    assert "def printEcho" in source
+    source = get_task_source(workflow.tasks[0])
+    assert "printEcho" in source
+    assert "payload" in source
 
 
 def test_parallel(parallel_workflow):
