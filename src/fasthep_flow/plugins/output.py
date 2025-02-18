@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ._base import PluginInterface
 
 
+@dataclass
 class LocalOutputPlugin(PluginInterface):
     """Plugin for writing output to a local file.
     Output will be stored with the function hash as the filename.
@@ -16,7 +18,7 @@ class LocalOutputPlugin(PluginInterface):
     """
 
     output_path: Path
-    func_hash: str
+    checksum: str
 
     def before(self, func: Callable[..., Any], *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         pass

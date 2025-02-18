@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 import importlib.machinery
 import importlib.util
@@ -12,7 +11,6 @@ import shutil
 import string
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -21,6 +19,7 @@ import dill
 
 from .config import FlowConfig
 from .templates import template_environment
+from .utils import generate_save_path
 
 REPLACE_DICT = {ord(c): "_" for c in string.whitespace + string.punctuation}
 REPLACE_TABLE = str.maketrans(REPLACE_DICT)
@@ -69,29 +68,6 @@ def get_task_source(obj: Any) -> str:
     return str(task_source.replace(task_base_source, "").strip())
 
 
-def get_config_hash(config_file: Path) -> str:
-    """Reads the config file and returns a shortened hash."""
-    with config_file.open("rb") as f:
-        return hashlib.file_digest(f, "sha256").hexdigest()[:8]
-
-
-def create_save_path(base_path: Path, workflow_name: str, config_hash: str) -> Path:
-    """
-    Creates a save path for the workflow and returns the generated path.
-
-    @param base_path: Base path for the save location.
-    @param workflow_name: Name of the workflow.
-    @param config_hash: Hash of the configuration file.
-
-    returns: Path to the save location.
-    """
-    date = datetime.now().strftime("%Y.%m.%d")
-    # TODO: instead of date, create a "touched" file that is updated every time the workflow is saved
-    path = Path(f"{base_path}/{workflow_name}/{date}/{config_hash}/").resolve()
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 @dataclass
 class Workflow:
     """Wrapper for any compute graph implementation we want to support."""
@@ -127,6 +103,7 @@ class Workflow:
                 task_sources=task_definitions,
                 enable_cache=True,
                 task_cache_format="json",
+                config_file=self.metadata["config_file"],
             )
             f.write(content)
 
@@ -140,8 +117,8 @@ class Workflow:
         base_path = Path(base_path).expanduser().resolve()
 
         config_file = Path(self.metadata["config_file"])
-        config_hash = get_config_hash(config_file)
-        path = create_save_path(base_path, self.name, config_hash)
+        path = generate_save_path(base_path, self.name, config_file)
+        path.mkdir(parents=True, exist_ok=True)
         # TODO: check if things exist and skip if they do
         # copy the config file to the path
         shutil.copy(config_file, path / config_file.name)

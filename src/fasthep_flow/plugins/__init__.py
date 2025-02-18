@@ -5,7 +5,7 @@ This might be moved to a separate package in the future (e.g. fasthep-core/carpe
 
 from __future__ import annotations
 
-from ._base import PluginInterface, task_wrapper
+from ._base import PluginInterface, init_plugins, task_wrapper
 from .logging import LoggingPlugin
 from .output import LocalOutputPlugin
 from .tests import PrintPlugin
@@ -15,5 +15,6 @@ __all__ = [
     "LoggingPlugin",
     "PluginInterface",
     "PrintPlugin",
+    "init_plugins",
     "task_wrapper",
 ]

@@ -6,11 +6,9 @@ from typing import Any
 
 from omegaconf import OmegaConf
 
+from .v0 import FlowConfig, PluginConfig, TaskConfig
+
 DEFAULT_VERSION = "v0"
-default_module = importlib.import_module(f".{DEFAULT_VERSION}", __package__)
-FlowConfig = default_module.FlowConfig
-PluginConfig = default_module.PluginConfig
-TaskConfig = default_module.TaskConfig
 
 
 def load_config(config_file: pathlib.Path) -> Any:
@@ -23,6 +21,17 @@ def load_config(config_file: pathlib.Path) -> Any:
     flow = cfg_class.from_dictconfig(conf)
     flow.metadata = {"config_file": str(config_file), "name": config_file.stem}
     return flow
+
+
+def plugins_by_task(config: FlowConfig) -> dict[str, list[PluginConfig]]:
+    """Return a dictionary of plugins by task name."""
+    plugins = {}
+    global_plugins = config.plugins
+    for task in config.tasks:
+        plugins[task.name] = global_plugins.copy() if global_plugins else []
+        if task.plugins:
+            plugins[task.name] += task.plugins
+    return plugins
 
 
 __all__ = ["FlowConfig", "PluginConfig", "TaskConfig", "load_config"]
