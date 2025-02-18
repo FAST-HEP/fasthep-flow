@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import importlib
 from dataclasses import field
 from typing import Any
 
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from pydantic import field_validator
 from pydantic.dataclasses import dataclass
+
+from fasthep_flow.utils import instance_from_type_string, is_valid_import
 
 ALIASES = {
     "fasthep_flow.operators.BashOperator": "fasthep_flow.operators.bash.LocalBashOperator",
@@ -19,18 +20,13 @@ def _validate_class_import(value: str) -> str:
     """Validate the type field
     Any specified type needs to be a Python class that can be imported"""
     # Split the string to separate the module from the class name
-    value = ALIASES.get(value, value)
-    module_path, class_name = value.rsplit(".", 1)
-    try:
-        # Import the module
-        mod = importlib.import_module(module_path)
-        # this must be a class
-        getattr(mod, class_name)
-    except ImportError as previous_error:
-        msg = f"Could not import {module_path}.{class_name}"
-        raise ValueError(msg) from previous_error
-    # Return the original string if everything is fine
-    return value
+    is_valid = is_valid_import(value, aliases=ALIASES)
+    alias = ALIASES.get(value, value)
+    if not is_valid:
+        msg = "Unable to import"
+        msg = f"{msg} {value} ({alias=})" if alias != value else f"{msg} {value}"
+        raise ValueError(msg)
+    return value if alias == value else alias
 
 
 def _rename_keys(
@@ -90,7 +86,7 @@ class TaskConfig:
     type: str
     needs: list[Any] | None = field(default_factory=list)
     args: list[Any] | None = field(default_factory=list)
-    kwargs: dict[Any, Any] | None = field(default_factory=dict)
+    kwargs: dict[str, Any] | None = field(default_factory=dict[str, Any])
     plugins: list[PluginConfig] | None = field(default_factory=list[PluginConfig])
 
     @field_validator("type")
@@ -103,10 +99,9 @@ class TaskConfig:
 
     def resolve(self) -> Any:
         """Resolve the task to a class."""
-        module_path, class_name = self.type.rsplit(".", 1)
-        mod = importlib.import_module(module_path)
-        class_ = getattr(mod, class_name)
-        return class_(*self.args, **self.kwargs)
+        kwargs = self.kwargs.copy() if self.kwargs else {}
+        args = self.args.copy() if self.args else []
+        return instance_from_type_string(self.type, *args, **kwargs)
 
 
 @dataclass

@@ -5,6 +5,7 @@ from functools import wraps
 from typing import Any, Protocol
 
 from fasthep_flow.config import PluginConfig
+from fasthep_flow.utils import instance_from_type_string
 
 
 class PluginInterface(Protocol):
@@ -44,9 +45,8 @@ def task_wrapper(  # type: ignore[no-untyped-def]
 
 def _load_plugin(plugin_config: PluginConfig) -> PluginInterface:
     """Load a plugin from a PluginConfig."""
-    module_path, class_name = plugin_config.name.rsplit(".", 1)
-    module = __import__(module_path, fromlist=[class_name])
-    return getattr(module, class_name)(**plugin_config.kwargs)  # type: ignore[no-any-return]
+    kwargs = plugin_config.kwargs or {}
+    return instance_from_type_string(plugin_config.name, **kwargs)  # type: ignore[no-any-return]
 
 
 def init_plugins(
