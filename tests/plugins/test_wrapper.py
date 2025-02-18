@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fasthep_flow.plugins import PrintPlugin, task_wrapper
+from fasthep_flow.plugins._base import PluginInterface
 
 
 def function_for_test(*args, **kwargs) -> dict[str, Any]:
@@ -22,7 +23,7 @@ def test_task_wrapper(capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
-    plugins = {"function_for_test": [PrintPlugin()]}
+    plugins: dict[str, list[PluginInterface]] = {"function_for_test": [PrintPlugin()]}
     result = task_wrapper(function_for_test, plugins=plugins)(1, 2, 3, a=4, b=5)
     assert result == result_unwrapped
     captured = capsys.readouterr()
