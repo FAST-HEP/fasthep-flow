@@ -57,6 +57,7 @@ repos:
         files: src|tests
         args: []
         additional_dependencies:
+          - crc32c
           - dill
           - jinja2
           - loguru
