@@ -28,6 +28,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
+  "crc32c",
   "dask[distributed,dataframe]",
   "dill",
   "eval_type_backport",
