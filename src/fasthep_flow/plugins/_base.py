@@ -8,6 +8,9 @@ from fasthep_flow.config import PluginConfig
 from fasthep_flow.utils import instance_from_type_string
 
 
+# TODO: plugins could be context managers instead?
+# https://docs.python.org/3/library/contextlib.html#contextlib.ExitStack
+# or too much obscurity?
 class PluginInterface(Protocol):
     """Interface for defining a plugin."""
 
