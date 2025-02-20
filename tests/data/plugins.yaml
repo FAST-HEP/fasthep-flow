@@ -40,5 +40,5 @@ tasks:
     plugins: # task specific plugins
       - name: "fasthep_flow.plugins.LocalOutputPlugin"
         with:
-          checksum: "adler32"
-          output_path: "/tmp/fasthep_flow"
+          output_file: "/tmp/fasthep_flow/plugins.json"
+          format: "json"
