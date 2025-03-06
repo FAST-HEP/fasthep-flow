@@ -93,24 +93,29 @@ main ways to contribute to this project:
 Once you have something to work on, you can have a look at the
 [contributing guidelines](./.github/CONTRIBUTING.md). It contains
 recommendations for setting up your development environment, testing, and more
-(compiled by the Scientific Python Community). That said, how you customise your
-development environment is up to you. You like
-[uv](https://github.com/astral-sh/uv)? Be our guest. You prefer
-[nox](https://nox.thea.codes/en/stable/)? That's fine too. You want to use
-<your custom workflow>? Go ahead. We are happy as long as you are happy. Ideally
-you should be able to run `pylint`, `pytest`, and the pre-commit hooks. If you
-can do that, you are good to go.
+(compiled by the Scientific Python Community).
 
-If you are looking for example workflows to run, have a look at the
-`tests/data/` directory. Each of the configs can be run via
+> [!IMPORTANT]
+>
+> How you customise your development environment is up to you.
+> You like [uv](https://github.com/astral-sh/uv)? Be our guest.
+> You prefer [nox](https://nox.thea.codes/en/stable/)? That's fine too.
+> You want to use <your custom workflow>? Go ahead. We are happy as long as you are happy.
+> Ideally you should be able to run `pylint`, `pytest`, and the pre-commit hooks.
+> If you can do that, you are good to go.
 
-```bash
-fasthep-flow execute <config> --dev --save-path=$PWD/output
-```
-
-The `--dev` flag will enable the development mode, which will allow you to
-(optionally) overwrite the workflow snapshot. This is useful for changes in
-`fasthep-flow` code without changes to the config file.
+> [!TIP]
+>
+> If you are looking for example workflows to run, have a look at the
+> `tests/data/` directory. Each of the configs can be run via
+>
+> ```bash
+> fasthep-flow execute <config> --dev --save-path=$PWD/output
+> ```
+>
+> The `--dev` flag will enable the development mode, which will allow you to
+> (optionally) overwrite the workflow snapshot. This is useful for changes in
+> `fasthep-flow` code without changes to the config file.
 
 ## License
 
