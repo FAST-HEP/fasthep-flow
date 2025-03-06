@@ -25,7 +25,9 @@
 
 ## Introduction
 
-> [!NOTE] `fasthep-flow` is still in early development, which means it is
+> [!NOTE]
+>
+> `fasthep-flow` is still in early development, which means it is
 > incomplete and the API is not yet stable. Please report any issues you find on
 > the [GitHub issue tracker](https://github.com/FAST-HEP/fasthep-flow/issues).
 
