@@ -101,8 +101,8 @@ class Workflow:
             content = template.render(
                 dynamic_imports=imports,
                 task_sources=task_definitions,
-                enable_cache=True,
-                task_cache_format="json",
+                enable_cache=False,
+                task_cache_format="parquet",
                 config_file=self.metadata["config_file"],
             )
             f.write(content)
