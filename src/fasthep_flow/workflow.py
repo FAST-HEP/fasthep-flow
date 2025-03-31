@@ -35,8 +35,8 @@ class Task:
     payload: Any
     needs: list[str] = field(default_factory=list)
 
-    def __call__(self) -> Any:
-        return self.payload()
+    def __call__(self, data: dict[str, Any]) -> Any:
+        return self.payload(data=data, **self.kwargs)
 
     @property
     def safe_name(self) -> str:
