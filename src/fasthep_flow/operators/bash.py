@@ -19,7 +19,7 @@ class LocalBashOperator(Operator):
     """A local bash operator. This operator runs a bash command on the local machine."""
 
     bash_command: str
-    arguments: list[str]
+    arguments: tuple[Any, ...] | None
     strip_trailing_newline: bool = True
 
     def __init__(self, **kwargs: Any):
@@ -30,7 +30,9 @@ class LocalBashOperator(Operator):
         self.bash_command = kwargs.pop("bash_command")
         self.arguments = kwargs.pop("arguments")
 
-    def __call__(self, **kwargs: Any) -> dict[str, Any]:
+    def __call__(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        if args and not self.arguments:
+            self.arguments = args
         command = plumbum.local[self.bash_command]
         exit_code, stdout, stderr = command.run(*self.arguments)
         if self.strip_trailing_newline:
