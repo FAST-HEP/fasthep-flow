@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from fasthep_flow.utils import instance_from_type_string
+from fasthep_flow.utils import get_callable
 
 
 class Operator(Protocol):
@@ -48,8 +48,8 @@ def create_operator(config: dict[str, Any]) -> Callable[..., Any]:
     """Create an operator from a configuration dictionary."""
     operator_type = config.pop("type")
     kwargs = config.pop("kwargs", {})
-    instance = instance_from_type_string(operator_type, **kwargs)
-    if not callable(instance):
-        msg = f"Instance is not a valid operator: {instance} (needs to be callable)"
+    instance = get_callable(operator_type, **kwargs)
+    if instance is None:
+        msg = f"{operator_type} is not a valid operator: needs to be callable."
         raise ValueError(msg)
-    return instance  # type: ignore[no-any-return]
+    return instance

@@ -7,6 +7,7 @@ Rule: Keep It Focused and Small (KISS)
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import importlib
 import inspect
@@ -14,6 +15,8 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from loguru import logger
 
 DEFAULT_DATE_FORMAT = "%Y.%m.%d"
 
@@ -79,3 +82,34 @@ def is_valid_import(module_path: str, aliases: dict[str, str]) -> bool:
         return is_class(class_)
     except ImportError as _:
         return False
+
+
+def _raise_if_not_callable(object: Any) -> None:
+    """Raise an error if the instance is not callable."""
+    if not callable(object):
+        msg = f"Instance is not a valid callable: {object}"
+        logger.error(msg)
+        raise ValueError(msg)
+
+
+def get_callable(
+    name: str, context: dict[str, Any] | None = None, **kwargs: Any
+) -> Callable[..., Any] | None:
+    """Get a callable from a string."""
+    # check builtins first
+    if hasattr(builtins, name):
+        obj = getattr(builtins, name)
+        _raise_if_not_callable(obj)
+        return obj  # type: ignore[no-any-return]
+    if context and name in context:
+        obj = context[name]
+        _raise_if_not_callable(obj)
+        return obj  # type: ignore[no-any-return]
+    try:
+        instance = instance_from_type_string(name, **kwargs)
+        _raise_if_not_callable(instance)
+        return instance  # type: ignore[no-any-return]
+    except ImportError:
+        pass
+
+    return None
