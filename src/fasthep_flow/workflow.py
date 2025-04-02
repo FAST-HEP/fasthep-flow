@@ -170,7 +170,7 @@ def create_workflow(config: FlowConfig) -> Workflow:
     name = config.metadata.get("name", Workflow.name)
     tasks = []
     for task in config.tasks:
-        # TODO: set ouput_path for each task
+        # TODO: set output_path for each task
         tasks.append(
             Task(
                 name=task.name,
