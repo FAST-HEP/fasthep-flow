@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
+
+from fasthep_flow.utils import instance_from_type_string
 
 
 class Operator(Protocol):
@@ -18,7 +21,7 @@ class Operator(Protocol):
     def __repr__(self) -> str:
         ...
 
-    def configure(self, **kwargs: Any) -> None:
+    def configure(self, *args: Any, **kwargs: Any) -> None:
         """General function to configure the operator."""
 
 
@@ -39,3 +42,14 @@ class ResultType:
             "stderr": self.stderr,
             "exit_code": self.exit_code,
         }
+
+
+def create_operator(config: dict[str, Any]) -> Callable[..., Any]:
+    """Create an operator from a configuration dictionary."""
+    operator_type = config.pop("type")
+    kwargs = config.pop("kwargs", {})
+    instance = instance_from_type_string(operator_type, **kwargs)
+    if not callable(instance):
+        msg = f"Instance is not a valid operator: {instance} (needs to be callable)"
+        raise ValueError(msg)
+    return instance  # type: ignore[no-any-return]
