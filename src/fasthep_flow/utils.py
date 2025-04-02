@@ -54,11 +54,11 @@ def calculate_function_hash(func: Callable[..., Any], *args, **kwargs) -> str:  
     return hashlib.sha256(arg_hash.encode() + func_hash.encode()).hexdigest()[:8]
 
 
-def instance_from_type_string(type_string: str, *args, **kwargs) -> Any:  # type: ignore[no-untyped-def]
+def instance_from_type_string(type_string: str, **kwargs) -> Any:  # type: ignore[no-untyped-def]
     """Create an instance from a type string, e.g. 'module.submodule.Class'."""
     module_path, class_name = type_string.rsplit(".", 1)
     mod = importlib.import_module(module_path)
-    return getattr(mod, class_name)(*args, **kwargs)
+    return getattr(mod, class_name)(**kwargs)
 
 
 def is_class(obj: Any) -> bool:
