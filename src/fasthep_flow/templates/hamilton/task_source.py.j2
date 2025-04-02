@@ -30,9 +30,11 @@ def {{task_name}}(
     {{need}}: dict[str, Any],
 {%- endfor %}
 ) -> dict[str, Any]:
-{% for need in needs -%}
-    __data__ = dict("{{need}}"={{need}})
+    __data__ = {
+{%- for need in needs +%}
+        "{{need}}": {{need}},
 {%- endfor %}
+    }
 {%- else -%}
 def {{task_name}} () -> dict[str, Any]:
     __data__ = {}
