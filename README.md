@@ -55,6 +55,21 @@ each task, and then generate the compute graph. The compute graph consists of
 nodes that describe input/output data and the compute task and edges for the
 dependencies between the tasks.
 
+## Target audience
+`fasthep-flow` is designed for High-Energy-Physics (HEP) data analysis, but more specifically for:
+- anyone who works in more than one computing environment (e.g. local, batch, CI/CD) or more than one framework (Snakemake, REANA, Coffea, Dask, etc.)
+- anyone interested in reproducible data analysis
+- anyone who wants to "just start doing physics" but also will have to customise a lot as they progress
+
+That said, `fasthep-flow` is also useful for:
+- any workflow that can be expressed as a directed acyclic graph (DAG) - this includes bash scripts, assembling geometry in blender, creating mathematical animations with [manim](https://www.manim.community/), creating rendered scenes with [mitsuba](https://mitsuba.readthedocs.io/) etc.
+- testing and debugging complex workflows
+- experimenting with new ideas and concepts for data processing (via plugins and custom nodes)
+- creating reports: processs efficiency, power usage, etc.
+
+In short: anything that can be wrapped into a python `Callable` can be described and connected within
+a `fasthep-flow` YAML file.
+
 ## Documentation
 
 This project is in early development. The documentation is available at
