@@ -51,43 +51,92 @@ flowchart LR
 
 ## Tasks
 
-**Data task**: The data task is any callable that returns data. This can be a
-function that reads data from a file, or a function that generates data. The
-data task is the first task in a workflow, and is executed only once. The output
-of the data task is passed to the first processing task.
+Tasks are the basic building blocks of a workflow. They are the
+individual steps that make up the workflow. Each task is a callable that takes
+data as input and returns data as output. The tasks can be executed in order (default),
+or in parallel by defining the `needs` of a task.
+The tasks are defined in the YAML configuration file, and any parameters are passed to the final python objects.
+Typically, the first task is a data task, the last task is an output task, but that decision is up to the user.
 
-**Processing task**: A processing task is any callable that takes data as input
-and returns data as output. The output of a processing task is passed to the
-next processing task. The processing tasks are executed in order, and can be
-parallelised. In `fasthep-flow` these tasks are represented by **Operators**.
-Details on how this works and what is required to write one, can be found in
-[Operators](./operators.md).
+## Task types
 
-**Output task**: The output task is any callable that takes data as input and
-returns data as output. The output of the last processing task is passed to the
-output task. The output task is executed only once, and is the last task in a
-workflow. The output of the output task is saved to disk.
+While tasks can be almost anything, `fasthep-flow` provides a few handles for specific types of tasks.
+These are:
 
-### Exceptional tasks
+- **Data task**: a task that reads data from a file, or generates data.
+- **Processing task**: a task that takes data as input and returns data as output.
+- **Filter task**: a task that takes data as input and returns a subset of the data as output.
+- **Output task**: a task that takes data as input and returns data as output.
 
-Of course, not all workflows are as simple as the above. In some cases, you may
-want to checkpoint the process, write out intermediate results, or do some other
-special processing. For this, `fasthep-flow` has the following special tasks:
+**Data task**: For data tasks, `fasthep-flow` provides a multiplexing interpreter. This allows you to define how the data is split up across the following tasks.
 
-**Provenance task**: The provenance task is a special task that typically runs
-outside the workflow. It is used to collect information about the workflow, such
-as the software versions used, the input data, and the output data. The
+```{mermaid}
+flowchart TD
+    subgraph Data task
+    A[two files, split by file]
+    end
+    subgraph Processing task
+    B[process file 1]
+    C[process file 2]
+    end
+    subgraph Output task
+    D[merge output]
+    end
+    A --> B
+    A --> C
+    B --> D
+    C --> D
+
+```
+
+**Processing task**: Processing tasks are the default task type and have no special handling.
+
+**Filter task**: Filter tasks are a special type of processing task that takes data as input and returns a subset of the data as output. Filter tasks can be operated in `filter` or `tagging` mode, and are executed in the order they are defined in the YAML file. To keep track of rejected and accepted events, `fasthep-flow` provides a few special plugins for handling this selection data. The most useful one, enabled by default, is the `SelectionTracker` plugin - its output can be used to produce selection tables:
+
+| Selection     | Events before | Events after | Efficiency |
+| ------------- | ------------- | ------------ | ---------- |
+| MET > 200 GeV | 1000          | 200          | 20 %       |
+| njet > 4      | 200           | 100          | 50 %       |
+
+or in `individual` mode:
+
+| Selection     | Events before | Events after | Efficiency |
+| ------------- | ------------- | ------------ | ---------- |
+| MET > 200 GeV | 1000          | 200          | 20 %       |
+| njet > 4      | 1000          | 300          | 30 %       |
+
+All the data is available and can be saved to disk and used for further analysis.
+
+**Output task**: Output tasks are typically the last task in a workflow. By default, the output task has access to all the data from the previous tasks AND plugins (note: this allows for "meta-plugins" for output tasks). This can be changed by specifying the `needs` of the task. In addition, `fasthep-flow` provides a few special plugins for handling metadata and provenance. These are not required, but can be useful for tracking the workflow and the data.
+
+## Plugin system
+
+`fasthep-flow` has a plugin system that allows you to extend the functionality of the task system.
+Plugins are defined in the YAML configuration file either as global plugins or task-specific, and can process the task and all its data before and after the task is executed.
+This makes plugins a powerful tool to collect metadata, provenance and other information about the workflow.
+Plugins can also be used to modify tasks given the environment, e.g. switching between CPU and GPU processing, or between local and remote storage.
+Finally, plugins can be also used for caching the output of a task, or for monitoring the progress of the workflow.
+
+**Provenance plugin**: The provenance plugin is a global plugin, meaning it should be defined and configured outside the workflow.
+It is used to collect information about the workflow, such
+as the software versions used, the environment the task is run in, the input data, and the output data. The
 provenance task is executed only once, and is the last task in a workflow. The
 output of the provenance task is saved to disk.
 
-**Caching task**: The caching task is a special task that can be used to cache
-the output of a processing task. The caching task can be added to any processing
-task, and will save the output of the processing task to disk or remote storage.
+**Caching plugin**: As the name suggests, the caching plugin is used to cache the output of a task.
+Before a task is executed, the caching plugin checks if the output of the task
+is already available. If it is, the task is skipped and the cached output is used
+instead. If the output is not available, the task is executed and the output is
+cached. The caching plugin can be used to speed up the workflow, especially if
+the tasks are expensive to execute. The caching plugin can be configured to
+use different caching strategies, such as caching the output to disk, or
+caching the output to a remote storage. The one provided by default is limited to file systems defined in `fsspec`.
 
-**Monitoring task**: The monitoring task is a special task that can be used to
-monitor the progress of the workflow. The monitoring task can be added to any
-processing task, and can either store the information locally or send it in
-intervals to a specified endpoint.
+**Monitoring plugin**: can be used to monitor the progress of the workflow.
+The monitoring plugin is constructed from components that look at specific parts of a task.
+These can be things like the number of events processed, the time taken to process, memory usage, etc. - the details are up to the user.
+The plugin can either store the information locally or send it in
+intervals to a specified endpoint (e.g. prometheus)
 
 ## Anatomy of an analysis workflow
 
@@ -99,6 +148,11 @@ In the most general terms, an analysis workflow consists of the following parts:
 
 The following diagram shows the different parts of an analysis workflow,
 including the data flow between them:
+
+```{mermaid}
+flowchart TD
+
+```
 
 ```{figure} /images/analysis_workflow.png
 :align: center

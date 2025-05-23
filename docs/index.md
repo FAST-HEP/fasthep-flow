@@ -44,6 +44,7 @@ changelog.md
 installation.md
 concepts.md
 configuration/index.md
+filters.md
 operators.md
 orchestration.md
 provenance.md
