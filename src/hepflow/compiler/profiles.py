@@ -78,6 +78,8 @@ def _load_profile_with_provenance(
 ) -> tuple[dict[str, Any], dict[str, str]]:
     if not isinstance(name, str) or not name.strip():
         raise ValueError("Profile name must be a non-empty string")
+    if ":" in name:
+        return _load_qualified_package_profile(name)
     if "/" in name or "\\" in name or name in {".", ".."}:
         raise ValueError(f"Invalid profile name: {name!r}")
 
@@ -100,3 +102,32 @@ def _load_profile_with_provenance(
         f"Profile {name!r} not found in {project_profile_dir(project_root)} "
         f"or package hepflow.profiles"
     )
+
+
+def _load_qualified_package_profile(
+    name: str,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    package_name, profile_name = name.split(":", 1)
+    if not package_name or not profile_name:
+        raise ValueError(
+            f"Invalid qualified profile name {name!r}; expected package:profile"
+        )
+    if "/" in profile_name or "\\" in profile_name or profile_name in {".", ".."}:
+        raise ValueError(f"Invalid profile name: {profile_name!r}")
+
+    package = f"{package_name}.profiles"
+    filename = f"{profile_name}.yaml"
+    try:
+        package_resource = resources.files(package).joinpath(filename)
+    except ModuleNotFoundError as exc:
+        raise FileNotFoundError(
+            f"Profile package {package!r} not found while loading {name!r}"
+        ) from exc
+
+    if not package_resource.is_file():
+        raise FileNotFoundError(f"Profile {name!r} not found at package:{package}/{filename}")
+
+    loaded = yaml.safe_load(package_resource.read_text(encoding="utf-8")) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Profile {name!r} must contain a YAML mapping")
+    return loaded, {"path": f"package:{package}/{filename}"}

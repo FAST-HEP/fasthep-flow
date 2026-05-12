@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from importlib import resources
+from importlib.resources.abc import Traversable
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import networkx as nx
 
@@ -11,6 +14,11 @@ from hepflow.compiler.includes import load_author_with_includes
 from hepflow.compiler.lower_graph import lower_author_to_graph
 from hepflow.compiler.normalize import normalize_author
 from hepflow.compiler.plan import build_execution_plan
+from hepflow.compiler.plan_diff import (
+    diff_plans,
+    format_plan_diff,
+    load_plan_yaml,
+)
 from hepflow.compiler.profiles import (
     load_profile_config_with_provenance,
     load_profile_registry_layer,
@@ -36,6 +44,7 @@ from hepflow.registry.merge import (
 from hepflow.utils import read_yaml, write_yaml
 
 __all__ = [
+    "InitResult",
     "normalise_author_file",
     "normalize_author_file",
     "make_plan_file",
@@ -43,11 +52,66 @@ __all__ = [
     "load_plan_file",
     "run_plan_file",
     "run_author_file",
+    "init_project",
+    "diff_plan_files",
 ]
+
+
+@dataclass(slots=True)
+class InitResult:
+    profile_dir: Path
+    created_profile_dir: bool
+    copied: list[Path] = field(default_factory=list)
+    skipped_existing: list[Path] = field(default_factory=list)
+    overwritten: list[Path] = field(default_factory=list)
+
+    @property
+    def written(self) -> list[Path]:
+        return [*self.copied, *self.overwritten]
+
+    def __iter__(self):
+        return iter(self.written)
+
+    def __len__(self) -> int:
+        return len(self.written)
+
+    def __contains__(self, path: object) -> bool:
+        return path in self.written
 
 
 def load_author_yaml(path: str | Path) -> dict[str, Any]:
     return load_author_with_includes(str(path)).doc
+
+
+def init_project(
+    *,
+    target_dir: str | Path,
+    force: bool = False,
+) -> InitResult:
+    """Create project-local profile templates from bundled flow profiles."""
+    project_dir = Path(target_dir)
+    profile_dir = project_dir / ".hepflow" / "profiles"
+    created_profile_dir = not profile_dir.exists()
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
+    result = InitResult(
+        profile_dir=profile_dir,
+        created_profile_dir=created_profile_dir,
+    )
+    for relative_path, source in _packaged_profile_files():
+        destination = profile_dir / relative_path
+        exists = destination.exists()
+        if exists and not force:
+            result.skipped_existing.append(destination)
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(source.read_bytes())
+        if exists:
+            result.overwritten.append(destination)
+        else:
+            result.copied.append(destination)
+
+    return result
 
 
 def normalise_author_file(
@@ -238,6 +302,39 @@ def run_author_file(
         scheduler=scheduler,
         workers=workers,
     )
+
+
+def diff_plan_files(
+    old_plan: str | Path,
+    new_plan: str | Path,
+) -> tuple[str, bool]:
+    """Return a formatted structural diff and equality flag for two plan files."""
+    report = diff_plans(
+        load_plan_yaml(old_plan),
+        load_plan_yaml(new_plan),
+    )
+    return format_plan_diff(report), report.equal
+
+
+def _packaged_profile_files() -> Iterable[tuple[Path, Traversable]]:
+    profiles_root = resources.files("hepflow.profiles")
+
+    def walk(
+        node: Traversable,
+        relative_to_root: Path,
+    ) -> Iterable[tuple[Path, Traversable]]:
+        for child in node.iterdir():
+            if child.name == "__pycache__":
+                continue
+            child_relative = relative_to_root / child.name
+            if child.is_dir():
+                yield from walk(child, child_relative)
+                continue
+            if child.name == "__init__.py":
+                continue
+            yield child_relative, child
+
+    yield from walk(profiles_root, Path())
 
 
 def _runtime_execution_with_overrides(

@@ -1,13 +1,28 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "fasthep-flow"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Dependency-light FAST-HEP graph workflow core."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
+authors = [
+    { name = "FAST-HEP contributors" },
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+]
 dependencies = [
     "networkx",
     "numpy",
@@ -26,11 +41,69 @@ test = [
     "pytest",
 ]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.hatch.version]
+source = "vcs"
 
-[tool.setuptools]
-package-dir = {"" = "src"}
+[tool.hatch.version.raw-options]
+fallback_version = "0.0.0"
 
-[tool.setuptools.package-data]
-"hepflow.profiles" = ["**/*.yaml"]
+[tool.hatch.build.hooks.vcs]
+version-file = "src/hepflow/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hepflow"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/hepflow",
+    "README.md",
+    "pyproject.toml",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",
+    "B",
+    "I",
+    "ARG",
+    "C4",
+    "EM",
+    "ICN",
+    "ISC",
+    "G",
+    "PGH",
+    "PIE",
+    "PL",
+    "PT",
+    "PTH",
+    "RET",
+    "RUF",
+    "SIM",
+    "T20",
+    "UP",
+    "YTT",
+]
+ignore = [
+    "E501",
+    "PLR",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["T20", "ARG"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = [
+    "-ra",
+    "--showlocals",
+    "--strict-markers",
+    "--strict-config",
+]
+xfail_strict = true
+filterwarnings = ["error"]
+testpaths = ["tests"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -83,6 +84,22 @@ def _run_writer_like_sink(
             ctx=dict(ctx or {}),
             meta=dict(meta or {}),
         )
+    if "output_path" not in impl_params and (
+        "out" in impl_params or "spec" in impl_params
+    ):
+        output_path, output_dir = _derive_artifact_output_paths(
+            impl_params,
+            ctx=dict(ctx or {}),
+            meta=dict(meta or {}),
+        )
+        impl_params["output_path"] = output_path
+        impl_params["output_dir"] = output_dir
+
+    signature = inspect.signature(impl)
+    if "ctx" in signature.parameters:
+        impl_params["ctx"] = dict(ctx or {})
+    if "meta" in signature.parameters:
+        impl_params["meta"] = dict(meta or {})
 
     return impl(target=target, **impl_params)
 
@@ -125,6 +142,29 @@ def _resolve_writer_paths_for_context(
     resolved = dict(params)
     resolved["path"] = str(path)
     return resolved
+
+
+def _derive_artifact_output_paths(
+    params: dict[str, Any],
+    *,
+    ctx: dict[str, Any],
+    meta: dict[str, Any],
+) -> tuple[str, str]:
+    spec = dict(params.get("spec") or {})
+    out = (
+        params.get("out")
+        or spec.get("out")
+        or meta.get("stage_id")
+        or meta.get("node_id")
+        or "artifact"
+    )
+    out_path = Path(str(out))
+    if not out_path.suffix:
+        out_path = out_path.with_suffix(".png")
+    if not out_path.is_absolute():
+        out_path = Path(ctx.get("outdir") or ".") / "artifacts" / out_path
+    output_dir = out_path.with_suffix("")
+    return str(out_path), str(output_dir)
 
 
 def run_observer(
