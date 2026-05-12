@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fasthep-flow"
+version = "0.1.0"
+description = "Dependency-light FAST-HEP graph workflow core."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "networkx",
+    "numpy",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+local = [
+    "awkward",
+    "uproot",
+]
+dask-local = [
+    "dask[complete]",
+]
+test = [
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+"hepflow.profiles" = ["**/*.yaml"]

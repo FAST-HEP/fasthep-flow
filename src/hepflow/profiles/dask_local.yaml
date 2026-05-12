@@ -1,0 +1,10 @@
+execution:
+  backend: dask
+  strategy: local
+  config:
+    scheduler: distributed
+    n_workers: 4
+    threads_per_worker: 1
+    processes: true
+    memory_limit: 4GB
+    dashboard_address: ":8787"

@@ -1,0 +1,20 @@
+registry:
+  functions:
+    sqrt: numpy:sqrt
+    abs: numpy:abs
+    log: numpy:log
+    log10: numpy:log10
+    exp: numpy:exp
+    where: numpy:where
+  constants: {}
+  sources: {}
+  transforms: {}
+  observers: {}
+  sinks: {}
+  renderers: {}
+  backends:
+    local.default:
+      impl: hepflow.backends.local:LocalBackend
+    dask.local:
+      impl: hepflow.backends.dask_local:DaskLocalBackend
+  hooks: {}
