@@ -12,6 +12,7 @@ a local machine or on a cluster using
 :hidden: true
 global_settings.md
 register.md
+products.md
 environments.md
 variations.md
 ```

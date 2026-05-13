@@ -1,0 +1,22 @@
+tasks:
+  - name: root_data
+    type: "fasthep_flow.io.Uproot5Import"
+    plugins:
+      - name: "fasthep_flow.plugins.curator"
+        with:
+          configs:
+            - "tests/data/single_tree_data.yaml"
+    kwargs:
+      branches:
+        - "MET_pt"
+        - "MET_phi"
+  - name: printMET
+    type: "fasthep_flow.operators.ProcessOperator"
+    kwargs:
+      data_key: "root_data"
+      process_with:
+        type: "fasthep_flow.operators.PythonOperator"
+        kwargs:
+          python_callable: "print"
+    needs:
+      - "root_data"

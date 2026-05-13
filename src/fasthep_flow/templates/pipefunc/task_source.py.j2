@@ -1,0 +1,20 @@
+from pipefunc import Pipeline, pipefunc
+
+from typing import Any
+
+{{ dynamic_imports }}
+
+{% for task_name, source in task_sources.items() %}
+@pipefunc(output_name="{{ task_name }}")
+def {{task_name}}() -> dict[str, Any]:
+    {{ source }}
+
+{% endfor %}
+
+
+pipeline = Pipeline(
+    list(task_sources.keys()),  # list of task names
+    debug=True,  # optionally print debug information
+    profile=True,  # optionally profile the pipeline
+    cache_type="hybrid",  # optionally cache the pipeline
+)
