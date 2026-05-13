@@ -14,9 +14,24 @@ ruff = "*"
 mypy = "*"
 pre-commit = "*"
 codespell = "*"
+twine = "*"
 
 [pypi-dependencies]
 fasthep-flow = { path = ".", editable = true }
+
+[environments]
+py311 = ["py311"]
+py313 = ["py313"]
+py314 = ["py314"]
+
+[feature.py311.dependencies]
+python = "3.11.*"
+
+[feature.py313.dependencies]
+python = "3.13.*"
+
+[feature.py314.dependencies]
+python = "3.14.*"
 
 [tasks]
 format = "ruff format src tests"
@@ -27,3 +42,4 @@ test = "pytest"
 build = "python -m build"
 check = { depends-on = ["lint", "typecheck", "test"] }
 ci = { depends-on = ["check", "build"] }
+check-dist = "twine check dist/*"

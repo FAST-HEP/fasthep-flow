@@ -1,0 +1,54 @@
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/London"
+
+    open-pull-requests-limit: 3
+
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:30"
+      timezone: "Europe/London"
+
+    groups:
+      dev-tools:
+        dependency-type: "development"
+        patterns:
+          - "ruff"
+          - "mypy"
+          - "pytest"
+          - "pre-commit"
+          - "build"
+
+    open-pull-requests-limit: 3
+
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+
+    labels:
+      - "dependencies"
+      - "python"
+
+    cooldown:
+      semver-major-days: 30
+      semver-minor-days: 14
+      semver-patch-days: 7
