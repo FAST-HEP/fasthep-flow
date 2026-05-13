@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
-from hashlib import sha256
 import os
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Any
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,7 @@ class FileSchema:
         }
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "FileSchema":
+    def from_dict(d: dict[str, Any]) -> FileSchema:
         return FileSchema(
             version=int(d["version"]),
             dataset=str(d["dataset"]),
@@ -107,7 +107,7 @@ def make_schema_signature(
 
 
 def _unix_to_iso(ts: float) -> str:
-    return datetime.fromtimestamp(ts, timezone.utc).isoformat()
+    return datetime.fromtimestamp(ts, UTC).isoformat()
 
 def make_file_schema(
     *,

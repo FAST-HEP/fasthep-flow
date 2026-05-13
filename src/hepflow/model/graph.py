@@ -5,7 +5,6 @@ from typing import Any, Literal
 
 import networkx as nx
 
-
 Role = Literal["source", "transform", "observer", "sink"]
 
 @dataclass(slots=True)

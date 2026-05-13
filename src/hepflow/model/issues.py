@@ -1,6 +1,7 @@
 from __future__ import annotations
-from dataclasses import dataclass
+
 import enum
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -37,7 +38,7 @@ class FlowIssue:
         }
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "FlowIssue":
+    def from_dict(d: dict[str, Any]) -> FlowIssue:
         return FlowIssue(
             code=str(d["code"]),
             message=str(d["message"]),

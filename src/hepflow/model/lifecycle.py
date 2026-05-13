@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 VALID_LIFECYCLE_EVENTS = {
     "partition_start",
     "partition_end",

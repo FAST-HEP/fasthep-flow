@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .defaults import (
     DEFAULT_DATASET_EVENTTYPE,
+    DEFAULT_JOIN_ON_MISMATCH,
     DEFAULT_ROOT_TREE,
     DEFAULT_STREAM_TYPE,
-    DEFAULT_JOIN_ON_MISMATCH,
 )
 
 
@@ -18,10 +18,10 @@ def _nonempty_str(x: Any, where: str) -> str:
     return x.strip()
 
 
-def _list_of_str(x: Any, where: str) -> List[str]:
+def _list_of_str(x: Any, where: str) -> list[str]:
     if not isinstance(x, list) or not x:
         raise ValueError(f"{where} must be a non-empty list")
-    out: List[str] = []
+    out: list[str] = []
     for i, v in enumerate(x):
         if not isinstance(v, str) or not v.strip():
             raise ValueError(f"{where}[{i}] must be a non-empty string")
@@ -32,11 +32,11 @@ def _list_of_str(x: Any, where: str) -> List[str]:
 @dataclass(frozen=True)
 class DatasetSpec:
     name: str
-    files: List[str]
-    nevents: Optional[str] = None
+    files: list[str]
+    nevents: str | None = None
     eventtype: str = DEFAULT_DATASET_EVENTTYPE
-    group: Optional[str] = None
-    meta: Dict[str, Any] = field(default_factory=dict)
+    group: str | None = None
+    meta: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", _nonempty_str(self.name, "dataset.name"))
@@ -59,14 +59,14 @@ class DatasetSpec:
         if not isinstance(self.meta, dict):
             raise ValueError(f"dataset[{self.name}].meta must be a mapping")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 @dataclass(frozen=True)
 class DataBlock:
-    defaults: Dict[str, Any] = field(default_factory=dict)
-    datasets: List[DatasetSpec] = field(default_factory=list)
+    defaults: dict[str, Any] = field(default_factory=dict)
+    datasets: list[DatasetSpec] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not isinstance(self.defaults, dict):
@@ -77,10 +77,9 @@ class DataBlock:
             # you can decide if empty datasets is allowed; normalization currently allows it
             pass
 
-    def to_dict(self) -> Dict[str, Any]:
-        d = asdict(self)
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
         # dataclasses will already convert DatasetSpec -> dict
-        return d
 
 
 @dataclass(frozen=True)
@@ -99,7 +98,7 @@ class RootTreeSourceSpec:
             self, "stream_type", _nonempty_str(self.stream_type, "source.stream_type")
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -116,13 +115,13 @@ class JoinInputSpec:
             self, "prefix", _nonempty_str(self.prefix, "join.inputs[].prefix")
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 @dataclass(frozen=True)
 class ZipJoinSpec:
-    inputs: List[JoinInputSpec]
+    inputs: list[JoinInputSpec]
     on_mismatch: str = DEFAULT_JOIN_ON_MISMATCH
     kind: str = "zip"
 
@@ -139,7 +138,7 @@ class ZipJoinSpec:
             self, "on_mismatch", _nonempty_str(self.on_mismatch, "join.on_mismatch")
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -156,7 +155,7 @@ class FieldSpec:
             self, "branch", _nonempty_str(self.branch, "fields.*.branch")
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -164,15 +163,15 @@ class FieldSpec:
 class NormalizedAuthor:
     version: str
     data: DataBlock
-    sources: Dict[str, RootTreeSourceSpec] = field(default_factory=dict)
-    joins: Dict[str, ZipJoinSpec] = field(default_factory=dict)
-    styles: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    fields: Dict[str, FieldSpec] = field(default_factory=dict)
-    observers: List[Dict[str, Any]] = field(default_factory=list)
-    analysis: Dict[str, Any] = field(default_factory=dict)
-    primary_stream: Optional[str] = None
-    use: Dict[str, Any] = field(default_factory=dict)
-    execution: Dict[str, Any] = field(default_factory=dict)
+    sources: dict[str, RootTreeSourceSpec] = field(default_factory=dict)
+    joins: dict[str, ZipJoinSpec] = field(default_factory=dict)
+    styles: dict[str, dict[str, Any]] = field(default_factory=dict)
+    fields: dict[str, FieldSpec] = field(default_factory=dict)
+    observers: list[dict[str, Any]] = field(default_factory=list)
+    analysis: dict[str, Any] = field(default_factory=dict)
+    primary_stream: str | None = None
+    use: dict[str, Any] = field(default_factory=dict)
+    execution: dict[str, Any] = field(default_factory=dict)
     registry: dict[str, Any] = None
 
     def __post_init__(self) -> None:
@@ -205,14 +204,13 @@ class NormalizedAuthor:
             if not isinstance(observer, dict):
                 raise ValueError(f"observers[{idx}] must be a mapping")
 
-    def to_dict(self) -> Dict[str, Any]:
-        out = asdict(self)
-        return out
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 # --- helpers used by normalize.py ---
 
 
-def inject_default_events_source(data_defaults: Dict[str, Any]) -> RootTreeSourceSpec:
+def inject_default_events_source(data_defaults: dict[str, Any]) -> RootTreeSourceSpec:
     tree = str(data_defaults.get("tree_primary", DEFAULT_ROOT_TREE))
     return RootTreeSourceSpec(tree=tree, stream_type=DEFAULT_STREAM_TYPE)

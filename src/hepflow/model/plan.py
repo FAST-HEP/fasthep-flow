@@ -1,13 +1,13 @@
 # hepflow/model/plan.py
 from __future__ import annotations
-from dataclasses import dataclass, field, asdict
 
 import os
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal
 
 from hepflow.model.defaults import (
-    DEFAULT_WORK_DIR,
     DEFAULT_RESULTS_DIR,
+    DEFAULT_WORK_DIR,
 )
 from hepflow.model.deps import RequiredInput
 from hepflow.model.ir import InputRef
@@ -21,11 +21,11 @@ class Paths:
     results: str = DEFAULT_RESULTS_DIR
 
     def resolve(
-        self, *, base_dir: Optional[str] = None
-    ) -> Tuple["Paths", Dict[str, Any]]:
-        report: Dict[str, Any] = {"changed": False, "notes": []}
+        self, *, base_dir: str | None = None
+    ) -> tuple[Paths, dict[str, Any]]:
+        report: dict[str, Any] = {"changed": False, "notes": []}
 
-        def _abs(p: str, *, rel_to: Optional[str]) -> str:
+        def _abs(p: str, *, rel_to: str | None) -> str:
             if os.path.isabs(p):
                 return os.path.normpath(p)
             root = rel_to or os.getcwd()
@@ -76,19 +76,19 @@ class Paths:
 
         return Paths(work=work_abs, results=results_abs), report
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 @dataclass(frozen=True)
 class DatasetEntry:
-    files: List[str]
+    files: list[str]
     nevents: int
     eventtype: str = "mc"
     group: str = ""
-    meta: Dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -100,7 +100,7 @@ class Partition:
     start: int
     stop: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -111,10 +111,10 @@ class ProductPlan:
     ext: str  # "pkl" | "json"
     ir_node: str
     ir_port: str
-    map: Dict[str, Any]
-    reduce: Dict[str, Any]
+    map: dict[str, Any]
+    reduce: dict[str, Any]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -122,12 +122,12 @@ class ProductPlan:
 class RenderPlan:
     id: str
     when: str
-    input: Dict[str, Any]
+    input: dict[str, Any]
     output: str
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
     op: str = "hep.render.plot"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -183,32 +183,32 @@ class Plan:
     version: str = "2.1"
     paths: Paths = field(default_factory=Paths)
 
-    datasets: Dict[str, DatasetEntry] = field(default_factory=dict)
-    partitions: List[Partition] = field(default_factory=list)
+    datasets: dict[str, DatasetEntry] = field(default_factory=dict)
+    partitions: list[Partition] = field(default_factory=list)
 
     primary_stream: str = "events"
-    streams: Dict[str, Any] = field(default_factory=dict)
+    streams: dict[str, Any] = field(default_factory=dict)
 
     # required_inputs comes from Deps (stream_id -> RequiredInput dict)
-    required_inputs: Dict[str, RequiredInput] = field(default_factory=dict)
+    required_inputs: dict[str, RequiredInput] = field(default_factory=dict)
 
     exec_graph: tuple[ExecNode, ...] = field(default_factory=tuple)
     deps: PlanDeps = field(default_factory=PlanDeps)
 
-    products: List[ProductPlan] = field(default_factory=list)
-    renders: List[RenderPlan] = field(default_factory=list)
+    products: list[ProductPlan] = field(default_factory=list)
+    renders: list[RenderPlan] = field(default_factory=list)
 
     # Optional debug helpers (cheap, but helpful)
-    fieldmap: Dict[str, Any] = field(default_factory=dict)
+    fieldmap: dict[str, Any] = field(default_factory=dict)
 
     reports: dict[str, Any] = field(default_factory=dict)
 
-    globals: Dict[str, Any] = field(default_factory=dict)
+    globals: dict[str, Any] = field(default_factory=dict)
 
-    registry: Dict[str, Any] = field(default_factory=dict)
+    registry: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = asdict(self)
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = asdict(self)
 
         # Override pieces where asdict() loses our desired structure/types:
         d["required_inputs"] = {
@@ -304,7 +304,7 @@ class ExecutionNode:
 class ExecutionPlan:
     nodes: list[ExecutionNode] = field(default_factory=list)
     node_index: dict[str, ExecutionNode] = field(default_factory=dict)
-    partitions: list["ExecutionPartition"] = field(default_factory=list)
+    partitions: list[ExecutionPartition] = field(default_factory=list)
     context: dict[str, Any] = field(default_factory=dict)
     registry: dict[str, Any] = field(default_factory=dict)
     provenance: dict[str, Any] = field(default_factory=dict)

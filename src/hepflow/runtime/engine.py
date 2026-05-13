@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
+
 import networkx as nx
 
 from hepflow.model.defaults import DEFAULT_PRIMARY_STREAM_ID
 from hepflow.model.graph import get_graph_node, upstream_binding
+from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.model.plan import (
     ExecutionNode,
     ExecutionPartition,
@@ -19,7 +21,6 @@ from hepflow.registry.loaders import (
 from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.handlers import run_observer, run_sink, run_source, run_transform
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
-from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.runtime.merge import merge_hists
 from hepflow.runtime.stream_readers import read_stream
 
@@ -67,11 +68,11 @@ def resolve_runtime_op_handler(runtime_registry: RuntimeRegistry, op: str):
 
 def compute_product_partition(
     *,
-    plan: Dict[str, Any],
-    op_registry: Dict[str, Any],  # unused for now
+    plan: dict[str, Any],
+    op_registry: dict[str, Any],  # unused for now
     product_node_id: str,
     product_port: str,  # e.g. "hist" or "cutflow"
-    partition: Dict[str, Any],  # {dataset,file,part,start,stop}
+    partition: dict[str, Any],  # {dataset,file,part,start,stop}
     expr_registry,
 ) -> Any:
     """
@@ -95,7 +96,7 @@ def compute_product_partition(
     ds_cfg = dict((plan.get("datasets") or {}).get(dataset) or {})
     ds_meta_extra = dict(ds_cfg.get("meta") or {})
 
-    dataset_meta: Dict[str, Any] = {
+    dataset_meta: dict[str, Any] = {
         "name": dataset,
         "group": ds_cfg.get("group"),
         "nevents": ds_cfg.get("nevents"),
@@ -105,7 +106,7 @@ def compute_product_partition(
 
     globals_block = dict(plan.get("globals") or {})
 
-    ctx: Dict[str, Any] = {
+    ctx: dict[str, Any] = {
         "dataset_name": dataset,
         "dataset": dataset,
         "file": file_path,
@@ -130,10 +131,10 @@ def compute_product_partition(
     ctx["dataset_is_data"] = str(dataset_meta.get("eventtype", "")).lower() == "data"
 
     # Cache loaded streams for this partition (avoid re-reading the same tree)
-    stream_cache: Dict[str, Any] = {}
+    stream_cache: dict[str, Any] = {}
 
     # All produced node outputs for this partition: (node_id, port) -> value
-    produced: Dict[tuple[str, str], Any] = {}
+    produced: dict[tuple[str, str], Any] = {}
 
     found_product: Any = None
 
@@ -145,7 +146,7 @@ def compute_product_partition(
         nid = node["id"]
         op = node["op"]
         params = node.get("params", {}) or {}
-        data: Dict[str, Any] = {}  # Build runtime inputs dict for this node
+        data: dict[str, Any] = {}  # Build runtime inputs dict for this node
         upstream_events = None
 
         is_render = str(op).startswith("hep.render.")
@@ -239,7 +240,7 @@ def compute_product_partition(
             if keyp not in produced:
                 raise KeyError(
                     f"Node '{nid}' did not produce requested port '{product_port}'. "
-                    f"Produced ports: {sorted(k[1] for k in produced.keys() if k[0] == nid)}"
+                    f"Produced ports: {sorted(k[1] for k in produced if k[0] == nid)}"
                 )
             found_product = produced[keyp]
 
@@ -330,7 +331,7 @@ def eval_expr(
     try:
         return eval(expr, {"__builtins__": {}}, scope)
     except NameError as exc:
-        symbols = sorted(str(k) for k in scope.keys())
+        symbols = sorted(str(k) for k in scope)
         shown = symbols[:50]
         suffix = " ..." if len(symbols) > 50 else ""
         raise NameError(
@@ -529,7 +530,9 @@ def execute_plan_partition(
             if node.role == "source":
                 with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
                     hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
-                    params = _resolve_source_params(node.params, plan=plan, plan_ctx=ctx)
+                    params = _resolve_source_params(
+                        node.params, plan=plan, plan_ctx=ctx
+                    )
                     result = run_source(
                         source_name=node.impl,
                         params=params,
@@ -638,10 +641,7 @@ def _dispatch_node_error(
     exc: BaseException,
 ) -> None:
     if not hook_manager.has_event("on_node_error"):
-        print(
-            f"Runtime error in node {node.id}: "
-            f"{type(exc).__name__}: {exc}"
-        )
+        print(f"Runtime error in node {node.id}: {type(exc).__name__}: {exc}")
         return
     try:
         hook_manager.on_node_error(node=node, inputs=inputs, ctx=ctx, exc=exc)
@@ -836,7 +836,7 @@ def group_partition_results_by_dataset(
     partitions: list[ExecutionPartition],
 ) -> dict[str, list[dict[tuple[str, str], Any]]]:
     grouped: dict[str, list[dict[tuple[str, str], Any]]] = {}
-    for result, partition in zip(partition_results, partitions):
+    for result, partition in zip(partition_results, partitions, strict=False):
         grouped.setdefault(partition.dataset, []).append(result)
     return grouped
 

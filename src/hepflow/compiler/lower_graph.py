@@ -5,13 +5,13 @@ from typing import Any
 
 import networkx as nx
 
-from hepflow.model.graph import GraphNode, add_graph_edge, add_graph_node, new_graph
 from hepflow.compiler.styles import (
     collect_styles,
     deep_merge,
     resolve_style_ref,
     resolve_style_tree,
 )
+from hepflow.model.graph import GraphNode, add_graph_edge, add_graph_node, new_graph
 from hepflow.model.lifecycle import normalize_lifecycle_event
 
 

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, Set
+from typing import Any
 
 from .symbols import symbols_from_expression, symbols_from_expression_or_name
 
@@ -10,24 +11,24 @@ class ParserError(ValueError):
     pass
 
 
-ParserFn = Callable[[Any], Set[str]]
+ParserFn = Callable[[Any], set[str]]
 
 
-def _parse_expr(value: Any) -> Set[str]:
+def _parse_expr(value: Any) -> set[str]:
     if not isinstance(value, str):
         value = str(value)
     syms, _ = symbols_from_expression(value)
     return syms
 
 
-def _parse_expr_or_name(value: Any) -> Set[str]:
+def _parse_expr_or_name(value: Any) -> set[str]:
     if not isinstance(value, str):
         value = str(value)
     return symbols_from_expression_or_name(value)
 
 
-def _walk_and_parse_strings(value: Any, *, leaf_parser: ParserFn) -> Set[str]:
-    out: Set[str] = set()
+def _walk_and_parse_strings(value: Any, *, leaf_parser: ParserFn) -> set[str]:
+    out: set[str] = set()
 
     if value is None:
         return out
@@ -54,7 +55,7 @@ def _walk_and_parse_strings(value: Any, *, leaf_parser: ParserFn) -> Set[str]:
     return out
 
 
-def _parse_walk_expr(value: Any) -> Set[str]:
+def _parse_walk_expr(value: Any) -> set[str]:
     return _walk_and_parse_strings(value, leaf_parser=_parse_expr)
 
 
@@ -63,9 +64,9 @@ class ParserBundle:
     """
     Registry of parsers used by OpSpec RequireParse/ProvideParse rules.
     """
-    parsers: Dict[str, ParserFn]
+    parsers: dict[str, ParserFn]
 
-    def extract_symbols(self, parser: str, value: Any) -> Set[str]:
+    def extract_symbols(self, parser: str, value: Any) -> set[str]:
         fn = self.parsers.get(parser)
         if fn is None:
             raise ParserError(f"No parser registered: {parser!r}")

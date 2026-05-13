@@ -1,24 +1,27 @@
-from dataclasses import asdict, is_dataclass
+from __future__ import annotations
+
 import json
-import yaml
-from typing import Any, Dict
-import pickle
 import os
-from datetime import datetime, timezone
+import pickle
+from dataclasses import asdict, is_dataclass
+from datetime import UTC, datetime
+from typing import Any
+
+import yaml
 
 
 def now_iso():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
-def write_json(obj: Dict[str, Any], path: str) -> str:
+def write_json(obj: dict[str, Any], path: str) -> str:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         json.dump(obj, f, indent=2, sort_keys=True)
     return path
 
 
-def read_json(path: str) -> Dict[str, Any]:
+def read_json(path: str) -> dict[str, Any]:
     with open(path) as f:
         return json.load(f)
 
@@ -35,12 +38,12 @@ def read_pickle(path: str) -> Any:
         return pickle.load(f)
 
 
-def read_yaml(path: str) -> Dict[str, Any]:
-    with open(path, "r") as f:
+def read_yaml(path: str) -> dict[str, Any]:
+    with open(path) as f:
         return yaml.safe_load(f)
 
 
-def write_yaml(obj: Dict[str, Any], path: str) -> None:
+def write_yaml(obj: dict[str, Any], path: str) -> None:
     with open(path, "w") as f:
         yaml.safe_dump(obj, f, sort_keys=False)
 
@@ -56,8 +59,9 @@ def ensure_dir(path: str) -> None:
 
 def rss_mb() -> float:
     try:
-        import psutil
         import os
+
+        import psutil
 
         return psutil.Process(os.getpid()).memory_info().rss / (1024**2)
     except Exception:

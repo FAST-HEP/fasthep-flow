@@ -1,8 +1,17 @@
+from __future__ import annotations
+
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from hepflow.model.issues import FlowIssue
-from hepflow.model.render import FigureSpec, AxesSpec, LegendSpec, StyleSpec, TransformSpec
+from hepflow.model.render import (
+    AxesSpec,
+    FigureSpec,
+    LegendSpec,
+    StyleSpec,
+    TransformSpec,
+)
 
 
 @dataclass(frozen=True)
@@ -16,7 +25,7 @@ class RenderCommonSpec:
     extensions: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
-    def from_dict(d: dict[str, Any] | None) -> "RenderCommonSpec":
+    def from_dict(d: dict[str, Any] | None) -> RenderCommonSpec:
         d = dict(d or {})
         return RenderCommonSpec(
             figure=FigureSpec(**(d.get("figure") or {})),

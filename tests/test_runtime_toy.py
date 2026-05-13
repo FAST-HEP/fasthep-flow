@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import yaml
+
 from hepflow.api import compile_author_file, run_plan_file
 
 
@@ -45,7 +47,6 @@ def test_partition_dataset_and_run_end_sink_timing(
     ]
 
     author_path = tmp_path / "author.yaml"
-    import yaml
 
     author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
     build_dir = tmp_path / "build"

@@ -15,7 +15,7 @@ class RuntimeComponentSpec:
     dependencies: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_obj(cls, obj: Any) -> "RuntimeComponentSpec":
+    def from_obj(cls, obj: Any) -> RuntimeComponentSpec:
         if isinstance(obj, cls):
             return obj
         if not isinstance(obj, dict):

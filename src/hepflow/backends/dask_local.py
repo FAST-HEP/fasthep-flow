@@ -13,8 +13,8 @@ from hepflow.runtime.engine import (
     execute_final_nodes,
     execute_plan_partition,
     group_partition_results_by_dataset,
-    merge_partition_value_stores_for_dataset,
     merge_partition_value_stores,
+    merge_partition_value_stores_for_dataset,
 )
 from hepflow.runtime.hooks.manager import HookManager
 
@@ -38,7 +38,7 @@ class DaskLocalBackend:
     ) -> BackendResult:
         from dask import compute, delayed
 
-        config = dict((plan.execution.get("config") or {}))
+        config = dict(plan.execution.get("config") or {})
         scheduler = str(config.get("scheduler") or "threads")
         n_workers = config.get("n_workers", config.get("workers"))
         if n_workers is not None:
@@ -186,10 +186,7 @@ def _compute_distributed(
     from distributed import Client, LocalCluster
 
     if local_directory is None:
-        if outdir:
-            local_directory = str(Path(outdir) / "dask")
-        else:
-            local_directory = ".dask"
+        local_directory = str(Path(outdir) / "dask") if outdir else ".dask"
     Path(str(local_directory)).mkdir(parents=True, exist_ok=True)
 
     cluster = LocalCluster(

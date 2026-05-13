@@ -70,7 +70,7 @@ def load_author_with_includes(
             )
 
         if path_abs in visiting:
-            cycle = visiting[visiting.index(path_abs):] + [path_abs]
+            cycle = [*visiting[visiting.index(path_abs):], path_abs]
             raise ValueError(f"include cycle detected: {cycle}")
 
         visiting.append(path_abs)

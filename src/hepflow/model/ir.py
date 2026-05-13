@@ -1,5 +1,6 @@
 # hepflow/model/ir.py
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -32,9 +33,9 @@ class InputRef:
         if self.as_:
             d["as"] = self.as_
         return d
-    
+
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "InputRef":
+    def from_dict(d: dict[str, Any]) -> InputRef:
         d = dict(d)
         if "as" in d:
             d["as_"] = d.pop("as")

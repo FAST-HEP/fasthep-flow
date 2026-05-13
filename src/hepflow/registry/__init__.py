@@ -1,5 +1,7 @@
-from hepflow.registry.expr import ExprRegistry
+from __future__ import annotations
+
 from hepflow.registry.defaults import default_expr_registry
+from hepflow.registry.expr import ExprRegistry
 from hepflow.registry.loaders import expr_registry_from_config, load_object
 
 __all__ = [

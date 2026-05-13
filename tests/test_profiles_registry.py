@@ -30,7 +30,7 @@ def test_registry_entries_merge_and_load_objects(toy_registry: dict[str, object]
 
 
 def test_missing_registry_item_errors_clearly(toy_registry: dict[str, object]) -> None:
-    with pytest.raises(KeyError, match="Unknown runtime registry entry 'toy.missing'"):
+    with pytest.raises(KeyError, match=r"Unknown runtime registry entry 'toy.missing'"):
         load_runtime_spec_and_impl(toy_registry, "transforms", "toy.missing")
 
 

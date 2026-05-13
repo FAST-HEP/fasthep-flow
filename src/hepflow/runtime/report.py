@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import json
 import os
 from typing import Any
+
 from hepflow.model.render import RenderStatus
 from hepflow.model.report import RenderAttempt, RenderExecutionReport
 
@@ -8,7 +11,7 @@ _RENDER_STATUS_SUFFIX = ".render.json"
 
 
 def _load_json(path: str) -> dict[str, Any]:
-    with open(path, "r") as f:
+    with open(path) as f:
         return json.load(f) or {}
 
 

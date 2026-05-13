@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 
-
 PYTHON_CONSTANT_SYMBOLS: set[str] = {
     "False",
     "None",

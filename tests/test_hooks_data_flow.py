@@ -7,6 +7,9 @@ import yaml
 
 from hepflow.api import compile_author_file, run_plan_file
 from hepflow.compiler.data_flow import parse_component_data_dependencies
+from hepflow.compiler.lower_graph import lower_author_to_graph
+from hepflow.compiler.normalize import normalize_author
+from hepflow.compiler.plan import build_execution_plan
 from hepflow.model.data_flow import DataDependencyResult
 from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.registry.loaders import load_object
@@ -80,7 +83,10 @@ def test_hook_context_outputs_are_visible_to_data_flow(
     plan = compile_author_file(author_path, outdir=tmp_path / "build")
 
     assert "events" not in plan.data_flow["required_sources"]
-    assert "toy_context" in plan.data_flow["origins"] or "from_context" in plan.data_flow["origins"]
+    assert (
+        "toy_context" in plan.data_flow["origins"]
+        or "from_context" in plan.data_flow["origins"]
+    )
 
 
 def test_hook_executes_lifecycle_event_and_records_summary(
@@ -100,7 +106,13 @@ def test_hook_executes_lifecycle_event_and_records_summary(
     author["execution_hooks"] = [
         {
             "kind": "toy.context",
-            "events": ["partition_start", "around_node", "before_node", "after_node", "run_end"],
+            "events": [
+                "partition_start",
+                "around_node",
+                "before_node",
+                "after_node",
+                "run_end",
+            ],
             "params": {"value": "from-hook"},
         }
     ]
@@ -133,9 +145,6 @@ def test_invalid_hook_event_raises(toy_author: dict[str, object]) -> None:
 
 
 def compile_author_file_from_dict(author: dict[str, object]):
-    from hepflow.compiler.lower_graph import lower_author_to_graph
-    from hepflow.compiler.normalize import normalize_author
-    from hepflow.compiler.plan import build_execution_plan
 
     normalized = normalize_author(author)
     normalized["execution_hooks"] = author.get("execution_hooks", [])

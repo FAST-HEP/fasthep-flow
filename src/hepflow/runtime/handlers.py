@@ -8,7 +8,6 @@ from hepflow.model.io import OutputResult
 from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.registry.loaders import load_runtime_spec_and_impl
 
-
 EXECUTION_ONLY_SINK_PARAMS = {"when"}
 
 

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, Mapping, Optional, Sequence, Set, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 
 class RoutingError(ValueError):
@@ -10,10 +11,10 @@ class RoutingError(ValueError):
 
 def resolve_branch_ref(
     *,
-    streams: Dict[str, Dict[str, Any]],
+    streams: dict[str, dict[str, Any]],
     stream_id: str,
     branch: str,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """
     Resolve (stream_id, branch) to a *leaf* root_tree stream + branch.
 
@@ -86,7 +87,7 @@ def route_join_branch(
     join_id: str,
     branch: str,
     on_missing_prefix: str = "error",  # "error" | "unresolved"
-) -> Tuple[Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None]:
     """
     Given a virtual join stream `join_id` and a branch like "reco.Jet.eta",
     route it to the leaf stream ("reco", "Jet.eta") based on join inputs prefixes.
@@ -141,9 +142,9 @@ def route_join_branch(
 def route_required_branches_by_stream(
     *,
     streams: Mapping[str, Mapping[str, Any]],
-    required_branches_by_stream: Mapping[str, Set[str]],
+    required_branches_by_stream: Mapping[str, set[str]],
     on_missing_prefix: str = "error",  # "error" | "unresolved"
-) -> Tuple[Dict[str, Set[str]], Set[Tuple[str, str]]]:
+) -> tuple[dict[str, set[str]], set[tuple[str, str]]]:
     """
     Route required branches from potentially-virtual stream ids onto leaf root_tree streams.
 
@@ -155,8 +156,8 @@ def route_required_branches_by_stream(
       (leaf_required, unresolved_pairs)
       where unresolved_pairs contains (stream_id, branch) pairs that could not be routed.
     """
-    leaf_required: Dict[str, Set[str]] = defaultdict(set)
-    unresolved: Set[Tuple[str, str]] = set()
+    leaf_required: dict[str, set[str]] = defaultdict(set)
+    unresolved: set[tuple[str, str]] = set()
 
     for sid, branches in required_branches_by_stream.items():
         kind = (streams.get(sid) or {}).get("kind")
@@ -196,7 +197,7 @@ def route_required_branches_by_stream(
     return dict(leaf_required), unresolved
 
 
-def _join_prefix_map(streams: Dict[str, Dict[str, Any]], join_id: str) -> Dict[str, str]:
+def _join_prefix_map(streams: dict[str, dict[str, Any]], join_id: str) -> dict[str, str]:
     """
     For a join stream like:
       streams["events"] = {"kind":"zip_join","inputs":[{"stream":"l1","prefix":"l1"}, ...]}
@@ -205,7 +206,7 @@ def _join_prefix_map(streams: Dict[str, Dict[str, Any]], join_id: str) -> Dict[s
     s = streams.get(join_id) or {}
     if s.get("kind") != "zip_join":
         return {}
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for inp in s.get("inputs") or []:
         pref = inp.get("prefix")
         sid = inp.get("stream")
@@ -216,9 +217,9 @@ def _join_prefix_map(streams: Dict[str, Dict[str, Any]], join_id: str) -> Dict[s
 
 def rewrite_fieldmap_for_joins(
     *,
-    fieldmap: Dict[str, Dict[str, str]],
-    streams: Dict[str, Dict[str, Any]],
-) -> Dict[str, Dict[str, str]]:
+    fieldmap: dict[str, dict[str, str]],
+    streams: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, str]]:
     """
     Rewrite fieldmap entries that reference a join stream:
       {stream: "events", branch: "l1.L1Upgrade/jetEt"}
@@ -230,7 +231,7 @@ def rewrite_fieldmap_for_joins(
     - Requires branch to start with "<prefix>." where prefix is one of join inputs' prefixes.
     - Leaves non-join fieldmap entries unchanged.
     """
-    out: Dict[str, Dict[str, str]] = {}
+    out: dict[str, dict[str, str]] = {}
 
     for alias, spec in (fieldmap or {}).items():
         if not isinstance(spec, dict):

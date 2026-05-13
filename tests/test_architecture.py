@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 FORBIDDEN_IMPORTS = (
     "fasthep_carpenter",
     "fasthep_curator",

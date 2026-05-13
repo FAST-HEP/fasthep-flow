@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from importlib import resources
 from importlib.resources.abc import Traversable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import networkx as nx
 
@@ -45,15 +46,15 @@ from hepflow.utils import read_yaml, write_yaml
 
 __all__ = [
     "InitResult",
+    "compile_author_file",
+    "diff_plan_files",
+    "init_project",
+    "load_plan_file",
+    "make_plan_file",
     "normalise_author_file",
     "normalize_author_file",
-    "make_plan_file",
-    "compile_author_file",
-    "load_plan_file",
-    "run_plan_file",
     "run_author_file",
-    "init_project",
-    "diff_plan_files",
+    "run_plan_file",
 ]
 
 

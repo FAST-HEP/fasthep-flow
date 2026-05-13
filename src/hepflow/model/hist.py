@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import asdict, dataclass
-from typing import Any, List, Optional
+from typing import Any
 
 from .defaults import DEFAULT_HIST_STORAGE
 
@@ -12,7 +14,7 @@ class HistAxis:
     name: str
     type: str
     source: str
-    bins: Optional[dict[str, Any]] = None
+    bins: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name.strip():
@@ -54,9 +56,9 @@ class HistAxis:
 
 @dataclass(frozen=True)
 class HistParams:
-    axes: List[HistAxis]
+    axes: list[HistAxis]
     storage: str = DEFAULT_HIST_STORAGE
-    weight_expr: Optional[str] = None
+    weight_expr: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.axes, list) or not self.axes:

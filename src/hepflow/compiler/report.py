@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import contextlib
+from typing import Any
 
 from hepflow.model.report import (
     CompileReport,
@@ -11,7 +12,7 @@ from hepflow.model.report import (
 )
 
 
-def _maybe_hepflow_version() -> Optional[str]:
+def _maybe_hepflow_version() -> str | None:
     try:
         import hepflow
         return getattr(hepflow, "__version__", None)
@@ -21,18 +22,18 @@ def _maybe_hepflow_version() -> Optional[str]:
 
 def build_compile_report(
     *,
-    author_path: Optional[str],
+    author_path: str | None,
     work_dir: str,
     results_dir: str,
-    norm: Dict[str, Any],
-    ir: Dict[str, Any],
+    norm: dict[str, Any],
+    ir: dict[str, Any],
     deps: Any,
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     inspection: dict[str, Any] | None = None,
     norm_before_inspection: dict[str, Any] | None = None,
 ) -> CompileReport:
     # streams
-    streams: List[StreamReport] = []
+    streams: list[StreamReport] = []
     for sid, s in (ir.get("streams") or {}).items():
         kind = str(s.get("kind", ""))
         if kind == "root_tree":
@@ -57,7 +58,7 @@ def build_compile_report(
 
     # datasets + nevents source
     norm0 = norm_before_inspection or norm
-    datasets: List[DatasetReport] = []
+    datasets: list[DatasetReport] = []
     norm0_datasets = norm0.get("data", {}).get("datasets") or []
     norm_datasets = norm.get("data", {}).get("datasets") or []
     norm0_by_name = {str(d.get("name")): d for d in norm0_datasets}
@@ -80,11 +81,9 @@ def build_compile_report(
 
         total_entries = None
         if inspection:
-            try:
+            with contextlib.suppress(Exception):
                 total_entries = int(
                     inspection["datasets"][name]["total_entries"])
-            except Exception:
-                pass
 
         datasets.append(
             DatasetReport(
@@ -97,7 +96,7 @@ def build_compile_report(
             )
         )
 
-    required_inputs: Dict[str, Dict[str, Any]] = {}
+    required_inputs: dict[str, dict[str, Any]] = {}
     for sid, ri in getattr(deps, "required_inputs", {}).items():
         required_inputs[sid] = {
             "kind": ri.kind,
@@ -107,7 +106,7 @@ def build_compile_report(
 
     products = tuple(dict(p) for p in (plan.get("products") or []))
 
-    renders: List[RenderReport] = []
+    renders: list[RenderReport] = []
     for r in (plan.get("renders") or []):
         inp = (r.get("input") or {})
         renders.append(
@@ -123,7 +122,7 @@ def build_compile_report(
             )
         )
 
-    msgs: List[ReportMessage] = []
+    msgs: list[ReportMessage] = []
     if getattr(deps, "unresolved_external_symbols", ()):
         msgs.append(
             ReportMessage(

@@ -12,8 +12,8 @@ from hepflow.api import (
     run_plan_file,
 )
 from hepflow.compiler.includes import load_author_with_includes
-from hepflow.compiler.normalize import normalize_author
 from hepflow.compiler.lower_graph import lower_author_to_graph
+from hepflow.compiler.normalize import normalize_author
 
 
 def test_normalize_preserves_generic_toy_source(toy_author: dict[str, object]) -> None:
@@ -23,7 +23,9 @@ def test_normalize_preserves_generic_toy_source(toy_author: dict[str, object]) -
     assert normalized["sources"]["events"]["stream_type"] == "event_stream"
 
 
-def test_include_handling_then_normalization(tmp_path: Path, toy_registry: dict[str, object]) -> None:
+def test_include_handling_then_normalization(
+    tmp_path: Path, toy_registry: dict[str, object]
+) -> None:
     include_path = tmp_path / "registry.yaml"
     include_path.write_text(
         yaml.safe_dump({"registry": toy_registry}, sort_keys=False),
@@ -75,7 +77,9 @@ def test_lower_graph_normalizes_sink_when_alias(toy_author: dict[str, object]) -
     assert sink.params["when"] == "run_end"
 
 
-def test_public_api_compile_and_run_roundtrip(toy_author_path: Path, tmp_path: Path) -> None:
+def test_public_api_compile_and_run_roundtrip(
+    toy_author_path: Path, tmp_path: Path
+) -> None:
     build_dir = tmp_path / "api-build"
 
     plan = compile_author_file(toy_author_path, outdir=build_dir)

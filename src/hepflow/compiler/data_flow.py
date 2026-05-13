@@ -28,8 +28,8 @@ def expression_registry_symbol_names(
 ) -> tuple[set[str], set[str]]:
     registry_cfg = registry_cfg or {}
     return (
-        set(str(name) for name in (registry_cfg.get("functions") or {}).keys()),
-        set(str(name) for name in (registry_cfg.get("constants") or {}).keys()),
+        {str(name) for name in (registry_cfg.get("functions") or {})},
+        {str(name) for name in (registry_cfg.get("constants") or {})},
     )
 
 
@@ -47,7 +47,7 @@ def context_symbols_from_plan(
         )
     else:
         registry = registry_cfg
-    symbols = set(str(name) for name in (plan.context.get("globals") or {}).keys())
+    symbols = {str(name) for name in (plan.context.get("globals") or {})}
 
     for hook in list(plan.execution_hooks or []):
         if not isinstance(hook, dict):
@@ -158,7 +158,7 @@ def infer_data_flow(
 
     return {
         "required_sources": required_sources,
-        "consumers": {key: value for key, value in sorted(consumers.items())},
+        "consumers": dict(sorted(consumers.items())),
         "origins": {key: origins[key] for key in sorted(origins)},
         "notes": [
             "Data flow is inferred for the primary event stream first; joined source branch decomposition is TODO.",
@@ -174,11 +174,11 @@ def apply_data_flow_to_sources(plan: ExecutionPlan) -> None:
             continue
         source_name = str(node.meta.get("source_name") or node.id.removeprefix("read."))
         required = required_sources.get(source_name) or {}
-        branches = set(str(branch) for branch in (required.get("branches") or []))
+        branches = {str(branch) for branch in (required.get("branches") or [])}
         if not branches:
             continue
 
-        existing = set(str(branch) for branch in (node.params.get("branches") or []))
+        existing = {str(branch) for branch in (node.params.get("branches") or [])}
         node.params["branches"] = sorted(existing | branches)
 
 

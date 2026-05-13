@@ -1,8 +1,10 @@
 from __future__ import annotations
-from hepflow.compiler.parsers import ParserBundle
-from typing import Any, Callable, Optional, Tuple, Iterable
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from typing import Any
+
+from hepflow.compiler.parsers import ParserBundle
 
 
 @dataclass(frozen=True)
@@ -35,7 +37,7 @@ class RequireParse:
     @param skip_pre_parsing: if True, don't pre-parse the value as string (e.g. for complex structures)
     """
 
-    path: Tuple[str, ...]
+    path: tuple[str, ...]
     parser: str
     optional: bool = True
     skip_pre_parsing: bool = False
@@ -47,7 +49,7 @@ class RequireLiteral:
     Require these symbols literally (rare, but useful for fixed requirements).
     """
 
-    symbols: Tuple[str, ...]
+    symbols: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,7 @@ class TemplateReq:
     param: str
     default: Any
     pattern: str
-    vars: Tuple[str, ...]
+    vars: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -65,7 +67,7 @@ class RequireTemplates:
     (These are typically explicit ROOT branches, not symbols.)
     """
 
-    templates: Tuple[TemplateReq, ...]
+    templates: tuple[TemplateReq, ...]
 
 
 RequireRule = RequireParse | RequireLiteral | RequireTemplates
@@ -77,7 +79,7 @@ class ValueProvide:
     Provide these symbols literally
     """
 
-    symbols: Tuple[str, ...]
+    symbols: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -89,7 +91,7 @@ class ValueFromParamProvide:
       ("params", "variables", "*", "name")
     """
 
-    path: Tuple[str, ...]  # supports "*"
+    path: tuple[str, ...]  # supports "*"
     coerce_str: bool = True
 
 
@@ -98,10 +100,10 @@ class TemplateProvide:
     param: str
     default: Any = None
     if_set: bool = False
-    pattern: Optional[str] = None
+    pattern: str | None = None
 
 
-def expand_template_requires(req: TemplateReq, chosen: Any) -> Tuple[str, ...]:
+def expand_template_requires(req: TemplateReq, chosen: Any) -> tuple[str, ...]:
     """
     Expands TemplateReq into a list of required *symbols* or *branch names*.
     E.g. collection=Muon, pattern="{collection}_{var}", vars=("Px","Py") -> ("Muon_Px","Muon_Py")
@@ -115,7 +117,7 @@ def expand_template_requires(req: TemplateReq, chosen: Any) -> Tuple[str, ...]:
     return tuple(out)
 
 
-def _expand_template_provide(tp: TemplateProvide, chosen: Any) -> Optional[str]:
+def _expand_template_provide(tp: TemplateProvide, chosen: Any) -> str | None:
     if tp.if_set and chosen is None:
         return None
     if tp.pattern:
@@ -125,7 +127,7 @@ def _expand_template_provide(tp: TemplateProvide, chosen: Any) -> Optional[str]:
     return None
 
 
-def pluck_values(obj: Any, path: Tuple[str, ...]) -> list[Any]:
+def pluck_values(obj: Any, path: tuple[str, ...]) -> list[Any]:
     """
     Walk nested dict/list structures and return all values at `path`.
     Supports "*" to iterate over lists AND dict values.
@@ -150,7 +152,7 @@ def pluck_values(obj: Any, path: Tuple[str, ...]) -> list[Any]:
     return items
 
 
-def pluck_strings(obj: Any, path: Tuple[str, ...]) -> list[str]:
+def pluck_strings(obj: Any, path: tuple[str, ...]) -> list[str]:
     """
     Convenience: pluck values then keep only non-empty strings (trimmed).
     Preserves order and duplicates (dedupe happens later if desired).
@@ -182,8 +184,8 @@ class OpSpec:
     produces_event_stream: bool = True
 
     def dependencies(
-        self, *, node: dict[str, Any], parsers: "ParserBundle"
-    ) -> "OpDependencies":
+        self, *, node: dict[str, Any], parsers: ParserBundle
+    ) -> OpDependencies:
         params = node.get("params", {}) or {}
 
         req_items: list[str] = []

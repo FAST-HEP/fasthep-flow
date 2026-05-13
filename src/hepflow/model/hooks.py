@@ -14,7 +14,7 @@ class HookSpec:
     context_outputs: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_obj(cls, obj: Any) -> "HookSpec":
+    def from_obj(cls, obj: Any) -> HookSpec:
         if isinstance(obj, cls):
             return obj
         if not isinstance(obj, dict):
@@ -47,7 +47,7 @@ class HookSpec:
         )
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "HookSpec":
+    def from_dict(cls, d: dict[str, Any]) -> HookSpec:
         return cls.from_obj(d)
 
     def to_dict(self) -> dict[str, Any]:

@@ -1,60 +1,55 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List
+from typing import Any
+
 import networkx as nx
 
-from hepflow.compiler.exec_dag import ExecDag
-from hepflow.compiler.exec_graph import fill_input_aliases
+from hepflow.compiler import styles as sty_comp
 from hepflow.compiler.data_flow import (
     apply_data_flow_to_sources,
     infer_data_flow,
 )
+from hepflow.compiler.exec_dag import ExecDag
+from hepflow.compiler.exec_graph import fill_input_aliases
 from hepflow.compiler.routing import rewrite_fieldmap_for_joins
-from hepflow.model.deps import Deps
-from hepflow.model.graph import get_graph_node
-from hepflow.model.ir import InputRef
-from hepflow.model.issues import FlowIssue, IssueLevel
-from hepflow.model.plan import (
-    ExecNode,
-    ExecutionPartition,
-    ExecutionNode,
-    ExecutionPlan,
-    NodeDeps,
-    PartitionSpec,
-    Plan,
-    Paths,
-    DatasetEntry,
-    Partition,
-    PlanDeps,
-    PlanInputRef,
-    ProductPlan,
-    RenderPlan,
-)
 from hepflow.model.defaults import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_CONTEXT_SYMBOLS,
     DEFAULT_RESULTS_DIR,
     DEFAULT_WORK_DIR,
 )
-from hepflow.compiler import styles as sty_comp
-from hepflow.model.render import RenderSpec
+from hepflow.model.deps import Deps
+from hepflow.model.graph import get_graph_node
+from hepflow.model.ir import InputRef
+from hepflow.model.issues import FlowIssue, IssueLevel
+from hepflow.model.lifecycle import WHEN_ALIASES, normalize_lifecycle_event
+from hepflow.model.plan import (
+    DatasetEntry,
+    ExecNode,
+    ExecutionNode,
+    ExecutionPartition,
+    ExecutionPlan,
+    NodeDeps,
+    Partition,
+    PartitionSpec,
+    Paths,
+    Plan,
+    PlanDeps,
+    PlanInputRef,
+    ProductPlan,
+    RenderPlan,
+)
 from hepflow.model.render_types import RenderCommonSpec
 from hepflow.registry.loaders import (
-    expr_registry_from_config,
     runtime_registry_from_config,
 )
-from hepflow.registry.defaults import (
-    default_expr_registry_config,
-    merge_registry_config,
-)
-from hepflow.model.lifecycle import WHEN_ALIASES, normalize_lifecycle_event
 
 
 def _partition_file(
     *, dataset: str, file: str, nevents: int, chunk_size: int, file_index: int
-) -> List[Partition]:
-    parts: List[Partition] = []
+) -> list[Partition]:
+    parts: list[Partition] = []
     start = 0
     part_idx = 0
     while start < nevents:
@@ -263,8 +258,8 @@ def _explicit_render_inputs_from_in_refs(
 
 
 def make_plan(
-    norm: Dict[str, Any],
-    ir: Dict[str, Any],
+    norm: dict[str, Any],
+    ir: dict[str, Any],
     deps: Deps,
     *,
     work_dir: str = DEFAULT_WORK_DIR,
@@ -282,8 +277,8 @@ def make_plan(
     globals_block = dict(analysis_block.get("globals") or {})
 
     # ---- datasets + partitions ----
-    datasets: Dict[str, DatasetEntry] = {}
-    partitions: List[Partition] = []
+    datasets: dict[str, DatasetEntry] = {}
+    partitions: list[Partition] = []
 
     for ds in norm["data"]["datasets"]:
         name = ds["name"]
@@ -315,7 +310,7 @@ def make_plan(
             )
 
     # ---- products from IR outputs ----
-    products: List[ProductPlan] = []
+    products: list[ProductPlan] = []
     for out in ir.get("outputs", []):
         kind = out["kind"]
         node = out["from"]["node"]
@@ -356,7 +351,7 @@ def make_plan(
     effective_renderreg = runtime_registry.renderers
 
     # ---- renders from IR graph nodes ----
-    renders: List[RenderPlan] = []
+    renders: list[RenderPlan] = []
     render_issues: list[FlowIssue] = []
 
     hist_product_ids = {p.ir_node: p.id for p in products if p.kind == "hist"}
@@ -533,7 +528,7 @@ def analyse_plan_exec_graph(plan: dict[str, Any]) -> list[FlowIssue]:
                 level=IssueLevel.INFO,
                 code="EXEC_GRAPH_MULTIPLE_COMPONENTS",
                 message="exec_graph has multiple disconnected components (independent branches).",
-                meta={"components": [sorted(list(c)) for c in comps]},
+                meta={"components": [sorted(c) for c in comps]},
             )
         )
 

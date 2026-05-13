@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 
 from hepflow.model.defaults import DEFAULT_PRIMARY_STREAM_ID
@@ -245,8 +247,7 @@ def read_stream(plan: dict, stream_id: str, file_path: str, start: int, stop: in
                 f"zip_join on_mismatch='{on_mismatch}' unsupported (expected equal lengths)"
             )
         merged = ak.zip(parts, depth_limit=1)
-        merged = _lift_join_aliases(plan, stream_id=stream_id, merged=merged)
-        return merged
+        return _lift_join_aliases(plan, stream_id=stream_id, merged=merged)
 
     raise ValueError(f"Unknown stream kind: {s['kind']}")
 
@@ -254,11 +255,10 @@ def read_stream(plan: dict, stream_id: str, file_path: str, start: int, stop: in
 def get_stream_array(data: dict[str, Any], stream_name: str) -> Any:
     if stream_name in data:
         return data[stream_name]
-    elif DEFAULT_PRIMARY_STREAM_ID in data:
+    if DEFAULT_PRIMARY_STREAM_ID in data:
         return data[DEFAULT_PRIMARY_STREAM_ID]
-    elif data:
+    if data:
         return next(iter(data.values()))
-    else:
-        raise KeyError(
-            f"Stream '{stream_name}' not found in data, and no default primary stream available"
-        )
+    raise KeyError(
+        f"Stream '{stream_name}' not found in data, and no default primary stream available"
+    )

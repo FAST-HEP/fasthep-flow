@@ -61,37 +61,48 @@ include = [
 ]
 
 [tool.ruff]
+src = ["src", "tests"]
 line-length = 88
 target-version = "py311"
-src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = [
-    "E", "F", "W",
-    "B",
-    "I",
-    "ARG",
-    "C4",
-    "EM",
-    "ICN",
-    "ISC",
-    "G",
-    "PGH",
-    "PIE",
-    "PL",
-    "PT",
-    "PTH",
-    "RET",
-    "RUF",
-    "SIM",
-    "T20",
-    "UP",
-    "YTT",
+  "E", "F", "W",
+  "B",
+  "I",
+  "ARG",
+  "C4",
+  "ICN",
+  "ISC",
+  "G",
+  "PGH",
+  "PIE",
+  "PL",
+  "PT",
+  "PTH",
+  "RET",
+  "RUF",
+  "SIM",
+  "T20",
+  "UP",
+  "YTT",
+  "EXE",
+  "NPY",
 ]
 ignore = [
-    "E501",
-    "PLR",
+  "E501",   # Line too long; handled pragmatically by formatter/review
+  "PLR",    # Design-related pylint refactor recommendations
+  "EM101",  # Raw string literals in exceptions are acceptable here
+  "EM102",  # Allow inline f-strings in exceptions
+  "EM103",  # Allow exception messages directly in raise statements
 ]
+unfixable = ["T20", "F841"]
+
+[tool.ruff.lint.flake8-unused-arguments]
+ignore-variadic-names = true
+
+[tool.ruff.lint.isort]
+required-imports = ["from __future__ import annotations"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["T20", "ARG"]

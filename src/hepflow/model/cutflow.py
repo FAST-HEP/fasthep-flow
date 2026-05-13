@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, replace
-from enum import Enum
 import os
-import stat
-from typing import Any, Dict, List, Optional
+from dataclasses import asdict, dataclass, field, replace
+from enum import StrEnum
+from typing import Any
 
 
-class SelectionOp(str, Enum):
+class SelectionOp(StrEnum):
     ALL = "all"
     ANY = "any"
     CUT = "cut"
@@ -32,7 +31,7 @@ class SelectionStats:
         return asdict(self)
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "SelectionStats":
+    def from_dict(d: dict[str, Any]) -> SelectionStats:
         return SelectionStats(
             n_in=int(d.get("n_in", 0)),
             n_out=int(d.get("n_out", 0)),
@@ -42,7 +41,7 @@ class SelectionStats:
             sumw2_out=float(d.get("sumw2_out", 0.0)),
         )
 
-    def add(self, other: "SelectionStats") -> "SelectionStats":
+    def add(self, other: SelectionStats) -> SelectionStats:
         return SelectionStats(
             n_in=self.n_in + other.n_in,
             n_out=self.n_out + other.n_out,
@@ -66,11 +65,11 @@ class SelectionNode:
     stats: SelectionStats
 
     # Leaf payloads:
-    expr: Optional[str] = None
-    reduce: Optional[dict[str, Any]] = None
+    expr: str | None = None
+    reduce: dict[str, Any] | None = None
 
     # Composite payload:
-    items: tuple["SelectionNode", ...] = field(default_factory=tuple)
+    items: tuple[SelectionNode, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         # Minimal structural validation.
@@ -114,7 +113,7 @@ class SelectionNode:
         return d
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "SelectionNode":
+    def from_dict(d: dict[str, Any]) -> SelectionNode:
         op = SelectionOp(str(d.get("op", "")).lower())
         stats = SelectionStats.from_dict(d.get("stats") or {})
         expr = d.get("expr")
@@ -131,14 +130,14 @@ class CutflowSummary:
     n_out: int
     sumw_in: float
     sumw_out: float
-    eff: Optional[float] = None
+    eff: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "CutflowSummary":
-        eff = d.get("eff", None)
+    def from_dict(d: dict[str, Any]) -> CutflowSummary:
+        eff = d.get("eff")
         return CutflowSummary(
             n_in=int(d.get("n_in", 0)),
             n_out=int(d.get("n_out", 0)),
@@ -174,7 +173,7 @@ class CutflowReport:
     schema: str = "hepflow.cutflow.v1"
     stage: str = ""
     dataset: str = ""
-    weight_expr: Optional[str] = None
+    weight_expr: str | None = None
 
     selection: SelectionNode = field(default_factory=lambda: SelectionNode(
         op=SelectionOp.ALL,
@@ -184,7 +183,7 @@ class CutflowReport:
                              items=()),)
     ))  # overridden by from_dict in practice
 
-    summary: Optional[CutflowSummary] = None
+    summary: CutflowSummary | None = None
 
     # meta is intentionally open-ended (provenance now, renderers later)
     meta: dict[str, Any] = field(default_factory=dict)
@@ -212,14 +211,14 @@ class CutflowReport:
         return d
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "CutflowReport":
+    def from_dict(d: dict[str, Any]) -> CutflowReport:
         selection = SelectionNode.from_dict(d.get("selection") or {})
         summary = d.get("summary")
         return CutflowReport(
             schema=str(d.get("schema", "hepflow.cutflow.v1")),
             stage=str(d.get("stage", "")),
             dataset=str(d.get("dataset", "")),
-            weight_expr=d.get("weight_expr", None),
+            weight_expr=d.get("weight_expr"),
             selection=selection,
             summary=None if summary is None else CutflowSummary.from_dict(
                 summary),
@@ -258,7 +257,7 @@ class CutflowCollection:
         }
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "CutflowCollection":
+    def from_dict(d: dict[str, Any]) -> CutflowCollection:
         return CutflowCollection(
             schema=str(d.get("schema", "hepflow.cutflow_collection.v1")),
             stage=str(d.get("stage", "")),
@@ -275,14 +274,12 @@ class CutflowCollection:
 def _assert_same_leaf_identity(a: SelectionNode, b: SelectionNode) -> None:
     if a.op != b.op:
         raise ValueError(f"Selection shape mismatch: op {a.op} != {b.op}")
-    if a.op == SelectionOp.CUT:
-        if (a.expr or "") != (b.expr or ""):
-            raise ValueError(
-                f"Selection shape mismatch: cut expr differs: {a.expr!r} != {b.expr!r}")
-    if a.op == SelectionOp.REDUCE:
-        if (a.reduce or {}) != (b.reduce or {}):
-            raise ValueError(
-                f"Selection shape mismatch: reduce differs: {a.reduce!r} != {b.reduce!r}")
+    if a.op == SelectionOp.CUT and (a.expr or "") != (b.expr or ""):
+        raise ValueError(
+            f"Selection shape mismatch: cut expr differs: {a.expr!r} != {b.expr!r}")
+    if a.op == SelectionOp.REDUCE and (a.reduce or {}) != (b.reduce or {}):
+        raise ValueError(
+            f"Selection shape mismatch: reduce differs: {a.reduce!r} != {b.reduce!r}")
 
 
 def _merge_selection_nodes(a: SelectionNode, b: SelectionNode) -> SelectionNode:
@@ -293,14 +290,14 @@ def _merge_selection_nodes(a: SelectionNode, b: SelectionNode) -> SelectionNode:
             raise ValueError(
                 f"Selection shape mismatch: {a.op} items len differs: {len(a.items)} != {len(b.items)}")
         merged_items = tuple(_merge_selection_nodes(x, y)
-                             for x, y in zip(a.items, b.items))
+                             for x, y in zip(a.items, b.items, strict=False))
         return replace(a, stats=a.stats.add(b.stats), items=merged_items)
 
     # leaf
     return replace(a, stats=a.stats.add(b.stats))
 
 
-def merge_cutflow_reports(reports: List[CutflowReport]) -> CutflowReport:
+def merge_cutflow_reports(reports: list[CutflowReport]) -> CutflowReport:
     """
     Merge partition-level reports into one dataset-level report.
     Strict: requires identical selection tree shape and identities.

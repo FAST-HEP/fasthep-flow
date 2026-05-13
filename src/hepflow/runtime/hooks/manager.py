@@ -3,9 +3,11 @@ from __future__ import annotations
 from contextlib import ExitStack, contextmanager
 from typing import Any
 
-from hepflow.registry.defaults import default_runtime_registry_config
-from hepflow.registry.defaults import merge_registry_config
 from hepflow.model.lifecycle import WHEN_ALIASES
+from hepflow.registry.defaults import (
+    default_runtime_registry_config,
+    merge_registry_config,
+)
 from hepflow.runtime.hooks.loaders import load_hook_impl, load_hook_spec
 
 
@@ -46,7 +48,7 @@ class HookManager:
             )
 
     @classmethod
-    def from_plan(cls, plan) -> "HookManager":
+    def from_plan(cls, plan) -> HookManager:
         registry_cfg = merge_registry_config(
             default_runtime_registry_config(),
             plan.registry or {},
@@ -60,14 +62,14 @@ class HookManager:
             if not kind:
                 continue
             hook_spec = load_hook_spec(registry_cfg, kind)
-            configured_events = set(
+            configured_events = {
                 _normalize_hook_event(event)
                 for event in list(hook_cfg.get("events") or [])
-            )
-            supported_events = set(
+            }
+            supported_events = {
                 _normalize_hook_event(event)
                 for event in list(hook_spec.events or [])
-            )
+            }
             if not configured_events:
                 configured_events = supported_events
             unsupported = configured_events - supported_events
@@ -86,7 +88,7 @@ class HookManager:
                 }
             )
         manager = cls(hooks)
-        for binding, spec in zip(manager.hooks, enabled_specs):
+        for binding, spec in zip(manager.hooks, enabled_specs, strict=False):
             binding["spec"] = dict(spec)
         return manager
 

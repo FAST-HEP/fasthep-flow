@@ -3,8 +3,6 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import dataclass
-from typing import Dict, Optional, Set, Tuple
-
 
 # Match "branch-like" tokens that contain '.' or '/' (or both) and are not quoted.
 # Examples:
@@ -42,8 +40,8 @@ class _SymbolCollector(ast.NodeVisitor):
     """
 
     def __init__(self) -> None:
-        self.names: Set[str] = set()
-        self.called_funcs: Set[str] = set()
+        self.names: set[str] = set()
+        self.called_funcs: set[str] = set()
 
     def visit_Name(self, node: ast.Name) -> None:
         self.names.add(node.id)
@@ -66,7 +64,7 @@ class SanitizedExpr:
     """
     original: str
     sanitized: str
-    internal_to_original: Dict[str, str]
+    internal_to_original: dict[str, str]
 
 
 def _to_safe_ident(token: str) -> str:
@@ -89,8 +87,8 @@ def sanitize_branchlike_tokens(expr: str) -> SanitizedExpr:
     if not isinstance(expr, str):
         expr = str(expr)
 
-    internal_to_original: Dict[str, str] = {}
-    used: Set[str] = set()
+    internal_to_original: dict[str, str] = {}
+    used: set[str] = set()
 
     def repl(m: re.Match) -> str:
         tok = m.group("tok")
@@ -118,7 +116,7 @@ def symbols_from_expression(
     expr: str,
     *,
     on_syntax_error: str = "raise",
-) -> Tuple[Set[str], SanitizedExpr]:
+) -> tuple[set[str], SanitizedExpr]:
     """
     Parse an expression, returning a set of referenced symbols (variables),
     and the SanitizedExpr used for parsing.
@@ -153,14 +151,14 @@ def symbols_from_expression(
     raw_names = v.names - v.called_funcs
 
     # Restore sanitized ids back to original branch-like tokens
-    restored: Set[str] = set()
+    restored: set[str] = set()
     for name in raw_names:
         restored.add(sx.internal_to_original.get(name, name))
 
     return restored, sx
 
 
-def symbols_from_expression_or_name(s: str) -> Set[str]:
+def symbols_from_expression_or_name(s: str) -> set[str]:
     """
     If `s` is a simple identifier -> {s}
     otherwise parse it as an expression and return its referenced symbols.

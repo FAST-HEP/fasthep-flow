@@ -13,7 +13,6 @@ from hepflow.model.source_schema import (
     make_file_schema,
     make_schema_signature,
 )
-
 from hepflow.utils import read_json, write_json
 
 _CYCLE_RE = re.compile(r"^(?P<base>.*?);(?P<cycle>\d+)$")
@@ -209,7 +208,7 @@ def validate_source_schema_against_plan(
             used_aliases_by_stream.setdefault(stream, set()).add(str(alias))
 
     # Validate each dataset against its inspected schema
-    for dataset_name in datasets.keys():
+    for dataset_name in datasets:
         ds_report = schema_report.get(dataset_name)
         if not isinstance(ds_report, dict):
             issues.append(
@@ -332,7 +331,7 @@ def validate_source_schema_against_plan(
 
             # 3a) alias overwrites real branch name
             overwriting_aliases = sorted(
-                [a for a in aliases_for_stream.keys() if a in branches]
+                [a for a in aliases_for_stream if a in branches]
             )
             if overwriting_aliases:
                 issues.append(

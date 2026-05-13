@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from hepflow.runtime.records import get_field_by_branch
 from hepflow.runtime.stream_readers import read_root_tree
@@ -12,15 +12,15 @@ from hepflow.runtime.stream_readers import read_root_tree
 class BranchCheckResult:
     stream_id: str
     tree: str
-    ok: List[str]
-    missing: List[dict[str, Any]]  # {branch, error}
+    ok: list[str]
+    missing: list[dict[str, Any]]  # {branch, error}
 
 
 def check_required_inputs_for_file(
     *,
     plan: dict[str, Any],
     file_path: str,
-    streams: Optional[list[str]] = None,
+    streams: list[str] | None = None,
     start: int = 0,
     stop: int = 1,
 ) -> list[BranchCheckResult]:

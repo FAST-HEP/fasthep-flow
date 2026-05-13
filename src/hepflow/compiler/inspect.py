@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Tuple
+from collections.abc import Iterable
+from typing import Any
+
 import uproot
 
 
-def _tree_specs_for_primary(ir: Dict[str, Any]) -> List[Tuple[str, str]]:
+def _tree_specs_for_primary(ir: dict[str, Any]) -> list[tuple[str, str]]:
     """
     Return list of (stream_id, tree_path) that define the event-bearing trees used
     for nevents inference / partitioning. For zip_join primary, return all input trees.
@@ -50,7 +52,7 @@ def _num_entries(paths: Iterable[str]) -> dict[str, dict[str, int]]:
 
 # TODO: split out into smaller functions that do not depend on `norm` - pass datasets + streams explicitly
 # datasets, streams, primary_stream
-def inspect_dataset_entries(norm: Dict[str, Any], ir: Dict[str, Any]) -> Dict[str, Any]:
+def inspect_dataset_entries(norm: dict[str, Any], ir: dict[str, Any]) -> dict[str, Any]:
     """
     Inspect all datasets and return an entry-count report suitable for:
       - filling missing dataset nevents
@@ -72,14 +74,14 @@ def inspect_dataset_entries(norm: Dict[str, Any], ir: Dict[str, Any]) -> Dict[st
     }
     """
     tree_specs = _tree_specs_for_primary(ir)  # [(stream_id, tree)]
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "primary_stream": ir.get("primary_stream"),
         "trees": [{"stream": sid, "tree": tree} for sid, tree in tree_specs],
         "datasets": {},
     }
 
     # ---- Single batched query across all datasets/files/trees ----
-    all_paths: List[str] = []
+    all_paths: list[str] = []
     for ds in norm["data"]["datasets"]:
         for f in ds["files"]:
             for _, tree in tree_specs:
@@ -93,7 +95,7 @@ def inspect_dataset_entries(norm: Dict[str, Any], ir: Dict[str, Any]) -> Dict[st
         files = ds["files"]
 
         # Build per-file report and validate
-        files_obj: Dict[str, Any] = {}
+        files_obj: dict[str, Any] = {}
         first_tree = tree_specs[0][1]  # the tree path of first spec
 
         for f in files:
@@ -133,7 +135,7 @@ def inspect_dataset_entries(norm: Dict[str, Any], ir: Dict[str, Any]) -> Dict[st
     return out
 
 
-def fill_missing_nevents_from_inspection(norm: Dict[str, Any], inspection: Dict[str, Any]) -> None:
+def fill_missing_nevents_from_inspection(norm: dict[str, Any], inspection: dict[str, Any]) -> None:
     for ds in norm["data"]["datasets"]:
         if ds.get("nevents") is None:
             name = ds["name"]

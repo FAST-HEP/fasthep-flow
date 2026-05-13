@@ -5,6 +5,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
+
 import networkx as nx
 
 from hepflow.model.issues import FlowIssue, IssueLevel
@@ -31,7 +32,7 @@ class ExecDag:
     g: nx.DiGraph
 
     @staticmethod
-    def from_plan(plan: dict[str, Any]) -> "ExecDag":
+    def from_plan(plan: dict[str, Any]) -> ExecDag:
         eg = plan.get("exec_graph") or []
         if not isinstance(eg, list):
             raise TypeError("plan.exec_graph must be a list")

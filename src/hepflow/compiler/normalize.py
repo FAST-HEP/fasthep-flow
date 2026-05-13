@@ -2,28 +2,25 @@
 from __future__ import annotations
 
 from dataclasses import fields
-from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
-import yaml
-
-from hepflow.model.defaults import (
-    DEFAULT_DATASET_EVENTTYPE,
-    DEFAULT_ROOT_TREE,
-    DEFAULT_STREAM_TYPE,
-    DEFAULT_JOIN_ON_MISMATCH,
-)
+from hepflow.compiler.profiles import normalize_profile_names
 from hepflow.model.author import (
-    DatasetSpec,
     DataBlock,
+    DatasetSpec,
+    FieldSpec,
+    JoinInputSpec,
+    NormalizedAuthor,
     RootTreeSourceSpec,
     ZipJoinSpec,
-    JoinInputSpec,
-    FieldSpec,
-    NormalizedAuthor,
     inject_default_events_source,
 )
-from hepflow.compiler.profiles import normalize_profile_names
+from hepflow.model.defaults import (
+    DEFAULT_DATASET_EVENTTYPE,
+    DEFAULT_JOIN_ON_MISMATCH,
+    DEFAULT_ROOT_TREE,
+    DEFAULT_STREAM_TYPE,
+)
 from hepflow.registry.defaults import (
     default_expr_registry_config,
     default_runtime_registry_config,
@@ -31,7 +28,7 @@ from hepflow.registry.defaults import (
 )
 
 
-def normalize_author(doc: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
     doc = _ensure_mapping(doc, "document")
     version = str(doc.get("version", "1.0"))
     data = normalize_data(doc.get("data") or {})
@@ -100,7 +97,7 @@ def normalize_execution(raw: Any) -> dict[str, Any]:
     }
 
 
-def normalize_data(data: Dict[str, Any]) -> DataBlock:
+def normalize_data(data: dict[str, Any]) -> DataBlock:
     data = _ensure_mapping(data, "data")
     defaults = _ensure_mapping(data.get("defaults") or {}, "data.defaults")
     datasets_raw = data.get("datasets") or []
@@ -109,7 +106,7 @@ def normalize_data(data: Dict[str, Any]) -> DataBlock:
 
 
 def normalize_datasets(
-    datasets: Any, data_defaults: Dict[str, Any]
+    datasets: Any, data_defaults: dict[str, Any]
 ) -> list[DatasetSpec]:
     if not isinstance(datasets, list):
         raise ValueError("data.datasets must be a list")
@@ -142,14 +139,14 @@ def normalize_datasets(
 
 
 def normalize_sources(
-    sources: Any, data_defaults: Dict[str, Any]
-) -> Dict[str, Dict[str, Any]]:
+    sources: Any, data_defaults: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
     # If sources are provided explicitly, preserve them.
     if sources is None:
         sources = {}
     sources = _ensure_mapping(sources, "sources")
 
-    out: Dict[str, Dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for sid, spec in sources.items():
         spec = _ensure_mapping(spec, f"sources.{sid}")
         kind = str(spec.get("kind", "root_tree")).strip()
@@ -184,11 +181,11 @@ def normalize_sources(
     return out
 
 
-def normalize_joins(joins_raw: Any) -> Dict[str, ZipJoinSpec]:
+def normalize_joins(joins_raw: Any) -> dict[str, ZipJoinSpec]:
     if joins_raw is None:
         return {}
     joins_raw = _ensure_mapping(joins_raw, "joins")
-    joins: Dict[str, ZipJoinSpec] = {}
+    joins: dict[str, ZipJoinSpec] = {}
     for jid, j in joins_raw.items():
         j = _ensure_mapping(j, f"joins.{jid}")
         kind = j.get("kind", "zip")
@@ -197,7 +194,7 @@ def normalize_joins(joins_raw: Any) -> Dict[str, ZipJoinSpec]:
         inputs_raw = j.get("inputs")
         if not isinstance(inputs_raw, list) or not inputs_raw:
             raise ValueError(f"joins.{jid}.inputs must be a non-empty list")
-        inputs: List[JoinInputSpec] = []
+        inputs: list[JoinInputSpec] = []
         for item in inputs_raw:
             if isinstance(item, str):
                 inputs.append(JoinInputSpec(source=item, prefix=item))
@@ -215,11 +212,11 @@ def normalize_joins(joins_raw: Any) -> Dict[str, ZipJoinSpec]:
     return joins
 
 
-def normalize_fields(fields_raw: Any) -> Dict[str, FieldSpec]:
+def normalize_fields(fields_raw: Any) -> dict[str, FieldSpec]:
     if fields_raw is None:
         return {}
     fields_raw = _ensure_mapping(fields_raw, "fields")
-    fields: Dict[str, FieldSpec] = {}
+    fields: dict[str, FieldSpec] = {}
     for alias, f in fields_raw.items():
         f = _ensure_mapping(f, f"fields.{alias}")
         fields[str(alias)] = FieldSpec(
@@ -228,11 +225,11 @@ def normalize_fields(fields_raw: Any) -> Dict[str, FieldSpec]:
     return fields
 
 
-def normalize_styles(styles: Any) -> Dict[str, Dict[str, Any]]:
+def normalize_styles(styles: Any) -> dict[str, dict[str, Any]]:
     if styles is None:
         return {}
     styles = _ensure_mapping(styles, "styles")
-    out: dict[str, Dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for name, spec in styles.items():
         if not isinstance(name, str) or not name:
             raise ValueError("styles keys must be non-empty strings")
@@ -281,7 +278,7 @@ def normalize_top_level_observers(observers_raw: Any) -> list[dict[str, Any]]:
     return out
 
 
-def _ensure_mapping(x: Any, where: str) -> Dict[str, Any]:
+def _ensure_mapping(x: Any, where: str) -> dict[str, Any]:
     if not isinstance(x, dict):
         raise ValueError(f"{where} must be a mapping")
     return x
@@ -369,5 +366,5 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
         "observers": {k: dict(v) for k, v in observers.items()},
         "backends": {k: dict(v) for k, v in backends.items()},
         "hooks": {k: dict(v) for k, v in hooks.items()},
-        
+
     }

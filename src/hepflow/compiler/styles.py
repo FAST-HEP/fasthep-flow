@@ -1,9 +1,10 @@
 # hepflow/compiler/styles.py
 from __future__ import annotations
-from typing import Any, Dict
+
+from typing import Any
 
 
-def deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+def deep_merge(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
     out = dict(a)
     for k, v in b.items():
         if k in out and isinstance(out[k], dict) and isinstance(v, dict):
@@ -13,11 +14,11 @@ def deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def collect_styles(doc: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+def collect_styles(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
     raw = doc.get("styles") or {}
     if not isinstance(raw, dict):
         raise ValueError("styles must be a mapping")
-    out: Dict[str, Dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for name, spec in raw.items():
         if not isinstance(spec, dict):
             raise ValueError(f"styles.{name} must be a mapping")
@@ -25,15 +26,15 @@ def collect_styles(doc: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-def resolve_style(name: str, styles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def resolve_style(name: str, styles: dict[str, dict[str, Any]]) -> dict[str, Any]:
     return _resolve_style_inner(name, styles, stack=[])
 
 
 def _resolve_style_inner(
-    name: str, styles: Dict[str, Dict[str, Any]], stack: list[str]
-) -> Dict[str, Any]:
+    name: str, styles: dict[str, dict[str, Any]], stack: list[str]
+) -> dict[str, Any]:
     if name in stack:
-        cyc = " -> ".join(stack + [name])
+        cyc = " -> ".join([*stack, name])
         raise ValueError(f"Style 'use' cycle detected: {cyc}")
     if name not in styles:
         raise KeyError(f"Unknown style '{name}'. Available: {sorted(styles.keys())}")
@@ -42,11 +43,11 @@ def _resolve_style_inner(
     base_name = spec.get("use")
     with_ = spec.get("with")
 
-    base: Dict[str, Any] = {}
+    base: dict[str, Any] = {}
     if base_name is not None:
         if not isinstance(base_name, str) or not base_name.strip():
             raise ValueError(f"styles.{name}.use must be a non-empty string")
-        base = _resolve_style_inner(base_name, styles, stack=stack + [name])
+        base = _resolve_style_inner(base_name, styles, stack=[*stack, name])
 
     overlay = {k: v for k, v in spec.items() if k not in ("use", "with")}
     merged = deep_merge(base, overlay)
@@ -59,7 +60,7 @@ def _resolve_style_inner(
     return merged
 
 
-def resolve_style_ref(style: Any, styles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def resolve_style_ref(style: Any, styles: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """
     style can be:
       - str: style name
@@ -182,7 +183,7 @@ def resolve_effective_dataset_categories_for_render(
             by = t.group.by
 
             if isinstance(by, dict):
-                current = set(str(k) for k in by.keys())
+                current = {str(k) for k in by}
                 continue
 
             if isinstance(by, str):

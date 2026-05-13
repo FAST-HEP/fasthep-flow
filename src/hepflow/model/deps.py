@@ -2,16 +2,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
 
 @dataclass(frozen=True)
 class RequiredInput:
     kind: str                # "root_tree" for now
     tree: str                # TTree name inside ROOT file
-    branches: Tuple[str, ...]
+    branches: tuple[str, ...]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "kind": self.kind,
             "tree": self.tree,
@@ -24,20 +24,20 @@ class Deps:
     # Debug/reasoning
     node_order: tuple[str, ...]
 
-    required_symbols_per_node: Dict[str, tuple[str, ...]]
-    provides_symbols_per_node: Dict[str, tuple[str, ...]]
+    required_symbols_per_node: dict[str, tuple[str, ...]]
+    provides_symbols_per_node: dict[str, tuple[str, ...]]
 
     external_symbols: tuple[str, ...]
     unresolved_external_symbols: tuple[str, ...]
 
     # IO plan: stream_id -> RequiredInput
-    required_inputs: Dict[str, RequiredInput]
+    required_inputs: dict[str, RequiredInput]
 
     # Context
-    context_symbols: Tuple[str, ...]
+    context_symbols: tuple[str, ...]
     primary_stream: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "primary_stream": self.primary_stream,
             "context_symbols": list(self.context_symbols),
@@ -49,7 +49,7 @@ class Deps:
         }
 
     @property
-    def symbol_upstreams_per_node(self) -> Dict[str, Tuple[str, ...]]:
+    def symbol_upstreams_per_node(self) -> dict[str, tuple[str, ...]]:
         """
         For each node, list upstream nodes that provide at least one symbol it requires.
         Uses node_order for directionality.
@@ -57,12 +57,12 @@ class Deps:
         order_index = {nid: i for i, nid in enumerate(self.node_order)}
 
         # symbol -> latest provider node (in order)
-        provider_of: Dict[str, str] = {}
+        provider_of: dict[str, str] = {}
 
-        out: Dict[str, Tuple[str, ...]] = {}
+        out: dict[str, tuple[str, ...]] = {}
         for nid in self.node_order:
             req = self.required_symbols_per_node.get(nid, ())
-            needed_up: Dict[str, None] = {}  # ordered set via dict
+            needed_up: dict[str, None] = {}  # ordered set via dict
 
             for s in req:
                 p = provider_of.get(s)
@@ -80,11 +80,11 @@ class Deps:
         return out
 
     @property
-    def stream_upstream_per_node(self) -> Dict[str, Tuple[str, ...]]:
+    def stream_upstream_per_node(self) -> dict[str, tuple[str, ...]]:
         """
         v2.1 approximation: stream flows linearly in IR order.
         """
-        out: Dict[str, Tuple[str, ...]] = {}
+        out: dict[str, tuple[str, ...]] = {}
         prev: str | None = None
         for nid in self.node_order:
             out[nid] = (prev,) if prev else ()

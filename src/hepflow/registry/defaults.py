@@ -6,7 +6,6 @@ import numpy as np
 
 from hepflow.registry.expr import ExprRegistry
 
-
 REGISTRY_SECTIONS: tuple[str, ...] = (
     "functions",
     "constants",

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -9,7 +10,7 @@ class ExprRegistry:
     functions: dict[str, Callable[..., Any]] = field(default_factory=dict)
     constants: dict[str, Any] = field(default_factory=dict)
 
-    def merged(self, other: "ExprRegistry") -> "ExprRegistry":
+    def merged(self, other: ExprRegistry) -> ExprRegistry:
         return ExprRegistry(
             functions={**self.functions, **other.functions},
             constants={**self.constants, **other.constants},

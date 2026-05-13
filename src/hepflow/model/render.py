@@ -1,14 +1,14 @@
 from __future__ import annotations
-from typing import Any, Dict, Final, List, Literal, Optional, Tuple
-from dataclasses import dataclass, field
-from dataclasses import asdict
-from enum import Enum
+
+from dataclasses import asdict, dataclass, field
+from enum import StrEnum
+from typing import Any, Final, Literal
 
 from hepflow.model.issues import FlowIssue, IssueLevel
 from hepflow.utils import now_iso
 
 
-class RenderStatus(str, Enum):
+class RenderStatus(StrEnum):
     PLANNED = "planned"
     RENDERED = "rendered"
     SKIPPED = "skipped"
@@ -42,7 +42,7 @@ class RenderAttempt:
         return d
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "RenderAttempt":
+    def from_dict(d: dict[str, Any]) -> RenderAttempt:
         d["status"] = RenderStatus(str(d.get("status", "planned")))
         return RenderAttempt(**d)
 
@@ -107,10 +107,10 @@ class AxesSpec:
     x: AxisSpec = field(default_factory=lambda: AxisSpec(name="x"))
     y: AxisSpec = field(default_factory=lambda: AxisSpec(name="y"))
     z: AxisSpec | None = None  # heatmap and other 2D plots
-    ratio: Optional[AxisSpec] = None  # for ratio panel if enabled
+    ratio: AxisSpec | None = None  # for ratio panel if enabled
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "AxesSpec":
+    def from_dict(d: dict[str, Any]) -> AxesSpec:
         if not d:
             return AxesSpec()
         return AxesSpec(
@@ -124,9 +124,9 @@ class AxesSpec:
 @dataclass(frozen=True)
 class LegendSpec:
     loc: str = "upper right"
-    ncol: Optional[int] = None  # if None, renderer can auto-pick
+    ncol: int | None = None  # if None, renderer can auto-pick
     frameon: bool = False
-    fontsize: Optional[float] = None
+    fontsize: float | None = None
 
 
 @dataclass(frozen=True)
@@ -150,14 +150,14 @@ class StyleSpec:
     General style knobs. Keep it minimal and renderer-agnostic.
     """
 
-    experiment: Optional[str] = "CMS"  # used for mplhep label helper selection
+    experiment: str | None = "CMS"  # used for mplhep label helper selection
     # fb^-1 (or whatever your convention is)
-    lumi: Optional[float] = None
-    label: Optional[str] = None  # e.g. "Preliminary"
+    lumi: float | None = None
+    label: str | None = None  # e.g. "Preliminary"
     # Dataset mapping for labels/colors/etc:
-    datasets: Dict[str, DatasetStyle] = field(default_factory=dict)
+    datasets: dict[str, DatasetStyle] = field(default_factory=dict)
     # Renderer can use this as a color cycle for MC if datasets[*].color unset
-    color_cycle: List[str] = field(default_factory=list)
+    color_cycle: list[str] = field(default_factory=list)
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> StyleSpec:
@@ -207,10 +207,9 @@ class DataMcInputs:
     legend_max_ncol: int = 4  # cap
 
     # ratio panel details (optional)
-    ratio_ylim: Tuple[float, float] = (0.5, 1.5)
+    ratio_ylim: tuple[float, float] = (0.5, 1.5)
     ratio_ylabel: str = "Data/MC"
 
-    stack_order: Literal["legend", "reverse_legend"] = "reverse_legend"
 
 
 @dataclass(frozen=True)
@@ -231,10 +230,10 @@ class ProjectSpec:
     keep_dataset: bool = True
     # the next render spec after projection (must be resolved in plan.yaml)
     # store as dict in plan.yaml; convert to RenderSpec at runtime
-    then: "RenderSpec" | dict[str, Any] | None = None
+    then: RenderSpec | dict[str, Any] | None = None
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "ProjectSpec":
+    def from_dict(d: dict[str, Any]) -> ProjectSpec:
         then_raw = d.get("then")
         then = RenderSpec.from_dict(then_raw) if isinstance(then_raw, dict) else None
         return ProjectSpec(
@@ -257,7 +256,7 @@ class GroupTransformSpec:
     kind: Final[str] = "group"
 
     @staticmethod
-    def from_dict(d: dict[str, Any] | None) -> "GroupTransformSpec | None":
+    def from_dict(d: dict[str, Any] | None) -> GroupTransformSpec | None:
         if not d:
             return None
         return GroupTransformSpec(by=d["by"])
@@ -272,7 +271,7 @@ class ScaleTransformSpec:
     kind: Final[str] = "scale"
 
     @staticmethod
-    def from_dict(d: dict[str, Any] | None) -> "ScaleTransformSpec | None":
+    def from_dict(d: dict[str, Any] | None) -> ScaleTransformSpec | None:
         if not d:
             return None
         return ScaleTransformSpec(**dict(d))
@@ -285,7 +284,7 @@ class TransformSpec:
     scale: ScaleTransformSpec | None = None
 
     @staticmethod
-    def from_dict(d: dict[str, Any] | None) -> "TransformSpec | None":
+    def from_dict(d: dict[str, Any] | None) -> TransformSpec | None:
         if not d:
             return None
         d = dict(d)
@@ -342,7 +341,7 @@ class RenderSpec:
     axes: AxesSpec | None = None
 
     # Selection is already part of RenderPlan, but allowing here is useful for external renderers.
-    select: Dict[str, Any] = field(default_factory=dict)
+    select: dict[str, Any] = field(default_factory=dict)
 
     legend: LegendSpec = field(default_factory=LegendSpec)
     style: StyleSpec = field(default_factory=StyleSpec)
@@ -387,11 +386,10 @@ class RenderSpec:
                 raise ValueError("RenderSpec.transforms must not contain null entries")
 
     def to_dict(self) -> dict[str, Any]:
-        d = asdict(self)
-        return d
+        return asdict(self)
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "RenderSpec":
+    def from_dict(d: dict[str, Any]) -> RenderSpec:
         d = dict(d)
         plot = d.get("plot")
 
@@ -471,7 +469,7 @@ class RenderSpec:
 
     @staticmethod
     def validate_group_transforms(
-        spec: "RenderSpec",
+        spec: RenderSpec,
         available_datasets: list[str],
     ) -> FlowIssue | None:
         if not spec.transforms:
@@ -541,7 +539,7 @@ class ComparisonSpec:
     flow: Literal["hint", "show", "none"] = "hint"
 
     @staticmethod
-    def from_dict(d: dict[str, Any] | None) -> "ComparisonSpec | None":
+    def from_dict(d: dict[str, Any] | None) -> ComparisonSpec | None:
         if not d:
             return None
         return ComparisonSpec(**dict(d))

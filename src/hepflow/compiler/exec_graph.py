@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
-from typing import Iterable, Tuple
 
 from hepflow.model.ir import InputRef
 from hepflow.model.plan import ExecNode
@@ -11,7 +11,7 @@ def fill_input_aliases(
     nodes: Iterable[ExecNode],
     *,
     default_stream_alias: str = "events",
-) -> Tuple[ExecNode, ...]:
+) -> tuple[ExecNode, ...]:
     """
     Ensure every InputRef has a stable `as` value.
 
