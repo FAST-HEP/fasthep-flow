@@ -1,5 +1,31 @@
 # fasthep-flow
 
+[![CI](https://github.com/FAST-HEP/fasthep-flow/actions/workflows/ci.yml/badge.svg)](https://github.com/FAST-HEP/fasthep-flow/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/fasthep-flow)](https://pypi.org/project/fasthep-flow/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/fasthep-flow)](https://pypi.org/project/fasthep-flow/)
+[![Documentation Status](https://readthedocs.org/projects/fasthep-flow/badge/?version=latest)](https://fasthep-flow.readthedocs.io/en/latest/)
+[![Discussions](https://img.shields.io/static/v1?label=Discussions&message=Ask&color=blue&logo=github)](https://github.com/FAST-HEP/fasthep/discussions)
+
+<p align="center">
+  <a href="https://github.com/FAST-HEP/fasthep">
+    <picture>
+      <source
+        media="(prefers-color-scheme: dark)"
+        srcset="https://raw.githubusercontent.com/FAST-HEP/logos-etc/master/fast-hep-white.png"
+      >
+      <source
+        media="(prefers-color-scheme: light)"
+        srcset="https://raw.githubusercontent.com/FAST-HEP/logos-etc/master/fast-hep-black.png"
+      >
+      <img
+        alt="FAST-HEP"
+        src="https://raw.githubusercontent.com/FAST-HEP/logos-etc/master/fast-hep-black.png"
+        width="500"
+      >
+    </picture>
+  </a>
+</p>
+
 `fasthep-flow` provides the core FAST-HEP workflow language and execution engine.
 
 It is responsible for:
