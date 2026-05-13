@@ -22,13 +22,19 @@ jobs:
 
     strategy:
       fail-fast: false
+
       matrix:
         include:
-          - python-version: "3.11"
+          - pixi-env: py311
+            python-version: "3.11"
             experimental: false
-          - python-version: "3.13"
+
+          - pixi-env: py313
+            python-version: "3.13"
             experimental: false
-          - python-version: "3.14"
+
+          - pixi-env: py314
+            python-version: "3.14"
             experimental: true
 
     steps:
@@ -40,9 +46,8 @@ jobs:
       - name: Set up Pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.58.0
+          pixi-version: v0.62.2
+          cache: false
 
       - name: Run CI
-        run: pixi run --environment py${{ matrix.python-version }} ci
-        env:
-          PIXI_PYTHON_VERSION: ${{ matrix.python-version }}
+        run: pixi run --environment ${{ matrix.pixi-env }} ci
