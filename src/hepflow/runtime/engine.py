@@ -69,7 +69,6 @@ def resolve_runtime_op_handler(runtime_registry: RuntimeRegistry, op: str):
 def compute_product_partition(
     *,
     plan: dict[str, Any],
-    op_registry: dict[str, Any],  # unused for now
     product_node_id: str,
     product_port: str,  # e.g. "hist" or "cutflow"
     partition: dict[str, Any],  # {dataset,file,part,start,stop}

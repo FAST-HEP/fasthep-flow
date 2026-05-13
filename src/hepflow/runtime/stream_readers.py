@@ -5,6 +5,9 @@ from typing import Any
 from hepflow.model.defaults import DEFAULT_PRIMARY_STREAM_ID
 from hepflow.runtime.records import get_field_by_branch
 
+# POST-ALPHA:
+# Move source reading / branch projection out of fasthep-flow.
+# This currently remains as a transitional bridge for runtime execution.
 
 def _awkward():
     import awkward as ak  # noqa: PLC0415

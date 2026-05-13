@@ -18,6 +18,8 @@ twine = "*"
 
 [pypi-dependencies]
 fasthep-flow = { path = ".", editable = true }
+vulture = ">=2.16, <3"
+deptry = ">=0.25.1, <0.26"
 
 [environments]
 py311 = ["py311"]
