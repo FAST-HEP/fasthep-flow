@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import awkward as ak
 from typing import Any, Dict
 import networkx as nx
 
@@ -25,7 +24,13 @@ from hepflow.runtime.merge import merge_hists
 from hepflow.runtime.stream_readers import read_stream
 
 
-# from .handlers import get_handler
+# TODO:
+# Event-stream merging should become package-owned via merge strategies.
+# fasthep-flow should not contain awkward-specific logic long term.
+def _awkward():
+    import awkward as ak  # noqa: PLC0415
+
+    return ak
 
 
 def merge_records(base: Any, extra: Any, *, prefer_extra: bool = True) -> Any:
@@ -47,7 +52,7 @@ def merge_records(base: Any, extra: Any, *, prefer_extra: bool = True) -> Any:
     else:
         merged = {**extra_cols, **base_cols}
 
-    return ak.zip(merged, depth_limit=1)
+    return _awkward().zip(merged, depth_limit=1)
 
 
 def resolve_runtime_op_handler(runtime_registry: RuntimeRegistry, op: str):
@@ -317,8 +322,8 @@ def eval_expr(
     - uses eval with restricted builtins
     - variables resolve to event columns
 
-    TODO: move expression evaluation into hepflow/carpenter/expr_eval.py
-    or, after the split, fasthep_carpenter/expressions.py.
+    TODO: move expression evaluation into a package-owned expression helper
+    layer once the extension boundary settles.
     """
     scope = build_expr_scope(events, ctx)
     expr = expr.replace("&&", " and ").replace("||", " or ").strip()
@@ -875,9 +880,15 @@ def merge_partition_value_stores_for_dataset(
 def _merge_event_stream_values(values: list[Any]) -> Any:
     if len(values) == 1:
         return values[0]
-    if all(isinstance(value, ak.Array) for value in values):
+    if all(_is_awkward_array_like(value) for value in values):
+        ak = _awkward()
         return ak.concatenate(values)
     return list(values)
+
+
+def _is_awkward_array_like(value: Any) -> bool:
+    cls = type(value)
+    return cls.__module__.startswith("awkward.") and cls.__name__ == "Array"
 
 
 def execute_dataset_sinks(

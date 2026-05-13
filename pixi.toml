@@ -19,11 +19,11 @@ codespell = "*"
 fasthep-flow = { path = ".", editable = true }
 
 [tasks]
-format = "ruff format src"
-lint = "ruff check src"
-lint-fix = "ruff check --fix src"
-typecheck = "mypy src"
-test = "python -c 'print(\"no tests yet\")'"
+format = "ruff format src tests"
+lint = "ruff check src tests"
+lint-fix = "ruff check --fix src tests"
+typecheck = "mypy src tests"
+test = "pytest"
 build = "python -m build"
 check = { depends-on = ["lint", "typecheck", "test"] }
 ci = { depends-on = ["check", "build"] }

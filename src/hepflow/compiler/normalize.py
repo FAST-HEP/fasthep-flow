@@ -143,26 +143,34 @@ def normalize_datasets(
 
 def normalize_sources(
     sources: Any, data_defaults: Dict[str, Any]
-) -> Dict[str, RootTreeSourceSpec]:
+) -> Dict[str, Dict[str, Any]]:
     # If sources are provided explicitly, preserve them.
     if sources is None:
         sources = {}
     sources = _ensure_mapping(sources, "sources")
 
-    out: Dict[str, RootTreeSourceSpec] = {}
+    out: Dict[str, Dict[str, Any]] = {}
     for sid, spec in sources.items():
         spec = _ensure_mapping(spec, f"sources.{sid}")
-        kind = spec.get("kind", "root_tree")
-        if kind != "root_tree":
-            raise ValueError(f"sources.{sid}.kind must be root_tree (v2.1)")
-        tree = spec.get("tree")
-        if not tree:
-            raise ValueError(f"sources.{sid} missing tree")
-        out[str(sid)] = RootTreeSourceSpec(
-            kind="root_tree",
-            tree=str(tree),
-            stream_type=str(spec.get("stream_type", DEFAULT_STREAM_TYPE)),
-        )
+        kind = str(spec.get("kind", "root_tree")).strip()
+        if not kind:
+            raise ValueError(f"sources.{sid}.kind must be a non-empty string")
+        if kind == "root_tree":
+            tree = spec.get("tree")
+            if not tree:
+                raise ValueError(f"sources.{sid} missing tree")
+            out[str(sid)] = RootTreeSourceSpec(
+                kind="root_tree",
+                tree=str(tree),
+                stream_type=str(spec.get("stream_type", DEFAULT_STREAM_TYPE)),
+            ).to_dict()
+            continue
+
+        out[str(sid)] = {
+            **dict(spec),
+            "kind": kind,
+            "stream_type": str(spec.get("stream_type", DEFAULT_STREAM_TYPE)),
+        }
 
     # v1 compatibility: only inject default if NONE provided
     if not out:
@@ -171,7 +179,7 @@ def normalize_sources(
             kind="root_tree",
             tree=default_tree,
             stream_type=DEFAULT_STREAM_TYPE,
-        )
+        ).to_dict()
 
     return out
 

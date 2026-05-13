@@ -37,7 +37,7 @@ def expr_registry_from_config(cfg: dict[str, Any] | None) -> ExprRegistry:
     Build an ExprRegistry from symbolic config, e.g.
 
     {
-      "functions": {"nth": "fasthep_carpenter.expr_helpers:nth"},
+      "functions": {"nth": "some_package.expr_helpers:nth"},
       "constants": {"PI": "math:pi"}
     }
     """

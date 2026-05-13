@@ -1,0 +1,21 @@
+registry:
+  sources:
+    toy.source:
+      spec: tests.toy_components.sources:TOY_SOURCE_SPEC
+      impl: tests.toy_components.sources:run_toy_source
+  transforms:
+    toy.scale:
+      spec: tests.toy_components.transforms:TOY_SCALE_SPEC
+      impl: tests.toy_components.transforms:run_toy_scale
+  sinks:
+    toy.write:
+      spec: tests.toy_components.sinks:TOY_WRITE_SPEC
+      impl: tests.toy_components.sinks:run_toy_write
+  observers:
+    toy.observe:
+      spec: tests.toy_components.observers:TOY_OBSERVER_SPEC
+      impl: tests.toy_components.observers:run_toy_observer
+  hooks:
+    toy.context:
+      spec: tests.toy_components.hooks:TOY_CONTEXT_HOOK_SPEC
+      impl: tests.toy_components.hooks:ToyContextHook

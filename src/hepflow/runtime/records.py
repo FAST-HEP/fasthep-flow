@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Iterable, Sequence
-
-import awkward as ak
+from typing import Any
 
 
 def _is_opaque_branch_name(branch: str) -> bool:
@@ -43,7 +40,7 @@ def branch_to_segments(branch: str) -> list[str] | None:
     return segs or None
 
 
-def get_field_by_branch(rec: ak.Array, branch: str) -> Any:
+def get_field_by_branch(rec: Any, branch: str) -> Any:
     """
     Retrieve a field from a nested awkward record by either:
       1) exact leaf name match (fast path)

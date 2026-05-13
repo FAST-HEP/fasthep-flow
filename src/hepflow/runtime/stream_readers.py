@@ -1,9 +1,19 @@
-from typing import Any, Dict, Iterable, Tuple
-import uproot
-import awkward as ak
+from typing import Any
 
 from hepflow.model.defaults import DEFAULT_PRIMARY_STREAM_ID
 from hepflow.runtime.records import get_field_by_branch
+
+
+def _awkward():
+    import awkward as ak  # noqa: PLC0415
+
+    return ak
+
+
+def _uproot():
+    import uproot  # noqa: PLC0415
+
+    return uproot
 
 
 def _is_opaque_for_uproot_arrays(expr: str) -> bool:
@@ -19,7 +29,8 @@ def _is_opaque_for_uproot_arrays(expr: str) -> bool:
 def read_root_tree(
     file_path: str, tree: str, branches: list[str], start: int, stop: int
 ):
-    with uproot.open(file_path) as f:
+    ak = _awkward()
+    with _uproot().open(file_path) as f:
         t = f[tree]
 
         # Split into "safe for arrays" and "must be raw-branch read"
@@ -28,7 +39,7 @@ def read_root_tree(
         for b in branches:
             (opaque if _is_opaque_for_uproot_arrays(b) else safe).append(b)
 
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
 
         # Fast path for normal names
         if safe:
@@ -52,13 +63,13 @@ def read_root_tree(
 
 def _flatten_record_fields(
     rec: Any, *, prefix: str = "", sep: str = "."
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Flatten an awkward RecordArray (possibly nested) into a flat dict:
       {"A.B": ..., "A.C": ...}
     This normalizes uproot's nested representation for dotted branch names.
     """
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
 
     # RecordArray: has .fields and supports rec[field]
     if hasattr(rec, "fields"):
@@ -86,12 +97,12 @@ def flatten_record(rec: Any, *, sep: str = ".") -> Any:
     if not hasattr(rec, "fields"):
         return rec
     flat = _flatten_record_fields(rec, sep=sep)
-    return ak.zip(flat, depth_limit=1)
+    return _awkward().zip(flat, depth_limit=1)
 
 
 def prefix_record(rec: Any, prefix: str):
     # rec is a *flat* awkward record array / mapping
-    return ak.zip({f"{prefix}.{k}": rec[k] for k in rec.fields}, depth_limit=1)
+    return _awkward().zip({f"{prefix}.{k}": rec[k] for k in rec.fields}, depth_limit=1)
 
 
 def _lift_join_aliases(plan: dict[str, Any], *, stream_id: str, merged: Any) -> Any:
@@ -154,7 +165,7 @@ def _lift_join_aliases(plan: dict[str, Any], *, stream_id: str, merged: Any) -> 
             f"Lifted aliases would overwrite existing join fields in '{stream_id}': {sorted(overlap)}"
         )
 
-    return ak.zip({**base_cols, **alias_cols}, depth_limit=1)
+    return _awkward().zip({**base_cols, **alias_cols}, depth_limit=1)
 
 
 def _project_aliases(plan, stream_id, raw):
@@ -191,7 +202,7 @@ def _project_aliases(plan, stream_id, raw):
             f"Alias projection would overwrite existing fields in stream '{stream_id}': {sorted(overlap)}"
         )
 
-    return ak.zip({**base_cols, **alias_cols}, depth_limit=1)
+    return _awkward().zip({**base_cols, **alias_cols}, depth_limit=1)
 
 
 def read_stream(plan: dict, stream_id: str, file_path: str, start: int, stop: int):
@@ -211,7 +222,8 @@ def read_stream(plan: dict, stream_id: str, file_path: str, start: int, stop: in
         inputs = s["inputs"]
         on_mismatch = s.get("on_mismatch", "error")
 
-        parts: dict[str, ak.Array] = {}
+        ak = _awkward()
+        parts: dict[str, Any] = {}
         lens: list[int] = []
 
         for inp in inputs:
@@ -239,7 +251,7 @@ def read_stream(plan: dict, stream_id: str, file_path: str, start: int, stop: in
     raise ValueError(f"Unknown stream kind: {s['kind']}")
 
 
-def get_stream_array(data: dict[str, Any], stream_name: str) -> ak.Array:
+def get_stream_array(data: dict[str, Any], stream_name: str) -> Any:
     if stream_name in data:
         return data[stream_name]
     elif DEFAULT_PRIMARY_STREAM_ID in data:

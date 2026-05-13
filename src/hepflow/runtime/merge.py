@@ -1,8 +1,10 @@
-from typing import Any, Dict, Iterable
-import boost_histogram as bh
+from collections.abc import Iterable
+from typing import Any
 
 
-def merge_hists(items: Iterable[bh.Histogram]) -> bh.Histogram:
+# TODO: artifact merging should become package-owned via merge strategies.
+# fasthep-flow should not contain histogram-specific logic long term.
+def merge_hists(items: Iterable[Any]) -> Any:
     it = iter(items)
     acc = next(it)
     for h in it:
@@ -10,7 +12,9 @@ def merge_hists(items: Iterable[bh.Histogram]) -> bh.Histogram:
     return acc
 
 
-def merge_cutflows(items: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+# TODO: artifact merging should become package-owned via merge strategies.
+# fasthep-flow should not contain cutflow-specific logic long term.
+def merge_cutflows(items: Iterable[dict[str, Any]]) -> dict[str, Any]:
     # Assume structure: {"cuts":[{"name":..., "n":..., "sumw":..., "sumw2":...}, ...]}
     # Merge by cut name and field sum
     out_by_name = {}
