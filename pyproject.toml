@@ -64,6 +64,9 @@ include = [
 src = ["src", "tests"]
 line-length = 88
 target-version = "py311"
+extend-exclude = [
+  "src/hepflow/_version.py",
+]
 
 [tool.ruff.lint]
 select = [
