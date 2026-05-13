@@ -456,6 +456,7 @@ def _insert_projection_nodes(
     stream_effective_nodes: dict[str, str],
     stream_ids,
 ) -> None:
+    del stream_entry_nodes
     for stream_id in stream_ids:
         aliases = _aliases_for_stream(author, str(stream_id))
         if not aliases:

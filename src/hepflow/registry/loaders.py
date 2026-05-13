@@ -153,6 +153,8 @@ def load_runtime_entry(
             {},
         )
     category_cfg = merged.get(category)
+    if not isinstance(category_cfg, dict):
+        raise KeyError(f"Unknown runtime registry category '{category}'")
     try:
         entry = category_cfg[name]
     except KeyError as exc:

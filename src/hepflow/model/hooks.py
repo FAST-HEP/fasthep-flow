@@ -86,7 +86,7 @@ class ExecutionHook:
 
     @contextmanager
     def around_node(self, *, node, inputs: dict[str, Any], ctx: dict[str, Any]):
-        yield
+        pass
 
     def on_node_error(
         self,

@@ -42,6 +42,6 @@ def _hook_entry(registry_cfg: dict[str, Any], kind: str) -> dict[str, Any]:
 
 
 def build_hook_manager(plan) -> Any:
-    from hepflow.runtime.hooks.manager import HookManager
+    from hepflow.runtime.hooks.manager import HookManager  # noqa: PLC0415
 
     return HookManager.from_plan(plan)

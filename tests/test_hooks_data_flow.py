@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -17,7 +18,7 @@ from hepflow.runtime.hooks.manager import HookManager
 
 
 def test_toy_transform_dependency_parser_tracks_consumed_and_produced_symbols(
-    toy_registry: dict[str, object],
+    toy_registry: dict[str, Any],
 ) -> None:
     spec = load_object(
         toy_registry["transforms"]["toy.scale"]["spec"],
@@ -55,7 +56,7 @@ def test_data_flow_infers_source_requirements_without_requiring_produced_data(
 
 def test_hook_context_outputs_are_visible_to_data_flow(
     tmp_path: Path,
-    toy_author: dict[str, object],
+    toy_author: dict[str, Any],
 ) -> None:
     author = dict(toy_author)
     author["registry"] = {
@@ -91,7 +92,7 @@ def test_hook_context_outputs_are_visible_to_data_flow(
 
 def test_hook_executes_lifecycle_event_and_records_summary(
     tmp_path: Path,
-    toy_author: dict[str, object],
+    toy_author: dict[str, Any],
 ) -> None:
     author = dict(toy_author)
     author["registry"] = {
@@ -126,7 +127,7 @@ def test_hook_executes_lifecycle_event_and_records_summary(
     assert result.summary["hooks"]["enabled"][0]["calls"] > 0
 
 
-def test_invalid_hook_event_raises(toy_author: dict[str, object]) -> None:
+def test_invalid_hook_event_raises(toy_author: dict[str, Any]) -> None:
     author = dict(toy_author)
     author["registry"] = {
         **dict(author["registry"]),
@@ -144,7 +145,7 @@ def test_invalid_hook_event_raises(toy_author: dict[str, object]) -> None:
         HookManager.from_plan(plan)
 
 
-def compile_author_file_from_dict(author: dict[str, object]):
+def compile_author_file_from_dict(author: dict[str, Any]):
 
     normalized = normalize_author(author)
     normalized["execution_hooks"] = author.get("execution_hooks", [])

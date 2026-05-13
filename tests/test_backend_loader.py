@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from typing import Any
+
 from hepflow.backends.loaders import load_backend, normalize_backend_override
 from hepflow.compiler.lower_graph import lower_author_to_graph
 from hepflow.compiler.normalize import normalize_author
 from hepflow.compiler.plan import build_execution_plan
 
 
-def test_local_default_backend_loads(toy_author: dict[str, object]) -> None:
+def test_local_default_backend_loads(toy_author: dict[str, Any]) -> None:
     normalized = normalize_author(toy_author)
     plan = build_execution_plan(
         lower_author_to_graph(normalized),
@@ -18,7 +20,7 @@ def test_local_default_backend_loads(toy_author: dict[str, object]) -> None:
     assert backend.name == "local.default"
 
 
-def test_dask_local_backend_loads_without_running(toy_author: dict[str, object]) -> None:
+def test_dask_local_backend_loads_without_running(toy_author: dict[str, Any]) -> None:
     normalized = normalize_author(toy_author)
     plan = build_execution_plan(
         lower_author_to_graph(normalized),

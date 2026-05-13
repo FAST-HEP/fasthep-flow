@@ -66,10 +66,8 @@ class Deps:
 
             for s in req:
                 p = provider_of.get(s)
-                if p is not None:
-                    # ensure p is actually upstream
-                    if order_index[p] < order_index[nid]:
-                        needed_up[p] = None
+                if p is not None and order_index[p] < order_index[nid]:
+                    needed_up[p] = None
 
             out[nid] = tuple(needed_up.keys())
 

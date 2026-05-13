@@ -1,8 +1,8 @@
 # hepflow/model/plan.py
 from __future__ import annotations
 
-import os
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 from hepflow.model.defaults import (
@@ -21,17 +21,18 @@ class Paths:
     results: str = DEFAULT_RESULTS_DIR
 
     def resolve(
-        self, *, base_dir: str | None = None
+        self, *, base_dir: str | Path | None = None
     ) -> tuple[Paths, dict[str, Any]]:
         report: dict[str, Any] = {"changed": False, "notes": []}
 
-        def _abs(p: str, *, rel_to: str | None) -> str:
-            if os.path.isabs(p):
-                return os.path.normpath(p)
-            root = rel_to or os.getcwd()
-            return os.path.normpath(os.path.abspath(os.path.join(root, p)))
+        def _abs(p: str, *, rel_to: str | Path | None) -> str:
+            path = Path(p)
+            if path.is_absolute():
+                return str(path.resolve())
+            root = Path(rel_to) if rel_to is not None else Path.cwd()
+            return str((root / path).resolve())
 
-        base = os.path.abspath(base_dir or os.getcwd())
+        base = (Path(base_dir) if base_dir is not None else Path.cwd()).resolve()
 
         # Resolve work relative to base
         work_abs = _abs(self.work, rel_to=base)
@@ -42,19 +43,20 @@ class Paths:
             )
 
         # Resolve results
-        if os.path.isabs(self.results):
-            results_abs = os.path.normpath(self.results)
+        results_path = Path(self.results)
+        if results_path.is_absolute():
+            results_abs = str(results_path.resolve())
         else:
             # Guard: if user already wrote results like "<work>/something", don't re-prefix with work again.
-            work_rel_norm = os.path.normpath(str(self.work))
-            results_rel_norm = os.path.normpath(str(self.results))
+            work_rel_norm = Path(self.work).as_posix()
+            results_rel_norm = results_path.as_posix()
 
             looks_prefixed_by_work = (
                 work_rel_norm
-                and work_rel_norm not in (".", os.sep)
+                and work_rel_norm not in (".", Path.cwd().anchor)
                 and (
                     results_rel_norm == work_rel_norm
-                    or results_rel_norm.startswith(work_rel_norm + os.sep)
+                    or results_rel_norm.startswith(work_rel_norm + "/")
                 )
             )
 

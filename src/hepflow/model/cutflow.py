@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
 from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 
@@ -152,15 +152,15 @@ class CutflowPaths:
 
     @staticmethod
     def part_path(results_dir: str, stage: str, dataset: str, part: str) -> str:
-        return os.path.join(results_dir, "cutflows", stage, dataset, f"{part}.cutflow.json")
+        return str(Path(results_dir) / "cutflows" / stage / dataset / f"{part}.cutflow.json")
 
     @staticmethod
     def dataset_path(results_dir: str, stage: str, dataset: str) -> str:
-        return os.path.join(results_dir, "cutflows", stage, dataset, "cutflow.json")
+        return str(Path(results_dir) / "cutflows" / stage / dataset / "cutflow.json")
 
     @staticmethod
     def collection_path(results_dir: str, stage: str) -> str:
-        return os.path.join(results_dir, "cutflows", stage, "collection.json")
+        return str(Path(results_dir) / "cutflows" / stage / "collection.json")
 
 
 @dataclass(frozen=True)

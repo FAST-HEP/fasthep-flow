@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import networkx as nx
 
@@ -30,6 +30,7 @@ from hepflow.model.plan import (
     ExecutionNode,
     ExecutionPartition,
     ExecutionPlan,
+    MaterializeMode,
     NodeDeps,
     Partition,
     PartitionSpec,
@@ -39,6 +40,7 @@ from hepflow.model.plan import (
     PlanInputRef,
     ProductPlan,
     RenderPlan,
+    Scope,
 )
 from hepflow.model.render_types import RenderCommonSpec
 from hepflow.registry.loaders import (
@@ -267,7 +269,7 @@ def make_plan(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
 ) -> tuple[dict[str, Any], dict[str, list[FlowIssue]]]:
     paths = Paths(work=work_dir, results=results_dir or DEFAULT_RESULTS_DIR)
-    paths_resolved, paths_report = paths.resolve(base_dir=os.getcwd())
+    paths_resolved, paths_report = paths.resolve(base_dir=Path.cwd())
     results_dir = paths_resolved.results
 
     primary_stream = ir.get("primary_stream", "events")
@@ -434,8 +436,8 @@ def make_plan(
                 f"Missing provides_symbols_per_node entry for node '{nid}'"
             )
         node_deps = NodeDeps(
-            requires=deps.required_symbols_per_node.get(nid),
-            provides=deps.provides_symbols_per_node.get(nid),
+            requires=deps.required_symbols_per_node.get(nid) or (),
+            provides=deps.provides_symbols_per_node.get(nid) or (),
         )
         exec_nodes.append(
             ExecNode(
@@ -677,10 +679,10 @@ def build_execution_plan(
                 inputs=inputs,
                 params=params,
                 outputs=dict(graph_node.outputs),
-                input_scope=input_scope,
-                output_scope=output_scope,
+                input_scope=cast(Scope, input_scope),
+                output_scope=cast(Scope, output_scope),
                 partitioning=partitioning,
-                materialize=materialize,
+                materialize=cast(MaterializeMode, materialize),
                 meta=dict(graph_node.meta),
             )
         )
@@ -720,6 +722,7 @@ def build_plan_context(
     datasets_by_name: dict[str, dict[str, Any]] | None = None,
     globals_block: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    del plan
     datasets_by_name = dict(datasets_by_name or {})
     return {
         "datasets": datasets_by_name,
@@ -807,6 +810,7 @@ def _default_execution_policy(
     outputs: dict[str, str],
     chunk_size: int | None,
 ) -> tuple[str, str, PartitionSpec, str]:
+    del impl
     """
     Very first-pass policy.
 

@@ -163,7 +163,7 @@ class FieldSpec:
 class NormalizedAuthor:
     version: str
     data: DataBlock
-    sources: dict[str, RootTreeSourceSpec] = field(default_factory=dict)
+    sources: dict[str, dict[str, Any]] = field(default_factory=dict)
     joins: dict[str, ZipJoinSpec] = field(default_factory=dict)
     styles: dict[str, dict[str, Any]] = field(default_factory=dict)
     fields: dict[str, FieldSpec] = field(default_factory=dict)
@@ -172,7 +172,7 @@ class NormalizedAuthor:
     primary_stream: str | None = None
     use: dict[str, Any] = field(default_factory=dict)
     execution: dict[str, Any] = field(default_factory=dict)
-    registry: dict[str, Any] = None
+    registry: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "version", _nonempty_str(self.version, "version"))

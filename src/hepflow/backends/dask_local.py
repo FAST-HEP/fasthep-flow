@@ -36,7 +36,7 @@ class DaskLocalBackend:
         *,
         ctx: dict[str, Any] | None = None,
     ) -> BackendResult:
-        from dask import compute, delayed
+        from dask import compute, delayed  # noqa: PLC0415
 
         config = dict(plan.execution.get("config") or {})
         scheduler = str(config.get("scheduler") or "threads")
@@ -132,7 +132,7 @@ class DaskLocalBackend:
         )
         warnings.extend(final_warnings)
 
-        backend_summary = {
+        backend_summary: dict[str, Any] = {
             "name": self.name,
             "scheduler": scheduler,
             "n_workers": n_workers,
@@ -142,7 +142,7 @@ class DaskLocalBackend:
         if dashboard_link is not None:
             backend_summary["dashboard_link"] = dashboard_link
 
-        summary = {
+        summary: dict[str, Any] = {
             "backend": backend_summary,
             "strategy": "local",
             "scheduler": scheduler,
@@ -183,7 +183,7 @@ def _compute_distributed(
     local_directory: Any,
     outdir: Any,
 ) -> tuple[list[Any], str | None]:
-    from distributed import Client, LocalCluster
+    from distributed import Client, LocalCluster  # noqa: PLC0415
 
     if local_directory is None:
         local_directory = str(Path(outdir) / "dask") if outdir else ".dask"
@@ -200,8 +200,6 @@ def _compute_distributed(
     client = Client(cluster)
     try:
         dashboard_link = getattr(client, "dashboard_link", None)
-        if dashboard_link:
-            print(f"Dask dashboard: {dashboard_link}")
         if not tasks:
             return [], dashboard_link
         futures = client.compute(tasks)

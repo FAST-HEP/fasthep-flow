@@ -116,8 +116,8 @@ class AxesSpec:
         return AxesSpec(
             x=AxisSpec(**d.get("x", {})),
             y=AxisSpec(**d.get("y", {})),
-            z=AxisSpec(**d.get("z", {})) if d.get("axes", {}).get("z") else None,
-            ratio=AxisSpec(**d.get("ratio")) if d.get("ratio") else None,
+            z=AxisSpec(**d.get("z", {})) if d.get("z") else None,
+            ratio=AxisSpec(**(d.get("ratio") or {})) if d.get("ratio") else None,
         )
 
 
@@ -359,6 +359,10 @@ class RenderSpec:
 
     # Renderer-specific options
     extensions: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def plot(self) -> str:
+        return self.op
 
     def __post_init__(self):
         if self.plot == "data_mc":

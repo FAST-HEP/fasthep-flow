@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -25,7 +26,7 @@ def test_runtime_executes_toy_source_transform_and_final_sink(
 
 def test_partition_dataset_and_run_end_sink_timing(
     tmp_path: Path,
-    toy_author: dict[str, object],
+    toy_author: dict[str, Any],
 ) -> None:
     author = {
         **toy_author,

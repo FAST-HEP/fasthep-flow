@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
+from pathlib import Path
 from typing import Any
 
 
@@ -71,6 +71,7 @@ class FileSchema:
             objects=[
                 ObjectSchema(
                     path=str(o["path"]),
+                    path_raw=str(o.get("path_raw", o["path"])),
                     type=str(o["type"]),
                     entries=int(o["entries"]),
                     schema_signature=str(o["schema_signature"]),
@@ -116,14 +117,15 @@ def make_file_schema(
     file_path: str,
     objects: list[ObjectSchema],
 ) -> FileSchema:
-    st = os.stat(file_path)
+    path = Path(file_path)
+    st = path.stat()
     return FileSchema(
         version=1,
         dataset=dataset,
         file_index=file_index,
         file={
             "path": file_path,
-            "name": os.path.basename(file_path),
+            "name": path.name,
             "format": "root",
             "size_bytes": int(st.st_size),
             "mtime_unix": float(st.st_mtime),

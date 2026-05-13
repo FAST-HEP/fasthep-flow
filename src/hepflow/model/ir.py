@@ -24,7 +24,7 @@ class InputRef:
                     "InputRef: must provide either stream OR (node AND port)")
 
     def to_dict(self) -> dict[str, Any]:
-        d = {}
+        d: dict[str, Any] = {}
         if self.stream is not None:
             d["stream"] = self.stream
         else:

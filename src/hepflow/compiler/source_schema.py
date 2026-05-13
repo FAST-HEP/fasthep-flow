@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 import re
+from pathlib import Path
 from typing import Any
 
 import uproot
@@ -121,16 +121,17 @@ def write_dataset_source_schema(
     file_path: str,
     work_dir: str,
 ) -> tuple[str, dict[str, Any], bool]:
-    out_dir = os.path.join(work_dir, "source_schema")
-    os.makedirs(out_dir, exist_ok=True)
+    work_path = Path(work_dir)
+    out_dir = work_path / "source_schema"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     filename = f"source_schema_{dataset}_file_{file_index:04d}.json"
-    abs_path = os.path.join(out_dir, filename)
-    rel_path = os.path.relpath(abs_path, work_dir)
+    abs_path = out_dir / filename
+    rel_path = abs_path.relative_to(work_path)
 
-    if os.path.exists(abs_path):
+    if abs_path.exists():
         schema = read_json(abs_path)
-        return rel_path, schema, True
+        return str(rel_path), schema, True
 
     schema = inspect_root_file_schema(
         dataset=dataset,
@@ -138,10 +139,10 @@ def write_dataset_source_schema(
         file_path=file_path,
     )
     write_json(schema, abs_path)
-    return rel_path, schema, False
+    return str(rel_path), schema, False
 
 
-def _load_schema_json(path: str) -> dict[str, Any]:
+def _load_schema_json(path: str | Path) -> dict[str, Any]:
     obj = read_json(path)
     if not isinstance(obj, dict):
         raise TypeError(f"Source schema file must contain a JSON object: {path}")
@@ -234,9 +235,8 @@ def validate_source_schema_against_plan(
             )
             continue
 
-        abs_schema_path = (
-            rel_path if os.path.isabs(rel_path) else os.path.join(work_dir, rel_path)
-        )
+        schema_path = Path(rel_path)
+        abs_schema_path = schema_path if schema_path.is_absolute() else Path(work_dir) / schema_path
         try:
             schema = _load_schema_json(abs_schema_path)
         except Exception as e:
@@ -247,7 +247,7 @@ def validate_source_schema_against_plan(
                     message=f"Could not load source schema for dataset '{dataset_name}'",
                     meta={
                         "dataset": dataset_name,
-                        "path": abs_schema_path,
+                        "path": str(abs_schema_path),
                         "error": f"{type(e).__name__}: {e}",
                     },
                 )
@@ -294,8 +294,8 @@ def validate_source_schema_against_plan(
 
             # 2) validate required_inputs branches exist
             ri = required_inputs.get(stream_id) or {}
-            req_branches = ri.get("branches") or []
-            missing_required = [b for b in req_branches if b not in branches]
+            required_branches: list[Any] = list(ri.get("branches") or [])
+            missing_required = [b for b in required_branches if b not in branches]
             if missing_required:
                 issues.append(
                     FlowIssue(

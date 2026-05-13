@@ -14,7 +14,7 @@ from hepflow.model.report import (
 
 def _maybe_hepflow_version() -> str | None:
     try:
-        import hepflow
+        import hepflow  # noqa: PLC0415
         return getattr(hepflow, "__version__", None)
     except Exception:
         return None

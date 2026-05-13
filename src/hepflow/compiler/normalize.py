@@ -33,12 +33,12 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
     version = str(doc.get("version", "1.0"))
     data = normalize_data(doc.get("data") or {})
 
-    sources: dict[str, RootTreeSourceSpec] = normalize_sources(
+    sources = normalize_sources(
         doc.get("sources"), data.defaults
     )
 
     if not sources:
-        sources["events"] = inject_default_events_source(data.defaults)
+        sources["events"] = inject_default_events_source(data.defaults).to_dict()
 
     joins = normalize_joins(doc.get("joins"))
     fields = normalize_fields(doc.get("fields"))
@@ -115,10 +115,12 @@ def normalize_datasets(
 
     if not isinstance(datasets, list):
         raise ValueError("data.datasets must be a list")
-    for i, ds in enumerate(datasets):
-        ds = _ensure_mapping(ds, f"data.datasets[{i}]")
+    for i, ds_raw in enumerate(datasets):
+        ds = _ensure_mapping(ds_raw, f"data.datasets[{i}]")
         name = ds.get("name")
         files = ds.get("files")
+        if not isinstance(files, list):
+            raise ValueError(f"data.datasets[{i}].files must be a list")
         meta = {k: v for k, v in ds.items() if k not in known and v is not None}
         norm_datasets.append(
             DatasetSpec(
@@ -147,8 +149,8 @@ def normalize_sources(
     sources = _ensure_mapping(sources, "sources")
 
     out: dict[str, dict[str, Any]] = {}
-    for sid, spec in sources.items():
-        spec = _ensure_mapping(spec, f"sources.{sid}")
+    for sid, spec_raw in sources.items():
+        spec = _ensure_mapping(spec_raw, f"sources.{sid}")
         kind = str(spec.get("kind", "root_tree")).strip()
         if not kind:
             raise ValueError(f"sources.{sid}.kind must be a non-empty string")
@@ -186,20 +188,20 @@ def normalize_joins(joins_raw: Any) -> dict[str, ZipJoinSpec]:
         return {}
     joins_raw = _ensure_mapping(joins_raw, "joins")
     joins: dict[str, ZipJoinSpec] = {}
-    for jid, j in joins_raw.items():
-        j = _ensure_mapping(j, f"joins.{jid}")
-        kind = j.get("kind", "zip")
+    for jid, join_raw in joins_raw.items():
+        join = _ensure_mapping(join_raw, f"joins.{jid}")
+        kind = join.get("kind", "zip")
         if kind != "zip":
             raise ValueError(f"joins.{jid}.kind must be zip (v2.1)")
-        inputs_raw = j.get("inputs")
+        inputs_raw = join.get("inputs")
         if not isinstance(inputs_raw, list) or not inputs_raw:
             raise ValueError(f"joins.{jid}.inputs must be a non-empty list")
         inputs: list[JoinInputSpec] = []
-        for item in inputs_raw:
-            if isinstance(item, str):
-                inputs.append(JoinInputSpec(source=item, prefix=item))
+        for item_raw in inputs_raw:
+            if isinstance(item_raw, str):
+                inputs.append(JoinInputSpec(source=item_raw, prefix=item_raw))
             else:
-                item = _ensure_mapping(item, f"joins.{jid}.inputs[]")
+                item = _ensure_mapping(item_raw, f"joins.{jid}.inputs[]")
                 src = item.get("source")
                 if not src:
                     raise ValueError(f"joins.{jid}.inputs[] missing source")
@@ -207,7 +209,7 @@ def normalize_joins(joins_raw: Any) -> dict[str, ZipJoinSpec]:
                 inputs.append(JoinInputSpec(source=str(src), prefix=str(pref)))
         joins[str(jid)] = ZipJoinSpec(
             inputs=inputs,
-            on_mismatch=str(j.get("on_mismatch", DEFAULT_JOIN_ON_MISMATCH)),
+            on_mismatch=str(join.get("on_mismatch", DEFAULT_JOIN_ON_MISMATCH)),
         )
     return joins
 
@@ -217,10 +219,10 @@ def normalize_fields(fields_raw: Any) -> dict[str, FieldSpec]:
         return {}
     fields_raw = _ensure_mapping(fields_raw, "fields")
     fields: dict[str, FieldSpec] = {}
-    for alias, f in fields_raw.items():
-        f = _ensure_mapping(f, f"fields.{alias}")
+    for alias, field_raw in fields_raw.items():
+        field = _ensure_mapping(field_raw, f"fields.{alias}")
         fields[str(alias)] = FieldSpec(
-            stream=f.get("stream", ""), branch=f.get("branch", "")
+            stream=field.get("stream", ""), branch=field.get("branch", "")
         )
     return fields
 
@@ -230,10 +232,10 @@ def normalize_styles(styles: Any) -> dict[str, dict[str, Any]]:
         return {}
     styles = _ensure_mapping(styles, "styles")
     out: dict[str, dict[str, Any]] = {}
-    for name, spec in styles.items():
+    for name, spec_raw in styles.items():
         if not isinstance(name, str) or not name:
             raise ValueError("styles keys must be non-empty strings")
-        spec = _ensure_mapping(spec, f"styles.{name}")
+        spec = _ensure_mapping(spec_raw, f"styles.{name}")
         out[name] = dict(spec)
     return out
 
@@ -245,8 +247,8 @@ def normalize_top_level_observers(observers_raw: Any) -> list[dict[str, Any]]:
         raise ValueError("observers must be a list")
 
     out: list[dict[str, Any]] = []
-    for idx, observer in enumerate(observers_raw):
-        observer = _ensure_mapping(observer, f"observers[{idx}]")
+    for idx, observer_raw in enumerate(observers_raw):
+        observer = _ensure_mapping(observer_raw, f"observers[{idx}]")
         kind = observer.get("kind")
         if not isinstance(kind, str) or not kind.strip():
             raise ValueError(f"observers[{idx}].kind must be a non-empty string")

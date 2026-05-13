@@ -19,7 +19,7 @@ def merge_hists(items: Iterable[Any]) -> Any:
 def merge_cutflows(items: Iterable[dict[str, Any]]) -> dict[str, Any]:
     # Assume structure: {"cuts":[{"name":..., "n":..., "sumw":..., "sumw2":...}, ...]}
     # Merge by cut name and field sum
-    out_by_name = {}
+    out_by_name: dict[str, dict[str, Any]] = {}
     for cf in items:
         for row in cf.get("cuts", []):
             name = row["name"]

@@ -27,13 +27,20 @@ class RenderCommonSpec:
     @staticmethod
     def from_dict(d: dict[str, Any] | None) -> RenderCommonSpec:
         d = dict(d or {})
+        transforms = [
+            transform
+            for transform in (
+                TransformSpec.from_dict(t) for t in (d.get("transforms") or [])
+            )
+            if transform is not None
+        ]
         return RenderCommonSpec(
             figure=FigureSpec(**(d.get("figure") or {})),
             axes=AxesSpec.from_dict(d.get("axes") or {}),
             select=dict(d.get("select") or {}),
             legend=LegendSpec(**(d.get("legend") or {})),
             style=StyleSpec.from_dict(d.get("style") or {}),
-            transforms=[TransformSpec.from_dict(t) for t in (d.get("transforms") or [])],
+            transforms=transforms,
             extensions=dict(d.get("extensions") or {}),
         )
 

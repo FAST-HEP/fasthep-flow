@@ -24,7 +24,7 @@ OP_HANDLERS: dict[str, OpHandler] = {}
 
 
 def eval_expr(events: Any, expr: str, ctx: dict[str, Any] | None = None) -> Any:
-    from hepflow.runtime.engine import eval_expr as _eval_expr
+    from hepflow.runtime.engine import eval_expr as _eval_expr  # noqa: PLC0415
 
     return _eval_expr(events, expr, ctx)
 

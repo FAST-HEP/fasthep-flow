@@ -640,12 +640,12 @@ def _dispatch_node_error(
     exc: BaseException,
 ) -> None:
     if not hook_manager.has_event("on_node_error"):
-        print(f"Runtime error in node {node.id}: {type(exc).__name__}: {exc}")
+        print(f"Runtime error in node {node.id}: {type(exc).__name__}: {exc}")  # noqa: T201
         return
     try:
         hook_manager.on_node_error(node=node, inputs=inputs, ctx=ctx, exc=exc)
     except HookDispatchError as hook_exc:
-        print(f"Error hook {hook_exc.kind} failed: {hook_exc.cause}")
+        print(f"Error hook {hook_exc.kind} failed: {hook_exc.cause}")  # noqa: T201
 
 
 def execute_plan_locally(
@@ -750,6 +750,7 @@ def build_partition_context(
     base_ctx: dict[str, Any],
     partition: ExecutionPartition,
 ) -> dict[str, Any]:
+    del plan
     datasets = dict(base_ctx.get("datasets") or {})
     globals_block = dict(base_ctx.get("globals") or {})
     return {
@@ -770,6 +771,7 @@ def build_dataset_context(
     base_ctx: dict[str, Any],
     dataset_name: str,
 ) -> dict[str, Any]:
+    del plan
     datasets = dict(base_ctx.get("datasets") or {})
     globals_block = dict(base_ctx.get("globals") or {})
     return {

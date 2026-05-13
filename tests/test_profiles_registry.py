@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -11,7 +12,7 @@ from hepflow.registry.loaders import load_runtime_spec_and_impl
 from hepflow.registry.merge import RegistryLayer, merge_registry_layers
 
 
-def test_registry_entries_merge_and_load_objects(toy_registry: dict[str, object]) -> None:
+def test_registry_entries_merge_and_load_objects(toy_registry: dict[str, Any]) -> None:
     result = merge_registry_layers(
         [
             RegistryLayer(name="a", kind="test", registry={"sources": {}}),
@@ -29,7 +30,7 @@ def test_registry_entries_merge_and_load_objects(toy_registry: dict[str, object]
     assert impl(ctx={})["pt"] == [12, 18, 21, 28]
 
 
-def test_missing_registry_item_errors_clearly(toy_registry: dict[str, object]) -> None:
+def test_missing_registry_item_errors_clearly(toy_registry: dict[str, Any]) -> None:
     with pytest.raises(KeyError, match=r"Unknown runtime registry entry 'toy.missing'"):
         load_runtime_spec_and_impl(toy_registry, "transforms", "toy.missing")
 

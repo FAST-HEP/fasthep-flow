@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from hepflow.utils import read_yaml
@@ -13,10 +13,11 @@ class IncludeResult:
     files: tuple[str, ...]
 
 
-def _as_abs(path: str, *, base_dir: str) -> str:
-    if os.path.isabs(path):
-        return os.path.normpath(path)
-    return os.path.normpath(os.path.abspath(os.path.join(base_dir, path)))
+def _as_abs(path: str | Path, *, base_dir: str | Path) -> Path:
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate.resolve()
+    return (Path(base_dir) / candidate).resolve()
 
 
 def _deep_merge(a: Any, b: Any) -> Any:
@@ -43,7 +44,7 @@ def _deep_merge(a: Any, b: Any) -> Any:
 
 
 def load_author_with_includes(
-    root_path: str,
+    root_path: str | Path,
     max_depth: int = 50,
 ) -> IncludeResult:
     """
@@ -56,13 +57,13 @@ def load_author_with_includes(
     - relative include paths are resolved relative to the file that contains them
     - cycle detection is strict (ValueError)
     """
-    root_abs = os.path.normpath(os.path.abspath(root_path))
+    root_abs = _as_abs(root_path, base_dir=Path.cwd())
 
-    visiting: list[str] = []
-    visited: set[str] = set()
+    visiting: list[Path] = []
+    visited: set[Path] = set()
     files_in_order: list[str] = []
 
-    def _load_one(path_abs: str, depth: int) -> dict[str, Any]:
+    def _load_one(path_abs: Path, depth: int) -> dict[str, Any]:
         if depth > max_depth:
             raise ValueError(
                 f"include recursion exceeded max_depth={max_depth}. "
@@ -82,7 +83,7 @@ def load_author_with_includes(
             raise TypeError(
                 f"Included YAML must be a mapping/dict: {path_abs}")
 
-        base_dir = os.path.dirname(path_abs)
+        base_dir = path_abs.parent
 
         inc = raw.get("include", [])
         if isinstance(inc, str):
@@ -116,7 +117,7 @@ def load_author_with_includes(
 
         if path_abs not in visited:
             visited.add(path_abs)
-            files_in_order.append(path_abs)
+            files_in_order.append(str(path_abs))
 
         return merged
 
