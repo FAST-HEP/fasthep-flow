@@ -33,15 +33,14 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up Pixi
-        uses: prefix-dev/setup-pixi@v0.8.12
+        uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.41.4
-          cache: true
+          pixi-version: v0.58.0
 
       - name: Run CI
         run: pixi run --environment py${{ matrix.python-version }} ci
