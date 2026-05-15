@@ -91,7 +91,7 @@ def init_project(
 ) -> InitResult:
     """Create project-local profile templates from bundled flow profiles."""
     project_dir = Path(target_dir)
-    profile_dir = project_dir / ".hepflow" / "profiles"
+    profile_dir = project_dir / ".fasthep" / "profiles" / "hepflow"
     created_profile_dir = not profile_dir.exists()
     profile_dir.mkdir(parents=True, exist_ok=True)
 

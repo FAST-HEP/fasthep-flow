@@ -45,6 +45,13 @@ def test_qualified_package_profile_loads_from_test_package(tmp_path: Path) -> No
     assert "toy.scale" in layer.registry["transforms"]
 
 
+def test_unqualified_builtin_registry_profile_still_loads(tmp_path: Path) -> None:
+    layer = load_profile_registry_layer("registry", project_root=tmp_path)
+
+    assert layer.path == "package:hepflow.profiles/registry.yaml"
+    assert "local.default" in layer.registry["backends"]
+
+
 def test_profile_registry_is_copied_into_normalized_author(tmp_path: Path) -> None:
     author = {
         "version": "1.0",
