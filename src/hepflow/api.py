@@ -24,6 +24,7 @@ from hepflow.compiler.profiles import (
     load_profile_config_with_provenance,
     load_profile_registry_layer,
     normalize_profile_names,
+    resolve_profile_source,
 )
 from hepflow.model.lifecycle import WHEN_ALIASES
 from hepflow.model.plan import (
@@ -88,10 +89,12 @@ def init_project(
     *,
     target_dir: str | Path,
     force: bool = False,
+    include: Iterable[str] | None = None,
 ) -> InitResult:
     """Create project-local profile templates from bundled flow profiles."""
     project_dir = Path(target_dir)
-    profile_dir = project_dir / ".fasthep" / "profiles" / "hepflow"
+    profiles_root = project_dir / ".fasthep" / "profiles"
+    profile_dir = profiles_root / "hepflow"
     created_profile_dir = not profile_dir.exists()
     profile_dir.mkdir(parents=True, exist_ok=True)
 
@@ -107,6 +110,20 @@ def init_project(
             continue
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(source.read_bytes())
+        if exists:
+            result.overwritten.append(destination)
+        else:
+            result.copied.append(destination)
+
+    for profile_ref in include or []:
+        profile = resolve_profile_source(profile_ref, project_root=project_dir)
+        destination = profiles_root / profile.owner / profile.filename
+        exists = destination.exists()
+        if exists and not force:
+            result.skipped_existing.append(destination)
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(profile.source.read_bytes())
         if exists:
             result.overwritten.append(destination)
         else:

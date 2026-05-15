@@ -1,12 +1,23 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from importlib import resources
+from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from hepflow.registry.merge import RegistryLayer
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileSource:
+    ref: str
+    owner: str
+    filename: str
+    path: str
+    source: Path | Traversable
 
 
 def project_profile_dir(root: Path) -> Path:
@@ -71,32 +82,43 @@ def load_profile_config_with_provenance(
     return _load_profile_with_provenance(name, project_root=project_root)
 
 
-def _load_profile_with_provenance(
+def resolve_profile_source(
     name: str,
     *,
     project_root: Path,
-) -> tuple[dict[str, Any], dict[str, str]]:
+) -> ProfileSource:
+    """Resolve a profile reference without loading its YAML content."""
     if not isinstance(name, str) or not name.strip():
         raise ValueError("Profile name must be a non-empty string")
+    name = name.strip()
     if ":" in name:
-        return _load_qualified_package_profile(name)
+        return _resolve_qualified_package_profile(name)
+    if _looks_like_path(name):
+        return _resolve_local_profile_path(name, project_root=project_root)
+
     if "/" in name or "\\" in name or name in {".", ".."}:
         raise ValueError(f"Invalid profile name: {name!r}")
 
     filename = f"{name}.yaml"
     local_path = project_profile_dir(project_root) / filename
     if local_path.exists():
-        loaded = yaml.safe_load(local_path.read_text(encoding="utf-8")) or {}
-        if not isinstance(loaded, dict):
-            raise ValueError(f"Profile {name!r} must contain a YAML mapping")
-        return loaded, {"path": str(local_path.relative_to(project_root))}
+        return ProfileSource(
+            ref=name,
+            owner="local",
+            filename=local_path.name,
+            path=str(local_path.relative_to(project_root)),
+            source=local_path,
+        )
 
     package_resource = resources.files("hepflow.profiles").joinpath(filename)
     if package_resource.is_file():
-        loaded = yaml.safe_load(package_resource.read_text(encoding="utf-8")) or {}
-        if not isinstance(loaded, dict):
-            raise ValueError(f"Profile {name!r} must contain a YAML mapping")
-        return loaded, {"path": f"package:hepflow.profiles/{filename}"}
+        return ProfileSource(
+            ref=name,
+            owner="hepflow",
+            filename=filename,
+            path=f"package:hepflow.profiles/{filename}",
+            source=package_resource,
+        )
 
     raise FileNotFoundError(
         f"Profile {name!r} not found in {project_profile_dir(project_root)} "
@@ -104,9 +126,21 @@ def _load_profile_with_provenance(
     )
 
 
-def _load_qualified_package_profile(
+def _load_profile_with_provenance(
     name: str,
+    *,
+    project_root: Path,
 ) -> tuple[dict[str, Any], dict[str, str]]:
+    profile = resolve_profile_source(name, project_root=project_root)
+    loaded = yaml.safe_load(profile.source.read_text(encoding="utf-8")) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Profile {name!r} must contain a YAML mapping")
+    return loaded, {"path": profile.path}
+
+
+def _resolve_qualified_package_profile(
+    name: str,
+) -> ProfileSource:
     package_name, profile_name = name.split(":", 1)
     if not package_name or not profile_name:
         raise ValueError(
@@ -125,9 +159,43 @@ def _load_qualified_package_profile(
         ) from exc
 
     if not package_resource.is_file():
-        raise FileNotFoundError(f"Profile {name!r} not found at package:{package}/{filename}")
+        raise FileNotFoundError(
+            f"Profile {name!r} not found at package:{package}/{filename}"
+        )
 
-    loaded = yaml.safe_load(package_resource.read_text(encoding="utf-8")) or {}
-    if not isinstance(loaded, dict):
-        raise ValueError(f"Profile {name!r} must contain a YAML mapping")
-    return loaded, {"path": f"package:{package}/{filename}"}
+    return ProfileSource(
+        ref=name,
+        owner=package_name,
+        filename=filename,
+        path=f"package:{package}/{filename}",
+        source=package_resource,
+    )
+
+
+def _resolve_local_profile_path(
+    name: str,
+    *,
+    project_root: Path,
+) -> ProfileSource:
+    profile_path = Path(name)
+    if not profile_path.is_absolute():
+        profile_path = project_root / profile_path
+    if not profile_path.is_file():
+        raise FileNotFoundError(f"Profile path {name!r} not found")
+    return ProfileSource(
+        ref=name,
+        owner="local",
+        filename=profile_path.name,
+        path=str(profile_path),
+        source=profile_path,
+    )
+
+
+def _looks_like_path(name: str) -> bool:
+    return (
+        "/" in name
+        or "\\" in name
+        or name in {".", ".."}
+        or name.startswith(".")
+        or name.endswith((".yaml", ".yml"))
+    )
