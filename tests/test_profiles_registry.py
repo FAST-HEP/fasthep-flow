@@ -8,8 +8,12 @@ import yaml
 
 from hepflow.api import normalise_author_file
 from hepflow.compiler.profiles import load_profile_registry_layer
-from hepflow.registry.loaders import load_runtime_spec_and_impl
+from hepflow.registry.loaders import (
+    load_runtime_spec_and_impl,
+    runtime_registry_from_config,
+)
 from hepflow.registry.merge import RegistryLayer, merge_registry_layers
+from hepflow.runtime.handlers import run_sink
 
 
 def test_registry_entries_merge_and_load_objects(toy_registry: dict[str, Any]) -> None:
@@ -28,6 +32,25 @@ def test_registry_entries_merge_and_load_objects(toy_registry: dict[str, Any]) -
     )
     assert spec["name"] == "toy.source"
     assert impl(ctx={})["pt"] == [12, 18, 21, 28]
+
+
+def test_runtime_registry_loads_renderers(toy_registry: dict[str, Any]) -> None:
+    runtime_registry = runtime_registry_from_config(toy_registry)
+
+    assert "toy.render" in runtime_registry.renderers
+
+
+def test_run_sink_passes_runtime_registry_context(toy_registry: dict[str, Any]) -> None:
+    result = run_sink(
+        sink_name="toy.capture_registry",
+        target={"value": 1},
+        params={},
+        ctx={},
+        registry_cfg=toy_registry,
+    )
+
+    assert result["plan_has_registry"] is True
+    assert result["renderers"] == ["toy.render"]
 
 
 def test_missing_registry_item_errors_clearly(toy_registry: dict[str, Any]) -> None:

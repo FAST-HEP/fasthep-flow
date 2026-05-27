@@ -6,7 +6,10 @@ from typing import Any, Protocol
 
 from hepflow.model.io import OutputResult
 from hepflow.model.lifecycle import normalize_lifecycle_event
-from hepflow.registry.loaders import load_runtime_spec_and_impl
+from hepflow.registry.loaders import (
+    load_runtime_spec_and_impl,
+    runtime_registry_from_config,
+)
 
 EXECUTION_ONLY_SINK_PARAMS = {"when"}
 
@@ -52,14 +55,30 @@ def run_sink(
     registry_cfg: dict[str, Any] | None,
 ) -> OutputResult | Any:
     _spec, impl = load_runtime_spec_and_impl(registry_cfg, "sinks", sink_name)
+    sink_ctx = _sink_runtime_context(ctx=ctx, registry_cfg=registry_cfg)
     return _run_writer_like_sink(
         sink_name=sink_name,
         impl=impl,
         target=target,
         params=params,
-        ctx=ctx,
+        ctx=sink_ctx,
         meta=meta,
     )
+
+
+def _sink_runtime_context(
+    *,
+    ctx: dict[str, Any],
+    registry_cfg: dict[str, Any] | None,
+) -> dict[str, Any]:
+    sink_ctx = dict(ctx or {})
+    if registry_cfg is not None:
+        plan_ctx = dict(sink_ctx.get("plan") or {})
+        plan_ctx.setdefault("registry", registry_cfg)
+        sink_ctx["plan"] = plan_ctx
+    if registry_cfg is not None and "runtime_registry" not in sink_ctx:
+        sink_ctx["runtime_registry"] = runtime_registry_from_config(registry_cfg)
+    return sink_ctx
 
 
 def _run_writer_like_sink(
@@ -95,9 +114,13 @@ def _run_writer_like_sink(
         impl_params["output_dir"] = output_dir
 
     signature = inspect.signature(impl)
-    if "ctx" in signature.parameters:
+    accepts_kwargs = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    )
+    if "ctx" in signature.parameters or accepts_kwargs:
         impl_params["ctx"] = dict(ctx or {})
-    if "meta" in signature.parameters:
+    if "meta" in signature.parameters or accepts_kwargs:
         impl_params["meta"] = dict(meta or {})
 
     return impl(target=target, **impl_params)

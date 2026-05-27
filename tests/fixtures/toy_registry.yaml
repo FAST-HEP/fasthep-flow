@@ -11,6 +11,13 @@ registry:
     toy.write:
       spec: tests.toy_components.sinks:TOY_WRITE_SPEC
       impl: tests.toy_components.sinks:run_toy_write
+    toy.capture_registry:
+      spec: tests.toy_components.sinks:TOY_CAPTURE_REGISTRY_SPEC
+      impl: tests.toy_components.sinks:run_toy_capture_registry
+  renderers:
+    toy.render:
+      spec: tests.toy_components.renderers:TOY_RENDER_TYPE
+      impl: tests.toy_components.renderers:render_toy
   observers:
     toy.observe:
       spec: tests.toy_components.observers:TOY_OBSERVER_SPEC

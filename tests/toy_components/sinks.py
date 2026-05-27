@@ -28,3 +28,26 @@ def run_toy_write(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(target, sort_keys=True), encoding="utf-8")
     return {"path": str(output_path)}
+
+
+TOY_CAPTURE_REGISTRY_SPEC = {
+    "name": "toy.capture_registry",
+    "kind": "sink",
+    "input": {"name": "target", "required": True},
+    "params": {},
+    "result": {"artifact": "artifact"},
+}
+
+
+def run_toy_capture_registry(
+    *,
+    target: Any,
+    ctx: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    runtime_registry = (ctx or {}).get("runtime_registry")
+    plan = dict((ctx or {}).get("plan") or {})
+    return {
+        "target": target,
+        "plan_has_registry": "registry" in plan,
+        "renderers": sorted(getattr(runtime_registry, "renderers", {})),
+    }
