@@ -121,7 +121,7 @@ def test_hook_executes_lifecycle_event_and_records_summary(
     author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
     build_dir = tmp_path / "build"
     compile_author_file(author_path, outdir=build_dir)
-    result = run_plan_file(build_dir / "plan.yaml", outdir=build_dir)
+    result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
 
     assert result.summary["hooks"]["enabled"][0]["kind"] == "toy.context"
     assert result.summary["hooks"]["enabled"][0]["calls"] > 0

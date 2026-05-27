@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from importlib import resources
@@ -11,6 +12,17 @@ import networkx as nx
 
 from hepflow.backends.loaders import load_backend, normalize_backend_override
 from hepflow.backends.model import BackendResult
+from hepflow.build_layout import (
+    ensure_build_layout,
+    graph_dir,
+    normalized_path,
+    plan_path,
+    render_dir,
+    render_specs_dir,
+    resolve_normalized_path,
+    resolve_plan_path,
+    run_summary_path,
+)
 from hepflow.compiler.includes import load_author_with_includes
 from hepflow.compiler.lower_graph import lower_author_to_graph
 from hepflow.compiler.normalize import normalize_author
@@ -137,10 +149,10 @@ def normalise_author_file(
     *,
     outdir: str | Path,
 ) -> dict[str, Any]:
-    """Normalise an author YAML file and write ``normalized.yaml``."""
+    """Normalise an author YAML file and write ``compile/normalized.yaml``."""
     author_file = Path(author_path)
     out_path = Path(outdir)
-    out_path.mkdir(parents=True, exist_ok=True)
+    ensure_build_layout(out_path)
 
     author = load_author_yaml(str(author_file))
     normalized = normalize_author(author)
@@ -156,7 +168,7 @@ def normalise_author_file(
     normalized.setdefault("provenance", {}).update(execution_result["provenance"])
     normalized.setdefault("provenance", {}).update(hooks_result["provenance"])
 
-    write_yaml(normalized, str(out_path / "normalized.yaml"))
+    write_yaml(normalized, str(normalized_path(out_path)))
     return normalized
 
 
@@ -170,9 +182,9 @@ def make_plan_file(
     chunk_size: int | None = None,
 ) -> ExecutionPlan:
     """Lower a normalized YAML file and write plan/graph artifacts."""
-    normalized_file = Path(normalized_path)
+    normalized_file = resolve_normalized_path(normalized_path)
     out_path = Path(outdir)
-    out_path.mkdir(parents=True, exist_ok=True)
+    ensure_build_layout(out_path)
 
     normalized = read_yaml(str(normalized_file)) or {}
     graph = lower_author_to_graph(normalized)
@@ -185,9 +197,61 @@ def make_plan_file(
         execution_hooks=list(normalized.get("execution_hooks") or []),
     )
 
-    write_graph_artifacts(graph, str(out_path))
-    write_yaml(plan.to_dict(), str(out_path / "plan.yaml"))
+    write_compile_artifacts(plan=plan, graph=graph, outdir=out_path)
+    write_graph_artifacts(graph, graph_dir(out_path))
+    write_yaml(plan.to_dict(), str(plan_path(out_path)))
     return plan
+
+
+def write_compile_artifacts(
+    *,
+    plan: ExecutionPlan,
+    graph: nx.DiGraph,
+    outdir: str | Path,
+) -> None:
+    out_path = Path(outdir)
+    compile_path = out_path / "compile"
+    write_yaml(_lowered_graph_to_json(graph), str(compile_path / "analysis.ir.yaml"))
+    write_yaml(plan.data_flow, str(compile_path / "deps.yaml"))
+    (compile_path / "dataset_entries.json").write_text(
+        json.dumps(plan.context.get("datasets") or {}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    write_yaml(
+        {
+            "nodes": len(plan.nodes),
+            "partitions": len(plan.partitions),
+            "datasets": sorted((plan.context.get("datasets") or {}).keys()),
+            "registry_sections": sorted(plan.registry.keys()),
+        },
+        str(compile_path / "report.compile.yaml"),
+    )
+    _write_render_artifacts(plan=plan, outdir=out_path)
+
+
+def _write_render_artifacts(*, plan: ExecutionPlan, outdir: Path) -> None:
+    specs_dir = render_specs_dir(outdir)
+    render_specs: list[dict[str, Any]] = []
+    for node in plan.nodes:
+        if node.role != "sink":
+            continue
+        spec = dict(node.params.get("spec") or {})
+        if not spec:
+            continue
+        item = {
+            "node_id": node.id,
+            "impl": node.impl,
+            "out": node.params.get("out"),
+            "spec": spec,
+        }
+        render_specs.append(item)
+        safe_node_id = node.id.replace(".", "_").replace("/", "_")
+        write_yaml(item, str(specs_dir / f"{safe_node_id}.yaml"))
+
+    (render_dir(outdir) / "report.render.json").write_text(
+        json.dumps({"renders": render_specs}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def compile_author_file(
@@ -200,7 +264,7 @@ def compile_author_file(
     out_path = Path(outdir)
     normalise_author_file(author_path, outdir=out_path)
     return make_plan_file(
-        out_path / "normalized.yaml",
+        normalized_path(out_path),
         outdir=out_path,
         chunk_size=chunk_size,
     )
@@ -271,9 +335,9 @@ def run_plan_file(
     workers: int | None = None,
 ) -> BackendResult:
     """Run a compiled plan file and write ``run_summary.yaml``."""
-    plan_file = Path(plan_path)
-    out_path = Path(outdir) if outdir is not None else plan_file.parent
-    out_path.mkdir(parents=True, exist_ok=True)
+    plan_file = resolve_plan_path(plan_path)
+    out_path = Path(outdir) if outdir is not None else _default_run_outdir(plan_file)
+    ensure_build_layout(out_path)
 
     plan = load_plan_file(plan_file)
     runtime_execution = _runtime_execution_with_overrides(
@@ -295,7 +359,7 @@ def run_plan_file(
         "execution": runtime_execution,
         **result.summary,
     }
-    write_yaml(summary, str(out_path / "run_summary.yaml"))
+    write_yaml(summary, str(run_summary_path(out_path)))
     return result
 
 
@@ -313,13 +377,19 @@ def run_author_file(
     out_path = Path(outdir)
     compile_author_file(author_path, outdir=out_path, chunk_size=chunk_size)
     return run_plan_file(
-        out_path / "plan.yaml",
+        plan_path(out_path),
         outdir=out_path,
         backend=backend,
         strategy=strategy,
         scheduler=scheduler,
         workers=workers,
     )
+
+
+def _default_run_outdir(plan_file: Path) -> Path:
+    if plan_file.parent.name == "compile":
+        return plan_file.parent.parent
+    return plan_file.parent
 
 
 def diff_plan_files(
@@ -533,10 +603,68 @@ def write_graph_artifacts(
     dot_path = out_path / "graph.dot"
     dot_path.write_text(_lowered_graph_to_dot(graph), encoding="utf-8")
 
+    json_path = out_path / "graph.json"
+    json_path.write_text(
+        json.dumps(_lowered_graph_to_json(graph), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    png_path = out_path / "graph.png"
+    _write_graph_png_if_available(graph, png_path)
+
     return {
         "graph_mermaid": str(mermaid_path),
         "graph_dot": str(dot_path),
+        "graph_json": str(json_path),
+        "graph_png": str(png_path),
     }
+
+
+def _lowered_graph_to_json(graph: nx.DiGraph) -> dict[str, Any]:
+    return {
+        "nodes": [
+            {
+                "id": node_id,
+                **{
+                    key: _json_safe_graph_value(value)
+                    for key, value in attrs.items()
+                },
+            }
+            for node_id, attrs in graph.nodes(data=True)
+        ],
+        "edges": [
+            {
+                "source": source,
+                "target": target,
+                **{
+                    key: _json_safe_graph_value(value)
+                    for key, value in attrs.items()
+                },
+            }
+            for source, target, attrs in graph.edges(data=True)
+        ],
+    }
+
+
+def _json_safe_graph_value(value: Any) -> Any:
+    if hasattr(value, "to_dict"):
+        return _json_safe_graph_value(value.to_dict())
+    if isinstance(value, dict):
+        return {str(key): _json_safe_graph_value(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_json_safe_graph_value(item) for item in value]
+    if isinstance(value, str | int | float | bool) or value is None:
+        return value
+    return str(value)
+
+
+def _write_graph_png_if_available(graph: nx.DiGraph, path: Path) -> None:
+    try:
+        from networkx.drawing.nx_pydot import to_pydot  # noqa: PLC0415
+
+        to_pydot(graph).write_png(str(path))
+    except Exception:
+        return
 
 
 def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:

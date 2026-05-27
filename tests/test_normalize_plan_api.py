@@ -58,7 +58,7 @@ def test_lowering_and_plan_creation_write_graph_artifacts(
 ) -> None:
     build_dir = tmp_path / "build"
     normalise_author_file(toy_author_path, outdir=build_dir)
-    plan = make_plan_file(build_dir / "normalized.yaml", outdir=build_dir)
+    plan = make_plan_file(build_dir / "compile" / "normalized.yaml", outdir=build_dir)
 
     assert [node.id for node in plan.nodes] == [
         "read.events",
@@ -66,9 +66,13 @@ def test_lowering_and_plan_creation_write_graph_artifacts(
         "write.Scale.0",
     ]
     assert plan.get_node("write.Scale.0").params["when"] == "run_end"
-    assert (build_dir / "plan.yaml").exists()
-    assert (build_dir / "graph.mmd").exists()
-    assert (build_dir / "graph.dot").exists()
+    assert (build_dir / "compile" / "plan.yaml").exists()
+    assert (build_dir / "graph" / "graph.mmd").exists()
+    assert (build_dir / "graph" / "graph.dot").exists()
+    assert (build_dir / "graph" / "graph.json").exists()
+    assert not (build_dir / "plan.yaml").exists()
+    assert not (build_dir / "normalized.yaml").exists()
+    assert not (build_dir / "graph.mmd").exists()
 
 
 def test_lower_graph_normalizes_sink_when_alias(toy_author: dict[str, Any]) -> None:
@@ -87,16 +91,16 @@ def test_public_api_compile_and_run_roundtrip(
     plan = compile_author_file(toy_author_path, outdir=build_dir)
     assert plan.get_node("stage.Scale").impl == "toy.scale"
 
-    result = run_plan_file(build_dir / "plan.yaml", outdir=build_dir)
+    result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
     assert result.success is True
     assert (build_dir / "run_summary.yaml").exists()
-    assert (build_dir / "output.json").exists()
+    assert (build_dir / "artifacts" / "files" / "output.json").exists()
 
     one_shot_dir = tmp_path / "one-shot"
     result = run_author_file(toy_author_path, outdir=one_shot_dir)
     assert result.success is True
-    assert (one_shot_dir / "normalized.yaml").exists()
-    assert (one_shot_dir / "plan.yaml").exists()
+    assert (one_shot_dir / "compile" / "normalized.yaml").exists()
+    assert (one_shot_dir / "compile" / "plan.yaml").exists()
     assert (one_shot_dir / "run_summary.yaml").exists()
 
 
@@ -109,17 +113,24 @@ def test_public_api_accepts_str_and_path_inputs_and_serializes_paths_as_strings(
     normalized = normalise_author_file(str(toy_author_path), outdir=build_dir)
     assert_no_path_objects(normalized)
 
-    plan = make_plan_file(str(build_dir / "normalized.yaml"), outdir=str(build_dir))
+    plan = make_plan_file(
+        str(build_dir / "compile" / "normalized.yaml"),
+        outdir=str(build_dir),
+    )
     assert_no_path_objects(plan.to_dict())
 
-    result = run_plan_file(build_dir / "plan.yaml", outdir=str(build_dir))
+    result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=str(build_dir))
     assert result.success is True
 
-    for filename in ["normalized.yaml", "plan.yaml", "run_summary.yaml"]:
-        payload = read_yaml(build_dir / filename)
+    for path in [
+        build_dir / "compile" / "normalized.yaml",
+        build_dir / "compile" / "plan.yaml",
+        build_dir / "run_summary.yaml",
+    ]:
+        payload = read_yaml(path)
         assert_no_path_objects(payload)
 
-    plan_yaml = read_yaml(build_dir / "plan.yaml")
+    plan_yaml = read_yaml(build_dir / "compile" / "plan.yaml")
     sink_node = next(node for node in plan_yaml["nodes"] if node["role"] == "sink")
     assert isinstance(sink_node["params"]["path"], str)
 

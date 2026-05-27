@@ -5,6 +5,7 @@ from typing import Any
 
 from hepflow.backends.local import _store_outputs_summary
 from hepflow.backends.model import BackendResult
+from hepflow.build_layout import debug_dir
 from hepflow.model.plan import ExecutionPartition, ExecutionPlan
 from hepflow.runtime.engine import (
     build_dataset_context,
@@ -186,7 +187,7 @@ def _compute_distributed(
     from distributed import Client, LocalCluster  # noqa: PLC0415
 
     if local_directory is None:
-        local_directory = str(Path(outdir) / "dask") if outdir else ".dask"
+        local_directory = str(debug_dir(outdir) / "dask") if outdir else ".dask"
     Path(str(local_directory)).mkdir(parents=True, exist_ok=True)
 
     cluster = LocalCluster(

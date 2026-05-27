@@ -16,10 +16,14 @@ def test_runtime_executes_toy_source_transform_and_final_sink(
     build_dir = tmp_path / "build"
     compile_author_file(toy_author_path, outdir=build_dir)
 
-    result = run_plan_file(build_dir / "plan.yaml", outdir=build_dir)
+    result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
 
     assert result.success is True
-    payload = json.loads((build_dir / "output.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        (build_dir / "artifacts" / "files" / "output.json").read_text(
+            encoding="utf-8"
+        )
+    )
     assert payload["pt"] == [12, 18, 21, 28]
     assert payload["scaled_pt"] == [24, 36, 42, 56]
 
@@ -53,10 +57,11 @@ def test_partition_dataset_and_run_end_sink_timing(
     build_dir = tmp_path / "build"
     compile_author_file(author_path, outdir=build_dir, chunk_size=2)
 
-    result = run_plan_file(build_dir / "plan.yaml", outdir=build_dir)
+    result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
 
     assert result.success is True
-    assert (build_dir / "partition" / "toydata" / "0_0.json").exists()
-    assert (build_dir / "partition" / "toydata" / "0_1.json").exists()
-    assert (build_dir / "dataset.json").exists()
-    assert (build_dir / "run.json").exists()
+    files_dir = build_dir / "artifacts" / "files"
+    assert (files_dir / "partition" / "toydata" / "0_0.json").exists()
+    assert (files_dir / "partition" / "toydata" / "0_1.json").exists()
+    assert (files_dir / "dataset.json").exists()
+    assert (files_dir / "run.json").exists()

@@ -4,6 +4,7 @@ import inspect
 from pathlib import Path
 from typing import Any, Protocol
 
+from hepflow.build_layout import artifact_family_dir
 from hepflow.model.io import OutputResult
 from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.registry.loaders import (
@@ -159,7 +160,7 @@ def _resolve_writer_paths_for_context(
         )
 
     if not path.is_absolute():
-        path = Path(ctx.get("outdir") or ".") / path
+        path = artifact_family_dir(ctx.get("outdir") or ".", "files") / path
 
     resolved = dict(params)
     resolved["path"] = str(path)
@@ -184,7 +185,7 @@ def _derive_artifact_output_paths(
     if not out_path.suffix:
         out_path = out_path.with_suffix(".png")
     if not out_path.is_absolute():
-        out_path = Path(ctx.get("outdir") or ".") / "artifacts" / out_path
+        out_path = artifact_family_dir(ctx.get("outdir") or ".", "plots") / out_path
     output_dir = out_path.with_suffix("")
     return str(out_path), str(output_dir)
 
