@@ -21,6 +21,7 @@ from hepflow.registry.loaders import (
 from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.handlers import run_observer, run_sink, run_source, run_transform
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
+from hepflow.runtime.materialize import materialize_final_histograms
 from hepflow.runtime.merge import merge_hists
 from hepflow.runtime.stream_readers import read_stream
 
@@ -678,6 +679,11 @@ def execute_plan_locally(
             skip_roles=skip_roles,
             hook_manager=hook_manager,
         )
+        materialize_final_histograms(
+            plan,
+            value_store=value_store,
+            outdir=str(base_ctx.get("outdir") or "."),
+        )
         execute_final_nodes(
             plan,
             value_store=value_store,
@@ -730,6 +736,11 @@ def execute_plan_locally(
         dataset_stores.append(dataset_value_store)
 
     merged_value_store = merge_partition_value_stores(plan, dataset_stores)
+    materialize_final_histograms(
+        plan,
+        value_store=merged_value_store,
+        outdir=str(base_ctx.get("outdir") or "."),
+    )
     execute_final_nodes(
         plan,
         value_store=merged_value_store,

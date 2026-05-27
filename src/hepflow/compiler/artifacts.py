@@ -8,7 +8,8 @@ import networkx as nx
 
 from hepflow.build_layout import render_dir, render_specs_dir
 from hepflow.compiler.graph_artifacts import _lowered_graph_to_json
-from hepflow.model.plan import ExecutionPlan
+from hepflow.model.plan import ExecutionNode, ExecutionPlan
+from hepflow.runtime.materialize import histogram_product_reference
 from hepflow.utils import write_yaml
 
 
@@ -51,6 +52,7 @@ def _write_render_artifacts(*, plan: ExecutionPlan, outdir: Path) -> None:
             "node_id": node.id,
             "impl": node.impl,
             "out": node.params.get("out"),
+            **_render_product_refs(plan=plan, node=node),
             "spec": spec,
         }
         render_specs.append(item)
@@ -61,3 +63,29 @@ def _write_render_artifacts(*, plan: ExecutionPlan, outdir: Path) -> None:
         json.dumps({"renders": render_specs}, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+
+def _render_product_refs(
+    *,
+    plan: ExecutionPlan,
+    node: ExecutionNode,
+) -> dict[str, Any]:
+    products: dict[str, dict[str, str]] = {}
+    for ref in node.inputs:
+        try:
+            producer = plan.get_node(ref.node_id)
+        except KeyError:
+            continue
+        if producer.outputs.get(ref.output_name) != "histogram":
+            continue
+        name = ref.input_name if ref.input_name != "target" else "hist"
+        products[name] = histogram_product_reference(producer.id, producer.meta)
+
+    if not products:
+        return {}
+    if set(products) == {"hist"}:
+        return {
+            "product": dict(products["hist"]),
+            "products": {"hist": dict(products["hist"])},
+        }
+    return {"products": products}
