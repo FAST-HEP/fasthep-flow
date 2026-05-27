@@ -5,6 +5,7 @@ from typing import Any
 
 import yaml
 
+import hepflow.api as api
 from hepflow.api import (
     compile_author_file,
     make_plan_file,
@@ -19,8 +20,6 @@ from hepflow.utils import read_yaml
 
 
 def test_public_api_exports_stable_facade_symbols() -> None:
-    import hepflow.api as api
-
     assert api.__all__ == [
         "InitResult",
         "compile_author_file",

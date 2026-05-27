@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -41,12 +41,15 @@ def test_runtime_registry_loads_renderers(toy_registry: dict[str, Any]) -> None:
 
 
 def test_run_sink_passes_runtime_registry_context(toy_registry: dict[str, Any]) -> None:
-    result = run_sink(
-        sink_name="toy.capture_registry",
-        target={"value": 1},
-        params={},
-        ctx={},
-        registry_cfg=toy_registry,
+    result = cast(
+        dict[str, Any],
+        run_sink(
+            sink_name="toy.capture_registry",
+            target={"value": 1},
+            params={},
+            ctx={},
+            registry_cfg=toy_registry,
+        ),
     )
 
     assert result["plan_has_registry"] is True

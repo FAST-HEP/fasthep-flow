@@ -38,7 +38,8 @@ from hepflow.model.plan import (
     PartitionSpec,
     PlanInputRef,
 )
-from hepflow.profiles.init import InitResult, init_project as _init_project
+from hepflow.profiles.init import InitResult
+from hepflow.profiles.init import init_project as _init_project
 from hepflow.runtime.config import (
     _default_run_outdir,
     _runtime_execution_with_overrides,
