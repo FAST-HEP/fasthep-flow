@@ -1,0 +1,35 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from hepflow.backends.loaders import normalize_backend_override
+
+
+def _runtime_execution_with_overrides(
+    execution: dict[str, Any] | None,
+    *,
+    backend: str | None,
+    strategy: str | None,
+    scheduler: str | None,
+    workers: int | None,
+) -> dict[str, Any]:
+    runtime_execution = dict(execution or {})
+    override = normalize_backend_override(backend, strategy)
+    if override:
+        runtime_execution.update(override)
+
+    runtime_execution["backend"] = str(runtime_execution.get("backend") or "local")
+    runtime_execution["strategy"] = str(runtime_execution.get("strategy") or "default")
+    runtime_execution["config"] = dict(runtime_execution.get("config") or {})
+    if scheduler is not None:
+        runtime_execution["config"]["scheduler"] = scheduler
+    if workers is not None:
+        runtime_execution["config"]["n_workers"] = workers
+    return runtime_execution
+
+
+def _default_run_outdir(plan_file: Path) -> Path:
+    if plan_file.parent.name == "compile":
+        return plan_file.parent.parent
+    return plan_file.parent

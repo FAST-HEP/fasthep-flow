@@ -18,6 +18,26 @@ from hepflow.compiler.normalize import normalize_author
 from hepflow.utils import read_yaml
 
 
+def test_public_api_exports_stable_facade_symbols() -> None:
+    import hepflow.api as api
+
+    assert api.__all__ == [
+        "InitResult",
+        "compile_author_file",
+        "diff_plan_files",
+        "init_project",
+        "load_author_yaml",
+        "load_plan_file",
+        "make_plan_file",
+        "normalise_author_file",
+        "normalize_author_file",
+        "run_author_file",
+        "run_plan_file",
+    ]
+    for name in api.__all__:
+        assert hasattr(api, name)
+
+
 def test_normalize_preserves_generic_toy_source(toy_author: dict[str, Any]) -> None:
     normalized = normalize_author(toy_author)
 

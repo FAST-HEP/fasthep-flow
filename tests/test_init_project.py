@@ -78,7 +78,7 @@ def test_init_project_hep_profile_copies_importable_package_profiles(
         },
     )
     monkeypatch.syspath_prepend(str(tmp_path))
-    monkeypatch.setattr("hepflow.api.HEP_PROFILE_PACKAGES", [package_name])
+    monkeypatch.setattr("hepflow.profiles.init.HEP_PROFILE_PACKAGES", [package_name])
     importlib.invalidate_caches()
 
     result = init_project(target_dir=tmp_path, profiles=["HEP"])
@@ -97,7 +97,7 @@ def test_init_project_hep_profile_warns_for_missing_package(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     missing_package = "missing_" + "fasthep_" + "render"
-    monkeypatch.setattr("hepflow.api.HEP_PROFILE_PACKAGES", [missing_package])
+    monkeypatch.setattr("hepflow.profiles.init.HEP_PROFILE_PACKAGES", [missing_package])
 
     result = init_project(target_dir=tmp_path, profiles=["HEP"])
 
@@ -116,7 +116,7 @@ def test_init_project_hep_profile_is_case_insensitive(
         {"registry.yaml": "name: registry\n"},
     )
     monkeypatch.syspath_prepend(str(tmp_path))
-    monkeypatch.setattr("hepflow.api.HEP_PROFILE_PACKAGES", [package_name])
+    monkeypatch.setattr("hepflow.profiles.init.HEP_PROFILE_PACKAGES", [package_name])
     importlib.invalidate_caches()
 
     result = init_project(target_dir=tmp_path, profiles=["hep"])

@@ -1,28 +1,26 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
-from dataclasses import dataclass, field
-from importlib import import_module, resources
-from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any
 
-import networkx as nx
-
-from hepflow.backends.loaders import load_backend, normalize_backend_override
+from hepflow.backends.loaders import load_backend
 from hepflow.backends.model import BackendResult
 from hepflow.build_layout import (
     ensure_build_layout,
     graph_dir,
     normalized_path,
     plan_path,
-    render_dir,
-    render_specs_dir,
     resolve_normalized_path,
     resolve_plan_path,
     run_summary_path,
 )
+from hepflow.compiler.artifacts import write_compile_artifacts
+from hepflow.compiler.execution import (
+    resolve_author_execution,
+    resolve_author_execution_hooks,
+)
+from hepflow.compiler.graph_artifacts import write_graph_artifacts
 from hepflow.compiler.includes import load_author_with_includes
 from hepflow.compiler.lower_graph import lower_author_to_graph
 from hepflow.compiler.normalize import normalize_author
@@ -32,13 +30,7 @@ from hepflow.compiler.plan_diff import (
     format_plan_diff,
     load_plan_yaml,
 )
-from hepflow.compiler.profiles import (
-    load_profile_config_with_provenance,
-    load_profile_registry_layer,
-    normalize_profile_names,
-    resolve_profile_source,
-)
-from hepflow.model.lifecycle import WHEN_ALIASES
+from hepflow.compiler.registry_resolution import resolve_author_registry
 from hepflow.model.plan import (
     ExecutionNode,
     ExecutionPartition,
@@ -46,28 +38,19 @@ from hepflow.model.plan import (
     PartitionSpec,
     PlanInputRef,
 )
-from hepflow.registry.defaults import (
-    default_expr_registry_config,
-    default_runtime_registry_config,
-)
-from hepflow.registry.merge import (
-    RegistryLayer,
-    RegistryMergeResult,
-    merge_registry_layers,
+from hepflow.profiles.init import InitResult, init_project as _init_project
+from hepflow.runtime.config import (
+    _default_run_outdir,
+    _runtime_execution_with_overrides,
 )
 from hepflow.utils import read_yaml, write_yaml
 
-HEP_PROFILE_PACKAGES = [
-    f"fasthep_{name}"
-    for name in ("curator", "carpenter", "render")
-]
-
 __all__ = [
-    "HEP_PROFILE_PACKAGES",
     "InitResult",
     "compile_author_file",
     "diff_plan_files",
     "init_project",
+    "load_author_yaml",
     "load_plan_file",
     "make_plan_file",
     "normalise_author_file",
@@ -75,29 +58,6 @@ __all__ = [
     "run_author_file",
     "run_plan_file",
 ]
-
-
-@dataclass(slots=True)
-class InitResult:
-    profile_dir: Path
-    created_profile_dir: bool
-    copied: list[Path] = field(default_factory=list)
-    skipped_existing: list[Path] = field(default_factory=list)
-    overwritten: list[Path] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-
-    @property
-    def written(self) -> list[Path]:
-        return [*self.copied, *self.overwritten]
-
-    def __iter__(self):
-        return iter(self.written)
-
-    def __len__(self) -> int:
-        return len(self.written)
-
-    def __contains__(self, path: object) -> bool:
-        return path in self.written
 
 
 def load_author_yaml(path: str | Path) -> dict[str, Any]:
@@ -111,121 +71,13 @@ def init_project(
     include: Iterable[str] | None = None,
     profiles: Iterable[str] | None = None,
 ) -> InitResult:
-    """Create project-local profile templates from bundled flow profiles."""
-    project_dir = Path(target_dir)
-    profiles_root = project_dir / ".fasthep" / "profiles"
-    profile_dir = profiles_root / "hepflow"
-    created_profile_dir = not profile_dir.exists()
-    profile_dir.mkdir(parents=True, exist_ok=True)
-
-    result = InitResult(
-        profile_dir=profile_dir,
-        created_profile_dir=created_profile_dir,
+    """Create project-local profile templates."""
+    return _init_project(
+        target_dir=target_dir,
+        force=force,
+        include=include,
+        profiles=profiles,
     )
-    for relative_path, source in _packaged_profile_files():
-        destination = profile_dir / relative_path
-        exists = destination.exists()
-        if exists and not force:
-            result.skipped_existing.append(destination)
-            continue
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(source.read_bytes())
-        if exists:
-            result.overwritten.append(destination)
-        else:
-            result.copied.append(destination)
-
-    for profile_ref in include or []:
-        profile = resolve_profile_source(profile_ref, project_root=project_dir)
-        destination = profiles_root / profile.owner / profile.filename
-        exists = destination.exists()
-        if exists and not force:
-            result.skipped_existing.append(destination)
-            continue
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(profile.source.read_bytes())
-        if exists:
-            result.overwritten.append(destination)
-        else:
-            result.copied.append(destination)
-
-    for profile_name in profiles or []:
-        _copy_profile_bundle(
-            result=result,
-            profiles_root=profiles_root,
-            profile_name=profile_name,
-            force=force,
-        )
-
-    return result
-
-
-def _copy_profile_bundle(
-    *,
-    result: InitResult,
-    profiles_root: Path,
-    profile_name: str,
-    force: bool,
-) -> None:
-    normalized = str(profile_name).casefold()
-    if normalized != "hep":
-        result.warnings.append(f"unknown profile bundle: {profile_name}")
-        return
-
-    for package_name in HEP_PROFILE_PACKAGES:
-        _copy_package_profiles(
-            result=result,
-            profiles_root=profiles_root,
-            package_name=package_name,
-            force=force,
-        )
-
-
-def _copy_package_profiles(
-    *,
-    result: InitResult,
-    profiles_root: Path,
-    package_name: str,
-    force: bool,
-) -> None:
-    try:
-        import_module(package_name)
-    except ImportError:
-        result.warnings.append(f"profile package not found: {package_name}")
-        return
-
-    profile_dir = resources.files(package_name).joinpath("profiles")
-    if not profile_dir.is_dir():
-        yaml_files = []
-    else:
-        yaml_files = sorted(
-            (
-                child
-                for child in profile_dir.iterdir()
-                if child.is_file() and child.name.endswith(".yaml")
-            ),
-            key=lambda child: child.name,
-        )
-
-    if not yaml_files:
-        result.warnings.append(
-            f"profile package has no profiles/*.yaml files: {package_name}"
-        )
-        return
-
-    destination_dir = profiles_root / package_name
-    for source in yaml_files:
-        destination = destination_dir / source.name
-        exists = destination.exists()
-        if exists and not force:
-            result.skipped_existing.append(destination)
-            continue
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(source.read_bytes())
-        if exists:
-            result.overwritten.append(destination)
-        else:
-            result.copied.append(destination)
 
 
 def normalise_author_file(
@@ -285,57 +137,6 @@ def make_plan_file(
     write_graph_artifacts(graph, graph_dir(out_path))
     write_yaml(plan.to_dict(), str(plan_path(out_path)))
     return plan
-
-
-def write_compile_artifacts(
-    *,
-    plan: ExecutionPlan,
-    graph: nx.DiGraph,
-    outdir: str | Path,
-) -> None:
-    out_path = Path(outdir)
-    compile_path = out_path / "compile"
-    write_yaml(_lowered_graph_to_json(graph), str(compile_path / "analysis.ir.yaml"))
-    write_yaml(plan.data_flow, str(compile_path / "deps.yaml"))
-    (compile_path / "dataset_entries.json").write_text(
-        json.dumps(plan.context.get("datasets") or {}, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    write_yaml(
-        {
-            "nodes": len(plan.nodes),
-            "partitions": len(plan.partitions),
-            "datasets": sorted((plan.context.get("datasets") or {}).keys()),
-            "registry_sections": sorted(plan.registry.keys()),
-        },
-        str(compile_path / "report.compile.yaml"),
-    )
-    _write_render_artifacts(plan=plan, outdir=out_path)
-
-
-def _write_render_artifacts(*, plan: ExecutionPlan, outdir: Path) -> None:
-    specs_dir = render_specs_dir(outdir)
-    render_specs: list[dict[str, Any]] = []
-    for node in plan.nodes:
-        if node.role != "sink":
-            continue
-        spec = dict(node.params.get("spec") or {})
-        if not spec:
-            continue
-        item = {
-            "node_id": node.id,
-            "impl": node.impl,
-            "out": node.params.get("out"),
-            "spec": spec,
-        }
-        render_specs.append(item)
-        safe_node_id = node.id.replace(".", "_").replace("/", "_")
-        write_yaml(item, str(specs_dir / f"{safe_node_id}.yaml"))
-
-    (render_dir(outdir) / "report.render.json").write_text(
-        json.dumps({"renders": render_specs}, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
 
 
 def compile_author_file(
@@ -470,12 +271,6 @@ def run_author_file(
     )
 
 
-def _default_run_outdir(plan_file: Path) -> Path:
-    if plan_file.parent.name == "compile":
-        return plan_file.parent.parent
-    return plan_file.parent
-
-
 def diff_plan_files(
     old_plan: str | Path,
     new_plan: str | Path,
@@ -486,426 +281,3 @@ def diff_plan_files(
         load_plan_yaml(new_plan),
     )
     return format_plan_diff(report), report.equal
-
-
-def _packaged_profile_files() -> Iterable[tuple[Path, Traversable]]:
-    profiles_root = resources.files("hepflow.profiles")
-
-    def walk(
-        node: Traversable,
-        relative_to_root: Path,
-    ) -> Iterable[tuple[Path, Traversable]]:
-        for child in node.iterdir():
-            if child.name == "__pycache__":
-                continue
-            child_relative = relative_to_root / child.name
-            if child.is_dir():
-                yield from walk(child, child_relative)
-                continue
-            if child.name == "__init__.py":
-                continue
-            yield child_relative, child
-
-    yield from walk(profiles_root, Path())
-
-
-def _runtime_execution_with_overrides(
-    execution: dict[str, Any] | None,
-    *,
-    backend: str | None,
-    strategy: str | None,
-    scheduler: str | None,
-    workers: int | None,
-) -> dict[str, Any]:
-    runtime_execution = dict(execution or {})
-    override = normalize_backend_override(backend, strategy)
-    if override:
-        runtime_execution.update(override)
-
-    runtime_execution["backend"] = str(runtime_execution.get("backend") or "local")
-    runtime_execution["strategy"] = str(runtime_execution.get("strategy") or "default")
-    runtime_execution["config"] = dict(runtime_execution.get("config") or {})
-    if scheduler is not None:
-        runtime_execution["config"]["scheduler"] = scheduler
-    if workers is not None:
-        runtime_execution["config"]["n_workers"] = workers
-    return runtime_execution
-
-
-def resolve_author_registry(
-    author: dict[str, Any],
-    *,
-    author_path: Path,
-) -> RegistryMergeResult:
-    project_root = author_path.parent
-    use_block = author.get("use") or {}
-    if not isinstance(use_block, dict):
-        raise ValueError("use must be a mapping")
-
-    profile_names = normalize_profile_names(use_block.get("profiles"))
-    builtin_registry = {
-        **default_expr_registry_config(),
-        **default_runtime_registry_config(),
-    }
-    layers = [
-        RegistryLayer(name="builtin", kind="builtin", registry=builtin_registry),
-        *[
-            load_profile_registry_layer(name, project_root=project_root)
-            for name in profile_names
-        ],
-        RegistryLayer(
-            name="author",
-            kind="author",
-            registry=dict(author.get("registry") or {}),
-            path=str(author_path),
-        ),
-    ]
-    return merge_registry_layers(layers)
-
-
-def resolve_author_execution(
-    author: dict[str, Any],
-    *,
-    author_path: Path,
-) -> dict[str, Any]:
-    project_root = author_path.parent
-    use_block = author.get("use") or {}
-    if not isinstance(use_block, dict):
-        raise ValueError("use must be a mapping")
-
-    profile_names = normalize_profile_names(use_block.get("profiles"))
-    layers: list[dict[str, Any]] = [
-        {
-            "name": "builtin",
-            "kind": "builtin",
-            "execution": {
-                "backend": "local",
-                "strategy": "default",
-                "config": {},
-            },
-        }
-    ]
-    for name in profile_names:
-        config, provenance = load_profile_config_with_provenance(
-            name,
-            project_root=project_root,
-        )
-        layers.append(
-            {
-                "name": name,
-                "kind": "profile",
-                "path": provenance["path"],
-                "execution": dict(config.get("execution") or {}),
-            }
-        )
-    layers.append(
-        {
-            "name": "author",
-            "kind": "author",
-            "path": str(author_path),
-            "execution": dict(author.get("execution") or {}),
-        }
-    )
-
-    merged = _merge_execution_layers(layers)
-    return {
-        "execution": merged,
-        "provenance": {
-            "execution_layers": _provenance_layers(layers),
-        },
-    }
-
-
-def resolve_author_execution_hooks(
-    author: dict[str, Any],
-    *,
-    author_path: Path,
-) -> dict[str, Any]:
-    project_root = author_path.parent
-    use_block = author.get("use") or {}
-    if not isinstance(use_block, dict):
-        raise ValueError("use must be a mapping")
-
-    profile_names = normalize_profile_names(use_block.get("profiles"))
-    layers: list[dict[str, Any]] = [
-        {
-            "name": "builtin",
-            "kind": "builtin",
-            "execution_hooks": [],
-        }
-    ]
-    for name in profile_names:
-        config, provenance = load_profile_config_with_provenance(
-            name,
-            project_root=project_root,
-        )
-        layers.append(
-            {
-                "name": name,
-                "kind": "profile",
-                "path": provenance["path"],
-                "execution_hooks": list(config.get("execution_hooks") or []),
-            }
-        )
-    layers.append(
-        {
-            "name": "author",
-            "kind": "author",
-            "path": str(author_path),
-            "execution_hooks": list(author.get("execution_hooks") or []),
-        }
-    )
-
-    return {
-        "execution_hooks": _merge_execution_hook_layers(layers),
-        "provenance": {
-            "execution_hook_layers": _provenance_layers(layers),
-        },
-    }
-
-
-def write_graph_artifacts(
-    graph: nx.DiGraph,
-    outdir: str | Path,
-    *,
-    execution_hooks: list[dict[str, Any]] | None = None,
-    with_hooks: bool = False,
-) -> dict[str, str]:
-    out_path = Path(outdir)
-    out_path.mkdir(parents=True, exist_ok=True)
-
-    mermaid_path = out_path / "graph.mmd"
-    mermaid_path.write_text(
-        _lowered_graph_to_mermaid(
-            graph,
-            execution_hooks=execution_hooks,
-            with_hooks=with_hooks,
-        ),
-        encoding="utf-8",
-    )
-
-    dot_path = out_path / "graph.dot"
-    dot_path.write_text(_lowered_graph_to_dot(graph), encoding="utf-8")
-
-    json_path = out_path / "graph.json"
-    json_path.write_text(
-        json.dumps(_lowered_graph_to_json(graph), indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-
-    png_path = out_path / "graph.png"
-    _write_graph_png_if_available(graph, png_path)
-
-    return {
-        "graph_mermaid": str(mermaid_path),
-        "graph_dot": str(dot_path),
-        "graph_json": str(json_path),
-        "graph_png": str(png_path),
-    }
-
-
-def _lowered_graph_to_json(graph: nx.DiGraph) -> dict[str, Any]:
-    return {
-        "nodes": [
-            {
-                "id": node_id,
-                **{
-                    key: _json_safe_graph_value(value)
-                    for key, value in attrs.items()
-                },
-            }
-            for node_id, attrs in graph.nodes(data=True)
-        ],
-        "edges": [
-            {
-                "source": source,
-                "target": target,
-                **{
-                    key: _json_safe_graph_value(value)
-                    for key, value in attrs.items()
-                },
-            }
-            for source, target, attrs in graph.edges(data=True)
-        ],
-    }
-
-
-def _json_safe_graph_value(value: Any) -> Any:
-    if hasattr(value, "to_dict"):
-        return _json_safe_graph_value(value.to_dict())
-    if isinstance(value, dict):
-        return {str(key): _json_safe_graph_value(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe_graph_value(item) for item in value]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    return str(value)
-
-
-def _write_graph_png_if_available(graph: nx.DiGraph, path: Path) -> None:
-    try:
-        from networkx.drawing.nx_pydot import to_pydot  # noqa: PLC0415
-
-        to_pydot(graph).write_png(str(path))
-    except Exception:
-        return
-
-
-def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:
-    merged: dict[str, Any] = {
-        "backend": "local",
-        "strategy": "default",
-        "config": {},
-    }
-    for layer in layers:
-        execution = dict(layer.get("execution") or {})
-        config = dict(execution.pop("config", {}) or {})
-        merged.update(
-            {key: value for key, value in execution.items() if value is not None}
-        )
-        merged["config"] = {
-            **dict(merged.get("config") or {}),
-            **config,
-        }
-    return {
-        "backend": str(merged.get("backend") or "local"),
-        "strategy": str(merged.get("strategy") or "default"),
-        "config": dict(merged.get("config") or {}),
-    }
-
-
-def _merge_execution_hook_layers(layers: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    merged: dict[tuple[Any, ...], dict[str, Any]] = {}
-    order: list[tuple[Any, ...]] = []
-
-    for layer in layers:
-        source = _hook_source(layer)
-        for raw_hook in list(layer.get("execution_hooks") or []):
-            if not isinstance(raw_hook, dict):
-                raise ValueError("execution_hooks entries must be mappings")
-            hook = dict(raw_hook)
-            kind = str(hook.get("kind") or "")
-            if not kind:
-                raise ValueError("execution_hooks entries must define non-empty 'kind'")
-            events = [
-                WHEN_ALIASES.get(str(event).strip(), str(event).strip())
-                for event in list(hook.get("events") or [])
-            ]
-            params = dict(hook.get("params") or {})
-            hook["kind"] = kind
-            hook["events"] = events
-            if params:
-                hook["params"] = params
-            else:
-                hook.pop("params", None)
-            hook["source"] = source
-            match = hook.get("match")
-            key = (
-                kind,
-                tuple(events),
-                _freeze_for_key(params),
-                _freeze_for_key(match),
-            )
-            if key not in merged:
-                order.append(key)
-            merged[key] = hook
-
-    return [merged[key] for key in order]
-
-
-def _provenance_layers(layers: list[dict[str, Any]]) -> list[dict[str, str]]:
-    provenance_layers: list[dict[str, str]] = []
-    for layer in layers:
-        item = {
-            "name": str(layer["name"]),
-            "kind": str(layer["kind"]),
-        }
-        if layer.get("path") is not None:
-            item["path"] = str(layer["path"])
-        provenance_layers.append(item)
-    return provenance_layers
-
-
-def _hook_source(layer: dict[str, Any]) -> str:
-    kind = str(layer.get("kind") or "")
-    name = str(layer.get("name") or "")
-    if kind == "profile":
-        return f"profile:{name}"
-    return kind or name
-
-
-def _freeze_for_key(value: Any) -> Any:
-    if isinstance(value, dict):
-        return tuple((key, _freeze_for_key(value[key])) for key in sorted(value))
-    if isinstance(value, list):
-        return tuple(_freeze_for_key(item) for item in value)
-    return value
-
-
-def _lowered_graph_to_mermaid(
-    graph: nx.DiGraph,
-    *,
-    execution_hooks: list[dict[str, Any]] | None = None,
-    with_hooks: bool = False,
-) -> str:
-    lines = ["flowchart TD"]
-
-    for node_id in graph.nodes:
-        payload = graph.nodes[node_id]["payload"]
-        label = f"{payload.id}<br/>{payload.role}<br/>{payload.impl}"
-        lines.append(f'  {_mermaid_id(node_id)}["{_escape_mermaid(label)}"]')
-
-    for upstream, downstream, edge_data in graph.edges(data=True):
-        output_name = str(edge_data.get("output") or "stream")
-        input_name = str(edge_data.get("input_name") or "stream")
-        label = _escape_mermaid(output_name + " -> " + input_name)
-        lines.append(
-            f"  {_mermaid_id(upstream)} -->|{label}| {_mermaid_id(downstream)}"
-        )
-
-    if with_hooks and execution_hooks:
-        lines.append("  subgraph Execution Hooks")
-        for index, hook in enumerate(execution_hooks):
-            kind = str(hook.get("kind") or "hook")
-            events = list(hook.get("events") or [])
-            event_label = ", ".join(str(event) for event in events) or "all"
-            hook_id = f"hook_{index}_{_mermaid_id(kind)}"
-            label = f"{event_label}: {kind}"
-            lines.append(f'    {hook_id}["{_escape_mermaid(label)}"]')
-        lines.append("  end")
-
-    return "\n".join(lines) + "\n"
-
-
-def _lowered_graph_to_dot(graph: nx.DiGraph) -> str:
-    lines = ["digraph hepflow {"]
-    for node_id in graph.nodes:
-        payload = graph.nodes[node_id]["payload"]
-        label = _dot_escape(f"{payload.id}\\n{payload.role}\\n{payload.impl}")
-        lines.append(f'  "{node_id}" [label="{label}"];')
-
-    for upstream, downstream, edge_data in graph.edges(data=True):
-        output_name = str(edge_data.get("output") or "stream")
-        lines.append(
-            f'  "{upstream}" -> "{downstream}" [label="{_dot_escape(output_name)}"];'
-        )
-
-    lines.append("}")
-    return "\n".join(lines) + "\n"
-
-
-def _mermaid_id(node_id: str) -> str:
-    return node_id.replace(".", "_").replace("-", "_")
-
-
-def _escape_mermaid(value: str) -> str:
-    return (
-        str(value)
-        .replace("\\", "\\\\")
-        .replace('"', "&quot;")
-        .replace("\n", "<br/>")
-    )
-
-
-def _dot_escape(value: str) -> str:
-    return str(value).replace("\\", "\\\\").replace('"', '\\"')
