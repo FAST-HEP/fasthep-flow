@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import sys
 from pathlib import Path
 
 import pytest
@@ -62,6 +64,68 @@ def test_init_project_includes_local_profile_path(tmp_path: Path) -> None:
     assert destination.read_text(encoding="utf-8") == source.read_text(encoding="utf-8")
 
 
+def test_init_project_hep_profile_copies_importable_package_profiles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_name = "fake_" + "fasthep_" + "carpenter"
+    _write_profile_package(
+        tmp_path,
+        package_name,
+        {
+            "registry.yaml": "name: registry\n",
+            "custom-profile.yaml": "name: custom\n",
+        },
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr("hepflow.api.HEP_PROFILE_PACKAGES", [package_name])
+    importlib.invalidate_caches()
+
+    result = init_project(target_dir=tmp_path, profiles=["HEP"])
+
+    profile_dir = tmp_path / ".fasthep" / "profiles" / package_name
+    registry = profile_dir / "registry.yaml"
+    custom = profile_dir / "custom-profile.yaml"
+    assert registry in result.written
+    assert custom in result.written
+    assert registry.read_text(encoding="utf-8") == "name: registry\n"
+    assert custom.read_text(encoding="utf-8") == "name: custom\n"
+
+
+def test_init_project_hep_profile_warns_for_missing_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    missing_package = "missing_" + "fasthep_" + "render"
+    monkeypatch.setattr("hepflow.api.HEP_PROFILE_PACKAGES", [missing_package])
+
+    result = init_project(target_dir=tmp_path, profiles=["HEP"])
+
+    assert result.warnings == [f"profile package not found: {missing_package}"]
+    assert (tmp_path / ".fasthep" / "profiles" / "hepflow" / "registry.yaml").exists()
+
+
+def test_init_project_hep_profile_is_case_insensitive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_name = "fake_" + "fasthep_" + "curator"
+    _write_profile_package(
+        tmp_path,
+        package_name,
+        {"registry.yaml": "name: registry\n"},
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr("hepflow.api.HEP_PROFILE_PACKAGES", [package_name])
+    importlib.invalidate_caches()
+
+    result = init_project(target_dir=tmp_path, profiles=["hep"])
+
+    destination = tmp_path / ".fasthep" / "profiles" / package_name / "registry.yaml"
+    assert destination in result.written
+    assert destination.exists()
+
+
 def test_init_project_reports_missing_package_profile(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="does_not_exist:registry"):
         init_project(target_dir=tmp_path, include=["does_not_exist:registry"])
@@ -75,3 +139,17 @@ def test_init_project_reports_missing_profile_resource(tmp_path: Path) -> None:
 def test_init_project_reports_missing_local_profile(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match=r"\./profiles/missing\.yaml"):
         init_project(target_dir=tmp_path, include=["./profiles/missing.yaml"])
+
+
+def _write_profile_package(
+    tmp_path: Path,
+    package_name: str,
+    profiles: dict[str, str],
+) -> None:
+    package_dir = tmp_path / package_name
+    profiles_dir = package_dir / "profiles"
+    profiles_dir.mkdir(parents=True)
+    (package_dir / "__init__.py").write_text("", encoding="utf-8")
+    for filename, content in profiles.items():
+        (profiles_dir / filename).write_text(content, encoding="utf-8")
+    sys.modules.pop(package_name, None)
