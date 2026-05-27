@@ -291,7 +291,7 @@ Current and planned backends include:
 - workflow-manager orchestration
 - experimental optimisation and execution backends
 
-Backends are discussed in more detail in {doc}`../extensibility/backends`.
+Backends are discussed in more detail in {doc}`../extensibility/strategies-and-backends`.
 
 ---
 

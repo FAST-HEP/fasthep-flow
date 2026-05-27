@@ -135,4 +135,4 @@ For example:
 
 Despite these differences, workflows remain largely backend-independent at the language level.
 
-For more information, see {doc}`../extensibility/backends`.
+For more information, see {doc}`../extensibility/strategies-and-backends`.

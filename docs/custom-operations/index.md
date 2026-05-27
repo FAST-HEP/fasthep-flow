@@ -6,5 +6,6 @@
 sources
 transforms
 sinks
+renderers
 hooks
 ```
