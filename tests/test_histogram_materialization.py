@@ -117,6 +117,19 @@ def test_final_cutflow_product_and_manifest_are_written(tmp_path: Path) -> None:
             role="transform",
             impl="hep.selection.cutflow",
             outputs={"stream": "event_stream", "cutflow": "cutflow"},
+            params={
+                "selection": {
+                    "All": [
+                        "NIsoMuon >= 2",
+                        {
+                            "reduce": {
+                                "op": "any",
+                                "over": "Muon_Pt > 25",
+                            }
+                        },
+                    ]
+                }
+            },
             meta={"stage_id": "EventSelection"},
         )
     )
@@ -125,7 +138,26 @@ def test_final_cutflow_product_and_manifest_are_written(tmp_path: Path) -> None:
             "cutflows": [
                 {
                     "dataset": "data",
-                    "cuts": [{"name": "All[0]", "n": 12}],
+                    "cuts": [
+                        {
+                            "name": "All[0]",
+                            "n_in": 20,
+                            "n_out": 12,
+                            "sumw_in": 20.0,
+                            "sumw_out": 12.0,
+                            "sumw2_in": 20.0,
+                            "sumw2_out": 12.0,
+                        },
+                        {
+                            "name": "All[1]",
+                            "n_in": 12,
+                            "n_out": 8,
+                            "sumw_in": 12.0,
+                            "sumw_out": 8.0,
+                            "sumw2_in": 12.0,
+                            "sumw2_out": 8.0,
+                        },
+                    ],
                 }
             ]
         }
@@ -139,14 +171,39 @@ def test_final_cutflow_product_and_manifest_are_written(tmp_path: Path) -> None:
 
     product = tmp_path / "artifacts" / "cutflows" / "EventSelection.json"
     manifest = tmp_path / "artifacts" / "cutflows" / "manifest.json"
-    assert json.loads(product.read_text(encoding="utf-8")) == {
-        "cutflows": [
-            {
-                "dataset": "data",
-                "cuts": [{"name": "All[0]", "n": 12}],
+    payload = json.loads(product.read_text(encoding="utf-8"))
+    assert payload["version"] == "1.0"
+    assert payload["kind"] == "cutflow"
+    assert payload["producer"] == "stage.EventSelection"
+    assert payload["datasets"] == ["data"]
+    assert payload["nodes"][0] == {
+        "id": "All[0]",
+        "selection": "All",
+        "index": 0,
+        "label": "NIsoMuon >= 2",
+        "expr": "NIsoMuon >= 2",
+        "kind": "expression",
+        "parents": [],
+        "stats": {
+            "data": {
+                "n_in": 20,
+                "n_out": 12,
+                "sumw_in": 20.0,
+                "sumw_out": 12.0,
+                "sumw2_in": 20.0,
+                "sumw2_out": 12.0,
             }
-        ]
+        },
     }
+    assert payload["nodes"][1]["label"] == "any(Muon_Pt > 25)"
+    assert payload["nodes"][1]["expr"] == {
+        "reduce": {"op": "any", "over": "Muon_Pt > 25"}
+    }
+    assert payload["nodes"][1]["stats"]["data"]["n_out"] == 8
+    assert payload["edges"] == [
+        {"source": "All[0]", "target": "All[1]", "kind": "sequence"}
+    ]
+    assert value_store[("stage.EventSelection", "cutflow")] == payload
     assert json.loads(manifest.read_text(encoding="utf-8")) == {
         "cutflows": [
             {
@@ -164,6 +221,74 @@ def test_final_cutflow_product_and_manifest_are_written(tmp_path: Path) -> None:
         }
     ]
     assert not (tmp_path / "debug" / "partitions" / "cutflows").exists()
+
+
+def test_cutflow_materialization_preserves_branch_edges(tmp_path: Path) -> None:
+    plan = ExecutionPlan()
+    plan.add_node(
+        ExecutionNode(
+            id="stage.EventSelection",
+            graph_node_id="stage.EventSelection",
+            role="transform",
+            impl="hep.selection.cutflow",
+            outputs={"stream": "event_stream", "cutflow": "cutflow"},
+            params={
+                "selection": {
+                    "preselection": ["nMuon >= 2", "mass > 40"],
+                    "signal": {
+                        "from": "preselection[1]",
+                        "steps": ["charge == 0"],
+                    },
+                    "control": {
+                        "from": "preselection[1]",
+                        "steps": [{"expr": "charge != 0"}],
+                    },
+                }
+            },
+            meta={"stage_id": "EventSelection"},
+        )
+    )
+    value_store = {
+        ("stage.EventSelection", "cutflow"): {
+            "cutflows": [
+                {
+                    "dataset": "data",
+                    "cuts": [
+                        {"name": "preselection[0]", "n_in": 100, "n_out": 80},
+                        {"name": "preselection[1]", "n_in": 80, "n_out": 60},
+                        {"name": "signal[0]", "n_in": 60, "n_out": 45},
+                        {"name": "control[0]", "n_in": 60, "n_out": 15},
+                    ],
+                }
+            ]
+        }
+    }
+
+    materialize_final_cutflows(plan, value_store=value_store, outdir=tmp_path)
+
+    payload = json.loads(
+        (tmp_path / "artifacts" / "cutflows" / "EventSelection.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert [node["id"] for node in payload["nodes"]] == [
+        "preselection[0]",
+        "preselection[1]",
+        "signal[0]",
+        "control[0]",
+    ]
+    assert payload["nodes"][2]["parents"] == ["preselection[1]"]
+    assert payload["nodes"][3]["label"] == "charge != 0"
+    assert {
+        "source": "preselection[1]",
+        "target": "signal[0]",
+        "kind": "branch",
+    } in payload["edges"]
+    assert {
+        "source": "preselection[1]",
+        "target": "control[0]",
+        "kind": "branch",
+    } in payload["edges"]
 
 
 def test_render_spec_includes_cutflow_product_path(tmp_path: Path) -> None:
