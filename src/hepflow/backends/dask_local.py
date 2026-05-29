@@ -110,6 +110,7 @@ class DaskLocalBackend:
                 plan,
                 stores,
                 dataset_name=dataset_name,
+                registry_cfg=plan.registry,
             )
             dataset_ctx = build_dataset_context(
                 plan,
@@ -126,7 +127,11 @@ class DaskLocalBackend:
             )
             dataset_stores.append(dataset_value_store)
 
-        merged_value_store = merge_partition_value_stores(plan, dataset_stores)
+        merged_value_store = merge_partition_value_stores(
+            plan,
+            dataset_stores,
+            registry_cfg=plan.registry,
+        )
 
         execute_final_nodes(
             plan,

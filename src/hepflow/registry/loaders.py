@@ -4,6 +4,7 @@ import importlib
 from typing import Any
 
 from hepflow.model.ops import OpEntry, OpSpec
+from hepflow.model.products import ProductHandlerEntry
 from hepflow.model.render_types import RenderEntry, RenderTypeSpec
 from hepflow.registry.defaults import (
     default_expr_registry_config,
@@ -59,6 +60,7 @@ def runtime_registry_from_config(cfg: dict[str, Any] | None) -> RuntimeRegistry:
 
     ops_cfg = dict(cfg.get("ops") or {})
     renderers_cfg = dict(cfg.get("renderers") or {})
+    product_handlers_cfg = dict(cfg.get("product_handlers") or {})
 
     ops = {}
     for name, entry_cfg in ops_cfg.items():
@@ -94,7 +96,38 @@ def runtime_registry_from_config(cfg: dict[str, Any] | None) -> RuntimeRegistry:
 
         renderers[name] = RenderEntry(spec=spec_obj, handler=impl_obj)
 
-    return RuntimeRegistry(ops=ops, renderers=renderers)
+    product_handlers = {}
+    for name, entry_cfg in product_handlers_cfg.items():
+        if not isinstance(entry_cfg, dict):
+            raise TypeError(
+                f"Product handler registry entry '{name}' must be a mapping"
+            )
+
+        merge_obj = (
+            load_object(entry_cfg["merge"])
+            if isinstance(entry_cfg.get("merge"), str)
+            else None
+        )
+        materialize_obj = (
+            load_object(entry_cfg["materialize"])
+            if isinstance(entry_cfg.get("materialize"), str)
+            else None
+        )
+        if merge_obj is not None and not callable(merge_obj):
+            raise TypeError(f"Product handler merge '{name}' is not callable")
+        if materialize_obj is not None and not callable(materialize_obj):
+            raise TypeError(f"Product handler materialize '{name}' is not callable")
+
+        product_handlers[name] = ProductHandlerEntry(
+            merge=merge_obj,
+            materialize=materialize_obj,
+        )
+
+    return RuntimeRegistry(
+        ops=ops,
+        renderers=renderers,
+        product_handlers=product_handlers,
+    )
 
 
 def resolve_runtime_registry(

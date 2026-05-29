@@ -8,11 +8,7 @@ import networkx as nx
 
 from hepflow.build_layout import render_dir, render_specs_dir
 from hepflow.compiler.graph_artifacts import _lowered_graph_to_json
-from hepflow.model.plan import ExecutionNode, ExecutionPlan
-from hepflow.runtime.materialize import (
-    cutflow_product_reference,
-    histogram_product_reference,
-)
+from hepflow.model.plan import ExecutionPlan
 from hepflow.utils import write_yaml
 
 
@@ -55,7 +51,6 @@ def _write_render_artifacts(*, plan: ExecutionPlan, outdir: Path) -> None:
             "node_id": node.id,
             "impl": node.impl,
             "out": node.params.get("out"),
-            **_render_product_refs(plan=plan, node=node),
             "spec": spec,
         }
         render_specs.append(item)
@@ -66,34 +61,3 @@ def _write_render_artifacts(*, plan: ExecutionPlan, outdir: Path) -> None:
         json.dumps({"renders": render_specs}, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-
-
-def _render_product_refs(
-    *,
-    plan: ExecutionPlan,
-    node: ExecutionNode,
-) -> dict[str, Any]:
-    products: dict[str, dict[str, str]] = {}
-    for ref in node.inputs:
-        try:
-            producer = plan.get_node(ref.node_id)
-        except KeyError:
-            continue
-        name = ref.input_name if ref.input_name != "target" else "hist"
-        output_kind = producer.outputs.get(ref.output_name)
-        if output_kind == "histogram":
-            products[name] = histogram_product_reference(producer.id, producer.meta)
-            continue
-        if output_kind == "cutflow":
-            name = ref.input_name if ref.input_name != "target" else "cutflow"
-            products[name] = cutflow_product_reference(producer.id, producer.meta)
-
-    if not products:
-        return {}
-    if len(products) == 1:
-        _, only_product = next(iter(products.items()))
-        return {
-            "product": dict(only_product),
-            "products": {name: dict(product) for name, product in products.items()},
-        }
-    return {"products": products}

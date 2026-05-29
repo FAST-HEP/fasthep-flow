@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from hepflow.model.ops import OpEntry
+from hepflow.model.products import ProductHandlerEntry
 from hepflow.model.render_types import RenderEntry
 
 
@@ -17,3 +18,4 @@ class RuntimeRegistry:
 
     ops: dict[str, OpEntry] = field(default_factory=dict)
     renderers: dict[str, RenderEntry] = field(default_factory=dict)
+    product_handlers: dict[str, ProductHandlerEntry] = field(default_factory=dict)

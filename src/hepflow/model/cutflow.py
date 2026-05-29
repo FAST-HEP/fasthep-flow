@@ -18,10 +18,14 @@ class SelectionStats:
     """
     Cumulative (in -> out) stats for a selection node.
 
-    For unweighted workflows, set sumw_* == n_* and sumw2_* == n_*.
+    n_in/n_out are weighted yields. n_unweighted_in/n_unweighted_out
+    are raw event counts. For unweighted workflows, all n_*, sumw_*,
+    and sumw2_* values match unit-weight event counts.
     """
-    n_in: int
-    n_out: int
+    n_in: float
+    n_out: float
+    n_unweighted_in: int
+    n_unweighted_out: int
     sumw_in: float
     sumw_out: float
     sumw2_in: float
@@ -32,9 +36,13 @@ class SelectionStats:
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> SelectionStats:
+        n_in = float(d.get("n_in", d.get("sumw_in", 0.0)))
+        n_out = float(d.get("n_out", d.get("sumw_out", 0.0)))
         return SelectionStats(
-            n_in=int(d.get("n_in", 0)),
-            n_out=int(d.get("n_out", 0)),
+            n_in=n_in,
+            n_out=n_out,
+            n_unweighted_in=int(d.get("n_unweighted_in", n_in)),
+            n_unweighted_out=int(d.get("n_unweighted_out", n_out)),
             sumw_in=float(d.get("sumw_in", 0.0)),
             sumw_out=float(d.get("sumw_out", 0.0)),
             sumw2_in=float(d.get("sumw2_in", 0.0)),
@@ -45,6 +53,8 @@ class SelectionStats:
         return SelectionStats(
             n_in=self.n_in + other.n_in,
             n_out=self.n_out + other.n_out,
+            n_unweighted_in=self.n_unweighted_in + other.n_unweighted_in,
+            n_unweighted_out=self.n_unweighted_out + other.n_unweighted_out,
             sumw_in=self.sumw_in + other.sumw_in,
             sumw_out=self.sumw_out + other.sumw_out,
             sumw2_in=self.sumw2_in + other.sumw2_in,
@@ -126,8 +136,10 @@ class SelectionNode:
 
 @dataclass(frozen=True)
 class CutflowSummary:
-    n_in: int
-    n_out: int
+    n_in: float
+    n_out: float
+    n_unweighted_in: int
+    n_unweighted_out: int
     sumw_in: float
     sumw_out: float
     eff: float | None = None
@@ -138,9 +150,13 @@ class CutflowSummary:
     @staticmethod
     def from_dict(d: dict[str, Any]) -> CutflowSummary:
         eff = d.get("eff")
+        n_in = float(d.get("n_in", d.get("sumw_in", 0.0)))
+        n_out = float(d.get("n_out", d.get("sumw_out", 0.0)))
         return CutflowSummary(
-            n_in=int(d.get("n_in", 0)),
-            n_out=int(d.get("n_out", 0)),
+            n_in=n_in,
+            n_out=n_out,
+            n_unweighted_in=int(d.get("n_unweighted_in", n_in)),
+            n_unweighted_out=int(d.get("n_unweighted_out", n_out)),
             sumw_in=float(d.get("sumw_in", 0.0)),
             sumw_out=float(d.get("sumw_out", 0.0)),
             eff=None if eff is None else float(eff),
@@ -177,9 +193,9 @@ class CutflowReport:
 
     selection: SelectionNode = field(default_factory=lambda: SelectionNode(
         op=SelectionOp.ALL,
-        stats=SelectionStats(0, 0, 0.0, 0.0, 0.0, 0.0),
+        stats=SelectionStats(0.0, 0.0, 0, 0, 0.0, 0.0, 0.0, 0.0),
         items=(SelectionNode(op=SelectionOp.CUT, expr="__dummy__", reduce=None,
-                             stats=SelectionStats(0, 0, 0.0, 0.0, 0.0, 0.0),
+                             stats=SelectionStats(0.0, 0.0, 0, 0, 0.0, 0.0, 0.0, 0.0),
                              items=()),)
     ))  # overridden by from_dict in practice
 
@@ -322,10 +338,16 @@ def merge_cutflow_reports(reports: list[CutflowReport]) -> CutflowReport:
 
     # recompute summary from root stats (optional but handy)
     root = sel.stats
-    eff = (root.n_out / root.n_in) if root.n_in else None
+    eff = (
+        root.n_unweighted_out / root.n_unweighted_in
+        if root.n_unweighted_in
+        else None
+    )
     summary = CutflowSummary(
         n_in=root.n_in,
         n_out=root.n_out,
+        n_unweighted_in=root.n_unweighted_in,
+        n_unweighted_out=root.n_unweighted_out,
         sumw_in=root.sumw_in,
         sumw_out=root.sumw_out,
         eff=eff,

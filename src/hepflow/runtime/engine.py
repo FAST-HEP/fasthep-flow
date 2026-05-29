@@ -13,6 +13,7 @@ from hepflow.model.plan import (
     ExecutionPlan,
     resolve_plan_ref,
 )
+from hepflow.model.products import OperationResult
 from hepflow.registry.defaults import default_expr_registry
 from hepflow.registry.loaders import (
     expr_registry_from_config,
@@ -21,11 +22,7 @@ from hepflow.registry.loaders import (
 from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.handlers import run_observer, run_sink, run_source, run_transform
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
-from hepflow.runtime.materialize import (
-    materialize_final_cutflows,
-    materialize_final_histograms,
-)
-from hepflow.runtime.merge import merge_cutflows, merge_hists
+from hepflow.runtime.materialize import materialize_final_products
 from hepflow.runtime.stream_readers import read_stream
 
 
@@ -682,15 +679,11 @@ def execute_plan_locally(
             skip_roles=skip_roles,
             hook_manager=hook_manager,
         )
-        materialize_final_histograms(
+        materialize_final_products(
             plan,
             value_store=value_store,
             outdir=str(base_ctx.get("outdir") or "."),
-        )
-        materialize_final_cutflows(
-            plan,
-            value_store=value_store,
-            outdir=str(base_ctx.get("outdir") or "."),
+            registry_cfg=registry_cfg,
         )
         execute_final_nodes(
             plan,
@@ -730,6 +723,7 @@ def execute_plan_locally(
             plan,
             stores,
             dataset_name=dataset_name,
+            registry_cfg=registry_cfg,
         )
         dataset_ctx = build_dataset_context(
             plan,
@@ -747,16 +741,16 @@ def execute_plan_locally(
         )
         dataset_stores.append(dataset_value_store)
 
-    merged_value_store = merge_partition_value_stores(plan, dataset_stores)
-    materialize_final_histograms(
+    merged_value_store = merge_partition_value_stores(
         plan,
-        value_store=merged_value_store,
-        outdir=str(base_ctx.get("outdir") or "."),
+        dataset_stores,
+        registry_cfg=registry_cfg,
     )
-    materialize_final_cutflows(
+    materialize_final_products(
         plan,
         value_store=merged_value_store,
         outdir=str(base_ctx.get("outdir") or "."),
+        registry_cfg=registry_cfg,
     )
     execute_final_nodes(
         plan,
@@ -827,7 +821,13 @@ def _ensure_expr_registry(
 def merge_partition_value_stores(
     plan: ExecutionPlan,
     stores: list[dict[tuple[str, str], Any]],
+    *,
+    registry_cfg: dict[str, Any] | None = None,
+    runtime_registry: RuntimeRegistry | None = None,
 ) -> dict[tuple[str, str], Any]:
+    runtime_registry = runtime_registry or runtime_registry_from_config(
+        registry_cfg or plan.registry
+    )
     merged: dict[tuple[str, str], Any] = {}
     grouped: dict[tuple[str, str], list[Any]] = {}
 
@@ -841,14 +841,22 @@ def merge_partition_value_stores(
             node = plan.get_node(node_id)
             output_kind = node.outputs.get(output_name)
         except KeyError:
+            node = None
             output_kind = None
 
-        if output_kind == "histogram":
-            merged[key] = merge_hists(values)
-            continue
+        if node is not None:
+            handler = runtime_registry.product_handlers.get(str(output_kind))
+            if handler is not None and handler.merge is not None:
+                merged[key] = handler.merge(
+                    values,
+                    node=node,
+                    output_name=output_name,
+                    dataset_name=None,
+                )
+                continue
 
-        if output_kind == "cutflow":
-            merged[key] = {"cutflows": values}
+        if output_kind in runtime_registry.product_handlers:
+            merged[key] = values[0] if len(values) == 1 else list(values)
             continue
 
         if output_kind == "report":
@@ -879,7 +887,12 @@ def merge_partition_value_stores_for_dataset(
     stores: list[dict[tuple[str, str], Any]],
     *,
     dataset_name: str,
+    registry_cfg: dict[str, Any] | None = None,
+    runtime_registry: RuntimeRegistry | None = None,
 ) -> dict[tuple[str, str], Any]:
+    runtime_registry = runtime_registry or runtime_registry_from_config(
+        registry_cfg or plan.registry
+    )
     merged: dict[tuple[str, str], Any] = {}
     grouped: dict[tuple[str, str], list[Any]] = {}
 
@@ -893,16 +906,22 @@ def merge_partition_value_stores_for_dataset(
             node = plan.get_node(node_id)
             output_kind = node.outputs.get(output_name)
         except KeyError:
+            node = None
             output_kind = None
 
-        if output_kind == "histogram":
-            merged[key] = merge_hists(values)
-            continue
+        if node is not None:
+            handler = runtime_registry.product_handlers.get(str(output_kind))
+            if handler is not None and handler.merge is not None:
+                merged[key] = handler.merge(
+                    values,
+                    node=node,
+                    output_name=output_name,
+                    dataset_name=dataset_name,
+                )
+                continue
 
-        if output_kind == "cutflow":
-            cutflow = merge_cutflows(values)
-            cutflow["dataset"] = dataset_name
-            merged[key] = cutflow
+        if output_kind in runtime_registry.product_handlers:
+            merged[key] = values[0] if len(values) == 1 else list(values)
             continue
 
         if output_kind == "event_stream":
@@ -1149,6 +1168,12 @@ def _store_node_outputs(
     result: Any,
     value_store: dict[tuple[str, str], Any],
 ) -> None:
+    if isinstance(result, OperationResult):
+        for output_name, product in result.products.items():
+            if output_name in outputs:
+                value_store[(node_id, output_name)] = product
+        return
+
     output_names = list(outputs.keys())
     if isinstance(result, dict) and set(result.keys()) == set(output_names):
         for output_name in output_names:
