@@ -106,7 +106,11 @@ class DaskLocalBackend:
             plan.partitions,
         )
         for dataset_name, stores in grouped_results.items():
-            dataset_value_store = merge_partition_value_stores_for_dataset(plan, stores)
+            dataset_value_store = merge_partition_value_stores_for_dataset(
+                plan,
+                stores,
+                dataset_name=dataset_name,
+            )
             dataset_ctx = build_dataset_context(
                 plan,
                 base_ctx=final_ctx,

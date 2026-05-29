@@ -251,6 +251,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
                 current_stage_id=stage_id,
                 stage_nodes=stage_nodes,
                 current_outputs=stage_node.outputs,
+                prefer_product=True,
             )
             add_graph_edge(
                 graph,
@@ -731,11 +732,14 @@ def _resolve_attachment_source(
     current_stage_id: str,
     stage_nodes: dict[str, str],
     current_outputs: dict[str, str],
+    prefer_product: bool = False,
 ) -> tuple[str, str]:
     explicit_from = write_cfg.get("from")
     if explicit_from is not None:
         return stage_nodes[explicit_from], "stream"
 
+    if prefer_product:
+        return stage_nodes[current_stage_id], _default_product_output(current_outputs)
     return stage_nodes[current_stage_id], _default_attachment_output(current_outputs)
 
 
@@ -751,6 +755,14 @@ def _default_attachment_output(outputs: dict[str, str]) -> str:
         raise ValueError("Node has no outputs to attach to") from exc
 
 
+def _default_product_output(outputs: dict[str, str]) -> str:
+    if "hist" in outputs:
+        return "hist"
+    if "cutflow" in outputs:
+        return "cutflow"
+    return _default_attachment_output(outputs)
+
+
 def _infer_stage_outputs(op: str) -> dict[str, str]:
     """
     Minimal output inference for current examples.
@@ -763,7 +775,7 @@ def _infer_stage_outputs(op: str) -> dict[str, str]:
     if op == "hep.selection.cutflow":
         return {
             "stream": "event_stream",
-            "cutflow": "report",
+            "cutflow": "cutflow",
         }
 
     return {"stream": "event_stream"}

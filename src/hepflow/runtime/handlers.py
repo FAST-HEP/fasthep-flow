@@ -185,7 +185,9 @@ def _derive_artifact_output_paths(
     if not out_path.suffix:
         out_path = out_path.with_suffix(".png")
     if not out_path.is_absolute():
-        out_path = artifact_family_dir(ctx.get("outdir") or ".", "plots") / out_path
+        spec = dict(params.get("spec") or {})
+        family = "tables" if spec.get("op") == "hep.render.cutflow_csv" else "plots"
+        out_path = artifact_family_dir(ctx.get("outdir") or ".", family) / out_path
     output_dir = out_path.with_suffix("")
     return str(out_path), str(output_dir)
 

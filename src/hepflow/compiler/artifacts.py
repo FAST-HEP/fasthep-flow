@@ -9,7 +9,10 @@ import networkx as nx
 from hepflow.build_layout import render_dir, render_specs_dir
 from hepflow.compiler.graph_artifacts import _lowered_graph_to_json
 from hepflow.model.plan import ExecutionNode, ExecutionPlan
-from hepflow.runtime.materialize import histogram_product_reference
+from hepflow.runtime.materialize import (
+    cutflow_product_reference,
+    histogram_product_reference,
+)
 from hepflow.utils import write_yaml
 
 
@@ -76,16 +79,21 @@ def _render_product_refs(
             producer = plan.get_node(ref.node_id)
         except KeyError:
             continue
-        if producer.outputs.get(ref.output_name) != "histogram":
-            continue
         name = ref.input_name if ref.input_name != "target" else "hist"
-        products[name] = histogram_product_reference(producer.id, producer.meta)
+        output_kind = producer.outputs.get(ref.output_name)
+        if output_kind == "histogram":
+            products[name] = histogram_product_reference(producer.id, producer.meta)
+            continue
+        if output_kind == "cutflow":
+            name = ref.input_name if ref.input_name != "target" else "cutflow"
+            products[name] = cutflow_product_reference(producer.id, producer.meta)
 
     if not products:
         return {}
-    if set(products) == {"hist"}:
+    if len(products) == 1:
+        _, only_product = next(iter(products.items()))
         return {
-            "product": dict(products["hist"]),
-            "products": {"hist": dict(products["hist"])},
+            "product": dict(only_product),
+            "products": {name: dict(product) for name, product in products.items()},
         }
     return {"products": products}

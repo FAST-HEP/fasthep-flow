@@ -21,8 +21,11 @@ from hepflow.registry.loaders import (
 from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.handlers import run_observer, run_sink, run_source, run_transform
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
-from hepflow.runtime.materialize import materialize_final_histograms
-from hepflow.runtime.merge import merge_hists
+from hepflow.runtime.materialize import (
+    materialize_final_cutflows,
+    materialize_final_histograms,
+)
+from hepflow.runtime.merge import merge_cutflows, merge_hists
 from hepflow.runtime.stream_readers import read_stream
 
 
@@ -684,6 +687,11 @@ def execute_plan_locally(
             value_store=value_store,
             outdir=str(base_ctx.get("outdir") or "."),
         )
+        materialize_final_cutflows(
+            plan,
+            value_store=value_store,
+            outdir=str(base_ctx.get("outdir") or "."),
+        )
         execute_final_nodes(
             plan,
             value_store=value_store,
@@ -718,7 +726,11 @@ def execute_plan_locally(
     dataset_stores: list[dict[tuple[str, str], Any]] = []
     grouped_results = group_partition_results_by_dataset(results, partitions)
     for dataset_name, stores in grouped_results.items():
-        dataset_value_store = merge_partition_value_stores_for_dataset(plan, stores)
+        dataset_value_store = merge_partition_value_stores_for_dataset(
+            plan,
+            stores,
+            dataset_name=dataset_name,
+        )
         dataset_ctx = build_dataset_context(
             plan,
             base_ctx=base_ctx,
@@ -737,6 +749,11 @@ def execute_plan_locally(
 
     merged_value_store = merge_partition_value_stores(plan, dataset_stores)
     materialize_final_histograms(
+        plan,
+        value_store=merged_value_store,
+        outdir=str(base_ctx.get("outdir") or "."),
+    )
+    materialize_final_cutflows(
         plan,
         value_store=merged_value_store,
         outdir=str(base_ctx.get("outdir") or "."),
@@ -830,6 +847,10 @@ def merge_partition_value_stores(
             merged[key] = merge_hists(values)
             continue
 
+        if output_kind == "cutflow":
+            merged[key] = {"cutflows": values}
+            continue
+
         if output_kind == "report":
             merged[key] = list(values)
             continue
@@ -856,6 +877,8 @@ def group_partition_results_by_dataset(
 def merge_partition_value_stores_for_dataset(
     plan: ExecutionPlan,
     stores: list[dict[tuple[str, str], Any]],
+    *,
+    dataset_name: str,
 ) -> dict[tuple[str, str], Any]:
     merged: dict[tuple[str, str], Any] = {}
     grouped: dict[tuple[str, str], list[Any]] = {}
@@ -874,6 +897,12 @@ def merge_partition_value_stores_for_dataset(
 
         if output_kind == "histogram":
             merged[key] = merge_hists(values)
+            continue
+
+        if output_kind == "cutflow":
+            cutflow = merge_cutflows(values)
+            cutflow["dataset"] = dataset_name
+            merged[key] = cutflow
             continue
 
         if output_kind == "event_stream":

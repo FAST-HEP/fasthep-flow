@@ -844,6 +844,16 @@ def _default_execution_policy(
                 "never",
             )
 
+        if outputs.get("cutflow") == "cutflow":
+            return (
+                "partition",
+                "partition",
+                PartitionSpec(mode="dataset_chunks", chunk_size=chunk_size)
+                if chunk_size is not None
+                else PartitionSpec(mode="dataset"),
+                "never",
+            )
+
         return (
             "partition",
             "partition",
