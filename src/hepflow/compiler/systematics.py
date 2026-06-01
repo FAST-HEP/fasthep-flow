@@ -59,9 +59,59 @@ def expand_systematics(normalized: dict[str, Any]) -> list[ExpandedWorkflow]:
         variation = _variation_context(raw_variation)
         workflow = deepcopy(normalized)
         workflow["variation"] = variation.to_dict()
+        apply_weight_variation(workflow, variation)
         expanded.append(ExpandedWorkflow(variation=variation, workflow=workflow))
 
     return expanded
+
+
+def apply_weight_variation(
+    workflow: dict[str, Any], variation: VariationContext
+) -> dict[str, Any]:
+    if variation.is_nominal:
+        return workflow
+
+    multipliers = _weight_multipliers(variation)
+    if not multipliers:
+        return workflow
+
+    rewrites: list[dict[str, Any]] = []
+    analysis = workflow.get("analysis") or {}
+    if not isinstance(analysis, dict):
+        return workflow
+
+    stages = analysis.get("stages") or []
+    if not isinstance(stages, list):
+        return workflow
+
+    for stage in stages:
+        if not isinstance(stage, dict):
+            continue
+        params = stage.get("params")
+        if not isinstance(params, dict) or "weight_expr" not in params:
+            continue
+
+        original = params.get("weight_expr")
+        if original is None:
+            continue
+
+        rewritten = _multiply_weight_expr(str(original), multipliers)
+        params["weight_expr"] = rewritten
+        rewrites.append(
+            {
+                "stage": str(stage.get("id") or ""),
+                "original": original,
+                "rewritten": rewritten,
+                "multipliers": list(multipliers),
+            }
+        )
+
+    if rewrites:
+        variation_block = workflow.setdefault("variation", variation.to_dict())
+        if isinstance(variation_block, dict):
+            variation_block.setdefault("rewrites", {})["weight_expr"] = rewrites
+
+    return workflow
 
 
 def make_systematic_plan_files(
@@ -137,3 +187,19 @@ def _variation_context(raw_variation: dict[str, Any]) -> VariationContext:
         is_nominal=False,
         metadata=metadata,
     )
+
+
+def _weight_multipliers(variation: VariationContext) -> list[str]:
+    weight = variation.metadata.get("weight")
+    if not isinstance(weight, dict):
+        return []
+    multiply = weight.get("multiply") or []
+    if not isinstance(multiply, list):
+        return []
+    return [item.strip() for item in multiply if isinstance(item, str) and item.strip()]
+
+
+def _multiply_weight_expr(weight_expr: str, multipliers: list[str]) -> str:
+    pieces = [f"({weight_expr})"]
+    pieces.extend(f"({multiplier})" for multiplier in multipliers)
+    return " * ".join(pieces)

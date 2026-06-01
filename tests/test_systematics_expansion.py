@@ -134,6 +134,90 @@ def test_variation_metadata_attached_to_expanded_workflow(
     }
 
 
+def test_nominal_workflow_weight_expr_is_unchanged(toy_author: dict[str, Any]) -> None:
+    author = _author_with_systematics(_author_with_weight_expr(toy_author))
+    normalized = normalize_author(author)
+
+    nominal = expand_systematics(normalized)[0]
+
+    assert nominal.variation.name == "nominal"
+    assert nominal.workflow["analysis"]["stages"][0]["params"]["weight_expr"] == (
+        "EventWeight"
+    )
+
+
+def test_single_weight_multiplier_rewrites_stage_weight_expr(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _author_with_systematics(_author_with_weight_expr(toy_author))
+    normalized = normalize_author(author)
+
+    variation = expand_systematics(normalized)[1]
+
+    assert variation.workflow["analysis"]["stages"][0]["params"]["weight_expr"] == (
+        "(EventWeight) * (TriggerEffWeight_up)"
+    )
+    assert variation.workflow["variation"]["rewrites"]["weight_expr"] == [
+        {
+            "stage": "Scale",
+            "original": "EventWeight",
+            "rewritten": "(EventWeight) * (TriggerEffWeight_up)",
+            "multipliers": ["TriggerEffWeight_up"],
+        }
+    ]
+
+
+def test_multiple_weight_multipliers_rewrite_stage_weight_expr(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _author_with_systematics(
+        _author_with_weight_expr(toy_author),
+        multipliers=["TriggerEffWeight_up", "ScaleFactor_up"],
+    )
+    normalized = normalize_author(author)
+
+    variation = expand_systematics(normalized)[1]
+
+    assert variation.workflow["analysis"]["stages"][0]["params"]["weight_expr"] == (
+        "(EventWeight) * (TriggerEffWeight_up) * (ScaleFactor_up)"
+    )
+
+
+def test_stages_without_weight_expr_are_not_weighted(
+    toy_author: dict[str, Any],
+) -> None:
+    normalized = normalize_author(_author_with_systematics(toy_author))
+
+    variation = expand_systematics(normalized)[1]
+
+    params = variation.workflow["analysis"]["stages"][0]["params"]
+    assert "weight_expr" not in params
+    assert "rewrites" not in variation.workflow["variation"]
+
+
+def test_weight_rewrite_only_updates_analysis_stages(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _author_with_systematics(_author_with_weight_expr(toy_author))
+    author["observers"] = [
+        {
+            "kind": "toy.observer",
+            "at": ["stage.Scale"],
+            "params": {"weight_expr": "ObserverWeight"},
+        }
+    ]
+    normalized = normalize_author(author)
+
+    variation = expand_systematics(normalized)[1]
+
+    assert variation.workflow["analysis"]["stages"][0]["params"]["weight_expr"] == (
+        "(EventWeight) * (TriggerEffWeight_up)"
+    )
+    assert variation.workflow["observers"][0]["params"]["weight_expr"] == (
+        "ObserverWeight"
+    )
+
+
 def test_expanded_workflows_preserve_normalized_sections(
     toy_author: dict[str, Any],
 ) -> None:
@@ -236,6 +320,40 @@ def test_each_variation_plan_contains_variation_metadata(
     }
 
 
+def test_variation_plan_contains_rewritten_weight_expr(
+    toy_author: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    author_path = _write_author(
+        tmp_path, _author_with_systematics(_author_with_weight_expr(toy_author))
+    )
+    build_dir = tmp_path / "build"
+
+    compile_author_file(author_path, outdir=build_dir)
+
+    variation_plan = read_yaml(build_dir / "compile" / "trigger_eff_up" / "plan.yaml")
+    stage_node = _plan_node(variation_plan, "stage.Scale")
+    assert stage_node["params"]["weight_expr"] == (
+        "(EventWeight) * (TriggerEffWeight_up)"
+    )
+
+
+def test_nominal_plan_contains_original_weight_expr(
+    toy_author: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    author_path = _write_author(
+        tmp_path, _author_with_systematics(_author_with_weight_expr(toy_author))
+    )
+    build_dir = tmp_path / "build"
+
+    compile_author_file(author_path, outdir=build_dir)
+
+    nominal_plan = read_yaml(build_dir / "compile" / "nominal" / "plan.yaml")
+    stage_node = _plan_node(nominal_plan, "stage.Scale")
+    assert stage_node["params"]["weight_expr"] == "EventWeight"
+
+
 def test_make_plan_file_expands_normalized_systematics(
     toy_author: dict[str, Any],
     tmp_path: Path,
@@ -332,6 +450,7 @@ def _author_with_systematics(
     toy_author: dict[str, Any],
     *,
     include_nominal: bool = True,
+    multipliers: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         **toy_author,
@@ -344,11 +463,17 @@ def _author_with_systematics(
                     "direction": "up",
                     "applies_to": "mc",
                     "requires": ["stage.TriggerEfficiencyWeights"],
-                    "weight": {"multiply": "TriggerEffWeight_up"},
+                    "weight": {"multiply": multipliers or "TriggerEffWeight_up"},
                 }
             ],
         },
     }
+
+
+def _author_with_weight_expr(toy_author: dict[str, Any]) -> dict[str, Any]:
+    author = deepcopy(toy_author)
+    author["analysis"]["stages"][0]["params"]["weight_expr"] = "EventWeight"
+    return author
 
 
 def _normalized_with_systematics(
@@ -371,3 +496,7 @@ def _write_author(tmp_path: Path, author: dict[str, Any]) -> Path:
     author_path = tmp_path / "author.yaml"
     author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
     return author_path
+
+
+def _plan_node(plan: dict[str, Any], node_id: str) -> dict[str, Any]:
+    return next(node for node in plan["nodes"] if node["id"] == node_id)
