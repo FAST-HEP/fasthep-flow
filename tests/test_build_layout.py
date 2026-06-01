@@ -8,6 +8,7 @@ from hepflow.build_layout import BuildPaths, ensure_build_layout
 def test_build_paths_artifact_without_variation() -> None:
     paths = BuildPaths(root=Path("build"))
 
+    assert paths.artifacts_root() == Path("build/artifacts")
     assert paths.artifact("histograms", "MuonPt.pkl") == Path(
         "build/artifacts/histograms/MuonPt.pkl"
     )
@@ -16,6 +17,7 @@ def test_build_paths_artifact_without_variation() -> None:
 def test_build_paths_artifact_with_variation() -> None:
     paths = BuildPaths(root=Path("build"), variation="nominal")
 
+    assert paths.artifacts_root() == Path("build/artifacts/nominal")
     assert paths.artifact("histograms", "MuonPt.pkl") == Path(
         "build/artifacts/nominal/histograms/MuonPt.pkl"
     )
@@ -58,6 +60,20 @@ def test_build_paths_debug_path() -> None:
 
     assert paths.debug("logs", "run.log") == Path(
         "build/debug/nominal/logs/run.log"
+    )
+
+
+def test_build_paths_run_summary_without_variation() -> None:
+    paths = BuildPaths(root=Path("build"))
+
+    assert paths.run_summary() == Path("build/run_summary.yaml")
+
+
+def test_build_paths_run_summary_with_variation() -> None:
+    paths = BuildPaths(root=Path("build"), variation="trigger_eff_down")
+
+    assert paths.run_summary() == Path(
+        "build/reports/trigger_eff_down/run_summary.yaml"
     )
 
 

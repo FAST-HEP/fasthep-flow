@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from hepflow.utils import read_yaml, write_yaml
+from hepflow.utils import write_yaml
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,10 +41,13 @@ class BuildPaths:
         )
 
     def artifact_dir(self, kind: str) -> Path:
+        return self.artifacts_root() / kind
+
+    def artifacts_root(self) -> Path:
         path = self.root / "artifacts"
         if self.variation:
             path = path / self.variation
-        return path / kind
+        return path
 
     def artifact(self, kind: str, filename: str | Path) -> Path:
         return self.artifact_dir(kind) / filename
@@ -97,6 +100,11 @@ class BuildPaths:
 
     def relative_to_root(self, path: str | Path) -> Path:
         return Path(path).relative_to(self.root)
+
+    def run_summary(self) -> Path:
+        if self.variation:
+            return self.report_dir() / "run_summary.yaml"
+        return self.root / "run_summary.yaml"
 
 
 def output_variation_from_context(context: Mapping[str, Any] | None) -> str | None:
@@ -175,7 +183,7 @@ def normalized_path(root: str | Path) -> Path:
 
 
 def run_summary_path(root: str | Path) -> Path:
-    return build_root(root) / "run_summary.yaml"
+    return BuildPaths(root=Path(root)).run_summary()
 
 
 def write_run_summary(
@@ -184,18 +192,9 @@ def write_run_summary(
     *,
     variation_name: str | None = None,
 ) -> None:
-    summary_path = run_summary_path(root)
-    if variation_name is None:
-        write_yaml(summary, str(summary_path))
-        return
-
-    existing = read_yaml(str(summary_path)) if summary_path.exists() else {}
-    merged = dict(existing) if isinstance(existing, dict) else {}
-    variations = dict(merged.get("variations") or {})
-    variations[variation_name] = deepcopy(summary)
-    merged.update(deepcopy(summary))
-    merged["variations"] = variations
-    write_yaml(merged, str(summary_path))
+    paths = BuildPaths(root=Path(root), variation=variation_name)
+    paths.run_summary().parent.mkdir(parents=True, exist_ok=True)
+    write_yaml(deepcopy(summary), str(paths.run_summary()))
 
 
 def ensure_build_layout(root: str | Path, *, variation: str | None = None) -> None:

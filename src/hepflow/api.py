@@ -252,6 +252,8 @@ def run_plan_file(
         "execution": runtime_execution,
         **result.summary,
     }
+    summary["summary_path"] = str(build_paths.run_summary())
+    summary["artifacts_path"] = str(build_paths.artifacts_root())
     if build_paths.variation is not None:
         summary["variation"] = plan.context.get("variation") or {
             "name": build_paths.variation
@@ -261,6 +263,7 @@ def run_plan_file(
         summary,
         variation_name=build_paths.variation,
     )
+    result.summary = summary
     return result
 
 

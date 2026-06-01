@@ -651,7 +651,16 @@ def test_run_plan_file_uses_variation_namespace_by_default(
     result = run_plan_file(build_dir / "compile" / "trigger_eff_up" / "plan.yaml")
 
     assert result.success is True
-    assert (build_dir / "run_summary.yaml").exists()
+    assert not (build_dir / "run_summary.yaml").exists()
+    assert (
+        build_dir / "reports" / "trigger_eff_up" / "run_summary.yaml"
+    ).exists()
+    assert result.summary["summary_path"] == str(
+        build_dir / "reports" / "trigger_eff_up" / "run_summary.yaml"
+    )
+    assert result.summary["artifacts_path"] == str(
+        build_dir / "artifacts" / "trigger_eff_up"
+    )
     assert (build_dir / "artifacts" / "trigger_eff_up" / "files").exists()
     assert (
         build_dir / "artifacts" / "trigger_eff_up" / "files" / "output.json"
@@ -677,7 +686,7 @@ def test_run_plan_file_explicit_outdir_overrides_variation_default(
     )
 
     assert result.success is True
-    assert (custom_dir / "run_summary.yaml").exists()
+    assert (custom_dir / "reports" / "trigger_eff_up" / "run_summary.yaml").exists()
     assert (custom_dir / "artifacts" / "trigger_eff_up" / "files").exists()
     assert not (build_dir / "artifacts" / "trigger_eff_up" / "files").exists()
 
@@ -704,13 +713,42 @@ def test_run_author_with_systematics_runs_nominal_if_present(
     result = run_author_file(author_path, outdir=build_dir)
 
     assert result.success is True
-    assert (build_dir / "run_summary.yaml").exists()
+    assert (build_dir / "reports" / "nominal" / "run_summary.yaml").exists()
     assert (build_dir / "artifacts" / "nominal" / "files" / "output.json").exists()
     assert not (build_dir / "nominal" / "artifacts").exists()
     assert not (build_dir / "artifacts" / "files").exists()
     assert not (
         build_dir / "artifacts" / "trigger_eff_up" / "files" / "output.json"
     ).exists()
+
+
+def test_running_two_variation_plans_writes_independent_summaries(
+    toy_author: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    author = _author_with_systematics(toy_author, include_nominal=False)
+    author["systematics"]["variations"].append(
+        {
+            "name": "trigger_eff_down",
+            "group": "trigger_eff",
+            "direction": "down",
+            "weight": {"multiply": "TriggerEffWeight_down"},
+        }
+    )
+    author_path = _write_author(tmp_path, author)
+    build_dir = tmp_path / "build"
+    compile_author_file(author_path, outdir=build_dir)
+
+    up = run_plan_file(build_dir / "compile" / "trigger_eff_up" / "plan.yaml")
+    down = run_plan_file(build_dir / "compile" / "trigger_eff_down" / "plan.yaml")
+
+    assert up.success is True
+    assert down.success is True
+    assert (build_dir / "reports" / "trigger_eff_up" / "run_summary.yaml").exists()
+    assert (
+        build_dir / "reports" / "trigger_eff_down" / "run_summary.yaml"
+    ).exists()
+    assert not (build_dir / "run_summary.yaml").exists()
 
 
 def test_run_author_with_systematics_without_nominal_raises_clear_message(
