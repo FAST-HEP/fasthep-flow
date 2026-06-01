@@ -318,6 +318,127 @@ def test_nominal_workflow_field_params_are_unchanged(
     assert "rewrites" not in nominal.workflow["variation"]
 
 
+def test_dataset_replacement_substitutes_existing_dataset(
+    toy_author: dict[str, Any],
+) -> None:
+    normalized = normalize_author(_author_with_dataset_replacement(toy_author))
+
+    variation = expand_systematics(normalized)[1]
+    datasets = variation.workflow["data"]["datasets"]
+
+    assert datasets == [
+        {
+            "name": "ttbar",
+            "files": ["ttbar_hdamp_up.root"],
+            "nevents": "4",
+            "eventtype": "mc",
+            "group": "ttbar",
+            "meta": {
+                "systematic_replacement": {
+                    "nominal_dataset": "ttbar",
+                    "replacement_dataset": "ttbar_hdamp_up",
+                }
+            },
+        },
+        {
+            "name": "wjets",
+            "files": ["wjets.root"],
+            "nevents": "3",
+            "eventtype": "mc",
+            "group": "wjets",
+            "meta": {},
+        },
+    ]
+
+
+def test_dataset_replacement_missing_dataset_raises_clear_error(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _author_with_dataset_replacement(toy_author)
+    author["systematics"]["variations"][0]["datasets"]["replace"] = {
+        "ttbar": "missing_dataset"
+    }
+    normalized = normalize_author(author)
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Systematic variation 'ttbar_hdamp_up' replaces dataset 'ttbar' "
+            "with 'missing_dataset'"
+        ),
+    ):
+        expand_systematics(normalized)
+
+
+def test_nominal_workflow_dataset_replacement_is_unchanged(
+    toy_author: dict[str, Any],
+) -> None:
+    normalized = normalize_author(_author_with_dataset_replacement(toy_author))
+
+    nominal = expand_systematics(normalized)[0]
+
+    assert [dataset["name"] for dataset in nominal.workflow["data"]["datasets"]] == [
+        "ttbar",
+        "ttbar_hdamp_up",
+        "wjets",
+    ]
+    assert nominal.workflow["data"]["datasets"][0]["files"] == ["ttbar.root"]
+
+
+def test_dataset_replacement_only_affects_requested_dataset(
+    toy_author: dict[str, Any],
+) -> None:
+    normalized = normalize_author(_author_with_dataset_replacement(toy_author))
+
+    variation = expand_systematics(normalized)[1]
+    datasets_by_name = {
+        dataset["name"]: dataset for dataset in variation.workflow["data"]["datasets"]
+    }
+
+    assert datasets_by_name["ttbar"]["files"] == ["ttbar_hdamp_up.root"]
+    assert datasets_by_name["wjets"]["files"] == ["wjets.root"]
+
+
+def test_dataset_replacement_keeps_logical_dataset_name(
+    toy_author: dict[str, Any],
+) -> None:
+    normalized = normalize_author(_author_with_dataset_replacement(toy_author))
+
+    variation = expand_systematics(normalized)[1]
+
+    assert [dataset["name"] for dataset in variation.workflow["data"]["datasets"]] == [
+        "ttbar",
+        "wjets",
+    ]
+
+
+def test_dataset_replacement_metadata_is_recorded(
+    toy_author: dict[str, Any],
+) -> None:
+    normalized = normalize_author(_author_with_dataset_replacement(toy_author))
+
+    variation = expand_systematics(normalized)[1]
+
+    assert variation.workflow["variation"]["datasets"] == {
+        "replace": {"ttbar": "ttbar_hdamp_up"}
+    }
+    assert variation.workflow["variation"]["rewrites"]["datasets"] == [
+        {"dataset": "ttbar", "replacement": "ttbar_hdamp_up"}
+    ]
+
+
+def test_dataset_replacement_removes_replacement_only_dataset(
+    toy_author: dict[str, Any],
+) -> None:
+    normalized = normalize_author(_author_with_dataset_replacement(toy_author))
+
+    variation = expand_systematics(normalized)[1]
+
+    assert "ttbar_hdamp_up" not in {
+        dataset["name"] for dataset in variation.workflow["data"]["datasets"]
+    }
+
+
 def test_expanded_workflows_preserve_normalized_sections(
     toy_author: dict[str, Any],
 ) -> None:
@@ -474,6 +595,31 @@ def test_variation_plan_contains_rewritten_field_params(
         "Jet_Pt": "Jet_Pt_JESUp",
         "Jet_Eta": "Jet_Eta_JESUp",
     }
+
+
+def test_variation_plan_contains_dataset_replacement_metadata(
+    toy_author: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    author_path = _write_author(tmp_path, _author_with_dataset_replacement(toy_author))
+    build_dir = tmp_path / "build"
+
+    compile_author_file(author_path, outdir=build_dir)
+
+    variation_plan = read_yaml(build_dir / "compile" / "ttbar_hdamp_up" / "plan.yaml")
+    datasets = variation_plan["context"]["datasets"]
+    assert sorted(datasets) == ["ttbar", "wjets"]
+    assert datasets["ttbar"]["files"] == ["ttbar_hdamp_up.root"]
+    assert datasets["ttbar"]["meta"]["systematic_replacement"] == {
+        "nominal_dataset": "ttbar",
+        "replacement_dataset": "ttbar_hdamp_up",
+    }
+    assert variation_plan["context"]["variation"]["datasets"] == {
+        "replace": {"ttbar": "ttbar_hdamp_up"}
+    }
+    assert variation_plan["context"]["variation"]["rewrites"]["datasets"] == [
+        {"dataset": "ttbar", "replacement": "ttbar_hdamp_up"}
+    ]
 
 
 def test_make_plan_file_expands_normalized_systematics(
@@ -641,6 +787,34 @@ def _author_with_field_params(toy_author: dict[str, Any]) -> dict[str, Any]:
             "out": "Jet_Pt",
         }
     )
+    return author
+
+
+def _author_with_dataset_replacement(toy_author: dict[str, Any]) -> dict[str, Any]:
+    author = deepcopy(toy_author)
+    author["data"] = {
+        "datasets": [
+            {"name": "ttbar", "files": ["ttbar.root"], "nevents": 4},
+            {
+                "name": "ttbar_hdamp_up",
+                "files": ["ttbar_hdamp_up.root"],
+                "nevents": 4,
+            },
+            {"name": "wjets", "files": ["wjets.root"], "nevents": 3},
+        ]
+    }
+    author["systematics"] = {
+        "include_nominal": True,
+        "variations": [
+            {
+                "name": "ttbar_hdamp_up",
+                "group": "hdamp",
+                "direction": "up",
+                "applies_to": {"datasets": ["ttbar"]},
+                "datasets": {"replace": {"ttbar": "ttbar_hdamp_up"}},
+            }
+        ],
+    }
     return author
 
 

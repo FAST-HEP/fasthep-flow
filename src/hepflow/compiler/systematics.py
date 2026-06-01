@@ -60,6 +60,7 @@ def expand_systematics(normalized: dict[str, Any]) -> list[ExpandedWorkflow]:
         variation = _variation_context(raw_variation)
         workflow = deepcopy(normalized)
         workflow["variation"] = variation.to_dict()
+        apply_dataset_replacements(workflow, variation)
         apply_field_replacements(workflow, variation)
         apply_weight_variation(workflow, variation)
         expanded.append(ExpandedWorkflow(variation=variation, workflow=workflow))
@@ -112,6 +113,78 @@ def apply_weight_variation(
         variation_block = workflow.setdefault("variation", variation.to_dict())
         if isinstance(variation_block, dict):
             variation_block.setdefault("rewrites", {})["weight_expr"] = rewrites
+
+    return workflow
+
+
+def apply_dataset_replacements(
+    workflow: dict[str, Any], variation: VariationContext
+) -> dict[str, Any]:
+    if variation.is_nominal:
+        return workflow
+
+    replacements = _dataset_replacements(variation)
+    if not replacements:
+        return workflow
+
+    data = workflow.get("data") or {}
+    if not isinstance(data, dict):
+        return workflow
+    datasets = data.get("datasets") or []
+    if not isinstance(datasets, list):
+        return workflow
+
+    datasets_by_name = {
+        dataset.get("name"): dataset
+        for dataset in datasets
+        if isinstance(dataset, dict) and isinstance(dataset.get("name"), str)
+    }
+    rewrites: list[dict[str, Any]] = []
+    replacement_names = set(replacements.values())
+    rewritten_datasets: list[dict[str, Any]] = []
+
+    for dataset in datasets:
+        if not isinstance(dataset, dict):
+            rewritten_datasets.append(dataset)
+            continue
+
+        name = dataset.get("name")
+        if not isinstance(name, str):
+            rewritten_datasets.append(dataset)
+            continue
+
+        replacement_name = replacements.get(name)
+        if replacement_name is None:
+            if name not in replacement_names:
+                rewritten_datasets.append(dataset)
+            continue
+
+        replacement_dataset = datasets_by_name.get(replacement_name)
+        if replacement_dataset is None:
+            raise ValueError(
+                f"Systematic variation {variation.name!r} replaces dataset "
+                f"{name!r} with {replacement_name!r}, but replacement dataset "
+                "was not found in data.datasets."
+            )
+
+        rewritten = deepcopy(replacement_dataset)
+        rewritten["name"] = name
+        rewritten["group"] = dataset.get("group", rewritten.get("group", name))
+        rewritten["meta"] = {
+            **dict(rewritten.get("meta") or {}),
+            "systematic_replacement": {
+                "nominal_dataset": name,
+                "replacement_dataset": replacement_name,
+            },
+        }
+        rewritten_datasets.append(rewritten)
+        rewrites.append({"dataset": name, "replacement": replacement_name})
+
+    data["datasets"] = rewritten_datasets
+    if rewrites:
+        variation_block = workflow.setdefault("variation", variation.to_dict())
+        if isinstance(variation_block, dict):
+            variation_block.setdefault("rewrites", {})["datasets"] = rewrites
 
     return workflow
 
@@ -277,6 +350,23 @@ def _multiply_weight_expr(weight_expr: str, multipliers: list[str]) -> str:
 
 def _field_replacements(variation: VariationContext) -> dict[str, str]:
     replace = variation.metadata.get("replace")
+    if not isinstance(replace, dict):
+        return {}
+    return {
+        key: value
+        for key, value in replace.items()
+        if isinstance(key, str)
+        and key.strip()
+        and isinstance(value, str)
+        and value.strip()
+    }
+
+
+def _dataset_replacements(variation: VariationContext) -> dict[str, str]:
+    datasets = variation.metadata.get("datasets")
+    if not isinstance(datasets, dict):
+        return {}
+    replace = datasets.get("replace")
     if not isinstance(replace, dict):
         return {}
     return {
