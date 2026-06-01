@@ -4,7 +4,7 @@ import inspect
 from pathlib import Path
 from typing import Any, Protocol
 
-from hepflow.build_layout import artifact_family_dir
+from hepflow.build_layout import BuildPaths
 from hepflow.model.io import OutputResult
 from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.registry.loaders import (
@@ -160,14 +160,7 @@ def _resolve_writer_paths_for_context(
         )
 
     if not path.is_absolute():
-        path = (
-            artifact_family_dir(
-                ctx.get("outdir") or ".",
-                "files",
-                variation=_output_variation(ctx),
-            )
-            / path
-        )
+        path = BuildPaths.from_ctx(ctx).artifact("files", path)
 
     resolved = dict(params)
     resolved["path"] = str(path)
@@ -194,23 +187,9 @@ def _derive_artifact_output_paths(
     if not out_path.is_absolute():
         spec = dict(params.get("spec") or {})
         family = "tables" if spec.get("op") == "hep.render.cutflow_csv" else "plots"
-        out_path = (
-            artifact_family_dir(
-                ctx.get("outdir") or ".",
-                family,
-                variation=_output_variation(ctx),
-            )
-            / out_path
-        )
+        out_path = BuildPaths.from_ctx(ctx).artifact(family, out_path)
     output_dir = out_path.with_suffix("")
     return str(out_path), str(output_dir)
-
-
-def _output_variation(ctx: dict[str, Any]) -> str | None:
-    value = ctx.get("output_variation")
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
 
 
 def run_observer(

@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from hepflow.build_layout import BuildPaths, output_variation_from_context
 from hepflow.model.plan import ExecutionNode, ExecutionPlan
 from hepflow.registry.loaders import runtime_registry_from_config
 from hepflow.registry.runtime import RuntimeRegistry
@@ -22,9 +23,12 @@ def materialize_final_products(
     runtime_registry = runtime_registry or runtime_registry_from_config(
         registry_cfg or plan.registry
     )
+    build_paths = BuildPaths(
+        root=Path(outdir),
+        variation=output_variation_from_context(plan.context),
+    )
 
     items: list[dict[str, str]] = []
-    variation = _output_variation(plan)
     for node in plan.nodes:
         for output_name, product_kind in node.outputs.items():
             key = (node.id, output_name)
@@ -40,22 +44,12 @@ def materialize_final_products(
                 node=node,
                 output_name=output_name,
                 outdir=outdir,
-                variation=variation,
+                build_paths=build_paths,
             )
             value_store[key] = result.get("value", value_store[key])
             items.extend(_manifest_items(result.get("items")))
 
     return items
-
-
-def _output_variation(plan: ExecutionPlan) -> str | None:
-    variation = plan.context.get("variation")
-    if not isinstance(variation, dict):
-        return None
-    name = variation.get("name")
-    if isinstance(name, str) and name.strip():
-        return name.strip()
-    return None
 
 
 def _call_materialize(
@@ -65,15 +59,15 @@ def _call_materialize(
     node: ExecutionNode,
     output_name: str,
     outdir: str | Path,
-    variation: str | None,
+    build_paths: BuildPaths,
 ) -> Any:
     kwargs: dict[str, Any] = {
         "node": node,
         "output_name": output_name,
         "outdir": outdir,
     }
-    if variation is not None and _accepts_keyword(materialize, "variation"):
-        kwargs["variation"] = variation
+    if _accepts_keyword(materialize, "build_paths"):
+        kwargs["build_paths"] = build_paths
     return materialize(value, **kwargs)
 
 

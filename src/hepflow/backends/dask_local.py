@@ -5,7 +5,7 @@ from typing import Any
 
 from hepflow.backends.local import _store_outputs_summary
 from hepflow.backends.model import BackendResult
-from hepflow.build_layout import debug_dir
+from hepflow.build_layout import BuildPaths
 from hepflow.model.plan import ExecutionPartition, ExecutionPlan
 from hepflow.runtime.engine import (
     build_dataset_context,
@@ -72,8 +72,7 @@ class DaskLocalBackend:
                 memory_limit=memory_limit,
                 dashboard_address=dashboard_address,
                 local_directory=config.get("local_directory"),
-                outdir=base_ctx.get("outdir"),
-                variation=base_ctx.get("output_variation"),
+                build_paths=BuildPaths.from_ctx(base_ctx),
             )
         elif scheduler in {"threads", "processes", "synchronous"}:
             compute_kwargs: dict[str, Any] = {"scheduler": scheduler}
@@ -192,17 +191,12 @@ def _compute_distributed(
     memory_limit: Any,
     dashboard_address: Any,
     local_directory: Any,
-    outdir: Any,
-    variation: Any,
+    build_paths: BuildPaths,
 ) -> tuple[list[Any], str | None]:
     from distributed import Client, LocalCluster  # noqa: PLC0415
 
     if local_directory is None:
-        local_directory = (
-            str(debug_dir(outdir, variation=variation) / "dask")
-            if outdir
-            else ".dask"
-        )
+        local_directory = str(build_paths.debug_dir("dask"))
     Path(str(local_directory)).mkdir(parents=True, exist_ok=True)
 
     cluster = LocalCluster(

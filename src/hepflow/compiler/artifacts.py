@@ -6,7 +6,7 @@ from typing import Any
 
 import networkx as nx
 
-from hepflow.build_layout import render_dir, render_specs_dir
+from hepflow.build_layout import BuildPaths
 from hepflow.compiler.graph_artifacts import _lowered_graph_to_json
 from hepflow.model.plan import ExecutionPlan
 from hepflow.utils import write_yaml
@@ -44,8 +44,8 @@ def write_render_artifacts(
     outdir: str | Path,
     variation: str | None = None,
 ) -> None:
-    out_path = Path(outdir)
-    specs_dir = render_specs_dir(out_path, variation=variation)
+    paths = BuildPaths(root=Path(outdir), variation=variation)
+    specs_dir = paths.render_specs_dir()
     specs_dir.mkdir(parents=True, exist_ok=True)
     render_specs: list[dict[str, Any]] = []
     for node in plan.nodes:
@@ -62,11 +62,11 @@ def write_render_artifacts(
         }
         render_specs.append(item)
         safe_node_id = node.id.replace(".", "_").replace("/", "_")
-        write_yaml(item, str(specs_dir / f"{safe_node_id}.yaml"))
+        write_yaml(item, str(paths.render_spec(f"{safe_node_id}.yaml")))
 
-    report_path = render_dir(out_path) / "report.render.json"
+    report_path = paths.render_dir() / "report.render.json"
     if variation:
-        report_path = specs_dir / "report.render.json"
+        report_path = paths.render_spec("report.render.json")
     report_path.write_text(
         json.dumps({"renders": render_specs}, indent=2, sort_keys=True),
         encoding="utf-8",

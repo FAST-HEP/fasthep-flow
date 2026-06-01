@@ -39,13 +39,3 @@ def default_run_outdir_for_plan(plan_file: Path) -> Path:
 
 
 _default_run_outdir = default_run_outdir_for_plan
-
-
-def output_variation_from_plan_context(context: dict[str, Any]) -> str | None:
-    variation = context.get("variation")
-    if not isinstance(variation, dict):
-        return None
-    name = variation.get("name")
-    if not isinstance(name, str) or not name.strip():
-        return None
-    return name.strip()

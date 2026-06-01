@@ -1,6 +1,117 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+from hepflow.utils import read_yaml, write_yaml
+
+
+@dataclass(frozen=True, slots=True)
+class BuildPaths:
+    root: Path
+    variation: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "root", build_root(self.root))
+        if isinstance(self.variation, str):
+            variation = self.variation.strip() or None
+            object.__setattr__(self, "variation", variation)
+
+    @classmethod
+    def from_ctx(cls, ctx: Mapping[str, Any] | None) -> BuildPaths:
+        context = dict(ctx or {})
+        existing = context.get("build_paths")
+        if isinstance(existing, BuildPaths):
+            return existing
+        return cls(
+            root=Path(str(context.get("outdir") or ".")),
+            variation=output_variation_from_context(context),
+        )
+
+    @classmethod
+    def from_plan(cls, plan: Any, *, outdir: str | Path) -> BuildPaths:
+        return cls(
+            root=Path(outdir),
+            variation=output_variation_from_context(
+                getattr(plan, "context", {}) or {}
+            ),
+        )
+
+    def artifact_dir(self, kind: str) -> Path:
+        path = self.root / "artifacts"
+        if self.variation:
+            path = path / self.variation
+        return path / kind
+
+    def artifact(self, kind: str, filename: str | Path) -> Path:
+        return self.artifact_dir(kind) / filename
+
+    def report_dir(self, kind: str | None = None) -> Path:
+        path = self.root / "reports"
+        if self.variation:
+            path = path / self.variation
+        if kind:
+            path = path / kind
+        return path
+
+    def report(self, kind: str, filename: str | Path) -> Path:
+        return self.report_dir(kind) / filename
+
+    def render_dir(self) -> Path:
+        return self.root / "render"
+
+    def render_specs_dir(self) -> Path:
+        path = self.render_dir() / "specs"
+        if self.variation:
+            path = path / self.variation
+        return path
+
+    def render_spec(self, filename: str | Path) -> Path:
+        return self.render_specs_dir() / filename
+
+    def debug_dir(self, kind: str | None = None) -> Path:
+        path = self.root / "debug"
+        if self.variation:
+            path = path / self.variation
+        if kind:
+            path = path / kind
+        return path
+
+    def debug(self, kind: str, filename: str | Path) -> Path:
+        return self.debug_dir(kind) / filename
+
+    def compile_dir(self) -> Path:
+        return self.root / "compile"
+
+    def compile_file(self, filename: str | Path) -> Path:
+        return self.compile_dir() / filename
+
+    def graph_dir(self) -> Path:
+        return self.root / "graph"
+
+    def graph_file(self, filename: str | Path) -> Path:
+        return self.graph_dir() / filename
+
+    def relative_to_root(self, path: str | Path) -> Path:
+        return Path(path).relative_to(self.root)
+
+
+def output_variation_from_context(context: Mapping[str, Any] | None) -> str | None:
+    if context is None:
+        return None
+    existing = context.get("build_paths")
+    if isinstance(existing, BuildPaths):
+        return existing.variation
+    variation = context.get("variation")
+    if not isinstance(variation, Mapping):
+        return None
+    name = variation.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    return name.strip()
 
 
 def build_root(path: str | Path) -> Path:
@@ -11,36 +122,27 @@ def build_root(path: str | Path) -> Path:
 
 
 def compile_dir(root: str | Path) -> Path:
-    return build_root(root) / "compile"
+    return BuildPaths(root=Path(root)).compile_dir()
 
 
 def graph_dir(root: str | Path) -> Path:
-    return build_root(root) / "graph"
+    return BuildPaths(root=Path(root)).graph_dir()
 
 
 def render_dir(root: str | Path) -> Path:
-    return build_root(root) / "render"
+    return BuildPaths(root=Path(root)).render_dir()
 
 
 def render_specs_dir(root: str | Path, *, variation: str | None = None) -> Path:
-    path = render_dir(root) / "specs"
-    if variation:
-        return path / variation
-    return path
+    return BuildPaths(root=Path(root), variation=variation).render_specs_dir()
 
 
 def reports_dir(root: str | Path, *, variation: str | None = None) -> Path:
-    path = build_root(root) / "reports"
-    if variation:
-        return path / variation
-    return path
+    return BuildPaths(root=Path(root), variation=variation).report_dir()
 
 
 def debug_dir(root: str | Path, *, variation: str | None = None) -> Path:
-    path = build_root(root) / "debug"
-    if variation:
-        return path / variation
-    return path
+    return BuildPaths(root=Path(root), variation=variation).debug_dir()
 
 
 def artifacts_dir(root: str | Path) -> Path:
@@ -53,10 +155,7 @@ def artifact_family_dir(
     *,
     variation: str | None = None,
 ) -> Path:
-    path = artifacts_dir(root)
-    if variation:
-        path = path / variation
-    return path / family
+    return BuildPaths(root=Path(root), variation=variation).artifact_dir(family)
 
 
 def cutflows_dir(root: str | Path, *, variation: str | None = None) -> Path:
@@ -68,33 +167,54 @@ def tables_dir(root: str | Path, *, variation: str | None = None) -> Path:
 
 
 def plan_path(root: str | Path) -> Path:
-    return compile_dir(root) / "plan.yaml"
+    return BuildPaths(root=Path(root)).compile_file("plan.yaml")
 
 
 def normalized_path(root: str | Path) -> Path:
-    return compile_dir(root) / "normalized.yaml"
+    return BuildPaths(root=Path(root)).compile_file("normalized.yaml")
 
 
 def run_summary_path(root: str | Path) -> Path:
     return build_root(root) / "run_summary.yaml"
 
 
+def write_run_summary(
+    root: str | Path,
+    summary: dict[str, Any],
+    *,
+    variation_name: str | None = None,
+) -> None:
+    summary_path = run_summary_path(root)
+    if variation_name is None:
+        write_yaml(summary, str(summary_path))
+        return
+
+    existing = read_yaml(str(summary_path)) if summary_path.exists() else {}
+    merged = dict(existing) if isinstance(existing, dict) else {}
+    variations = dict(merged.get("variations") or {})
+    variations[variation_name] = deepcopy(summary)
+    merged.update(deepcopy(summary))
+    merged["variations"] = variations
+    write_yaml(merged, str(summary_path))
+
+
 def ensure_build_layout(root: str | Path, *, variation: str | None = None) -> None:
+    paths = BuildPaths(root=Path(root), variation=variation)
     for path in [
-        artifact_family_dir(root, "plots", variation=variation),
-        artifact_family_dir(root, "histograms", variation=variation),
-        artifact_family_dir(root, "cutflows", variation=variation),
-        artifact_family_dir(root, "tables", variation=variation),
-        artifact_family_dir(root, "files", variation=variation),
-        compile_dir(root),
-        graph_dir(root),
-        render_specs_dir(root, variation=variation),
-        reports_dir(root, variation=variation) / "schema",
-        reports_dir(root, variation=variation) / "diagnostics",
-        reports_dir(root, variation=variation) / "provenance",
-        debug_dir(root, variation=variation) / "dask",
-        debug_dir(root, variation=variation) / "performance",
-        debug_dir(root, variation=variation) / "logs",
+        paths.artifact_dir("plots"),
+        paths.artifact_dir("histograms"),
+        paths.artifact_dir("cutflows"),
+        paths.artifact_dir("tables"),
+        paths.artifact_dir("files"),
+        paths.compile_dir(),
+        paths.graph_dir(),
+        paths.render_specs_dir(),
+        paths.report_dir("schema"),
+        paths.report_dir("diagnostics"),
+        paths.report_dir("provenance"),
+        paths.debug_dir("dask"),
+        paths.debug_dir("performance"),
+        paths.debug_dir("logs"),
     ]:
         path.mkdir(parents=True, exist_ok=True)
 
