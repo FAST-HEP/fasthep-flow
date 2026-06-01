@@ -29,7 +29,14 @@ def _runtime_execution_with_overrides(
     return runtime_execution
 
 
-def _default_run_outdir(plan_file: Path) -> Path:
+def default_run_outdir_for_plan(plan_file: Path) -> Path:
+    plan_file = Path(plan_file)
+    if plan_file.name == "plan.yaml" and plan_file.parent.parent.name == "compile":
+        build_root = plan_file.parent.parent.parent
+        return build_root / plan_file.parent.name
     if plan_file.parent.name == "compile":
         return plan_file.parent.parent
     return plan_file.parent
+
+
+_default_run_outdir = default_run_outdir_for_plan

@@ -41,8 +41,8 @@ from hepflow.model.plan import (
 from hepflow.profiles.init import InitResult
 from hepflow.profiles.init import init_project as _init_project
 from hepflow.runtime.config import (
-    _default_run_outdir,
     _runtime_execution_with_overrides,
+    default_run_outdir_for_plan,
 )
 from hepflow.utils import read_yaml, write_yaml
 
@@ -221,7 +221,9 @@ def run_plan_file(
 ) -> BackendResult:
     """Run a compiled plan file and write ``run_summary.yaml``."""
     plan_file = resolve_plan_path(plan_path)
-    out_path = Path(outdir) if outdir is not None else _default_run_outdir(plan_file)
+    out_path = (
+        Path(outdir) if outdir is not None else default_run_outdir_for_plan(plan_file)
+    )
     ensure_build_layout(out_path)
 
     plan = load_plan_file(plan_file)
@@ -263,10 +265,19 @@ def run_author_file(
     compile_author_file(author_path, outdir=out_path, chunk_size=chunk_size)
     normalized = read_yaml(str(normalized_path(out_path))) or {}
     if "systematics" in normalized:
-        raise ValueError(
-            "Systematics expansion wrote per-variation plans, but running all "
-            "variations is not implemented yet. Run a specific variation plan, "
-            "for example build/compile/nominal/plan.yaml."
+        nominal_plan = out_path / "compile" / "nominal" / "plan.yaml"
+        if not nominal_plan.exists():
+            raise ValueError(
+                "Systematics are present but no nominal variation was generated. "
+                "Run a specific variation plan with `fasthep run-plan "
+                "build/compile/<variation>/plan.yaml`."
+            )
+        return run_plan_file(
+            nominal_plan,
+            backend=backend,
+            strategy=strategy,
+            scheduler=scheduler,
+            workers=workers,
         )
     return run_plan_file(
         plan_path(out_path),

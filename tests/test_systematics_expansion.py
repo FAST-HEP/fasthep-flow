@@ -7,9 +7,15 @@ from typing import Any
 import pytest
 import yaml
 
-from hepflow.api import compile_author_file, make_plan_file, run_author_file
+from hepflow.api import (
+    compile_author_file,
+    make_plan_file,
+    run_author_file,
+    run_plan_file,
+)
 from hepflow.compiler.normalize import normalize_author
 from hepflow.compiler.systematics import expand_systematics
+from hepflow.runtime.config import default_run_outdir_for_plan
 from hepflow.utils import read_yaml
 
 
@@ -26,6 +32,19 @@ def test_no_systematics_expands_to_one_nominal_workflow(
         "name": "nominal",
         "is_nominal": True,
     }
+
+
+def test_default_run_outdir_for_plan_handles_compile_layout() -> None:
+    assert default_run_outdir_for_plan(Path("build/compile/plan.yaml")) == Path("build")
+    assert default_run_outdir_for_plan(Path("build/compile/nominal/plan.yaml")) == Path(
+        "build/nominal"
+    )
+    assert default_run_outdir_for_plan(Path("build/compile/foo_up/plan.yaml")) == Path(
+        "build/foo_up"
+    )
+    assert default_run_outdir_for_plan(Path("other/path/plan.yaml")) == Path(
+        "other/path"
+    )
 
 
 def test_include_nominal_expands_nominal_plus_variations(
@@ -235,6 +254,41 @@ def test_make_plan_file_expands_normalized_systematics(
     assert (build_dir / "compile" / "trigger_eff_up" / "plan.yaml").exists()
 
 
+def test_run_plan_file_uses_variation_outdir_by_default(
+    toy_author: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    author_path = _write_author(tmp_path, _author_with_systematics(toy_author))
+    build_dir = tmp_path / "build"
+    compile_author_file(author_path, outdir=build_dir)
+
+    result = run_plan_file(build_dir / "compile" / "trigger_eff_up" / "plan.yaml")
+
+    assert result.success is True
+    assert (build_dir / "trigger_eff_up" / "run_summary.yaml").exists()
+    assert (build_dir / "trigger_eff_up" / "artifacts").exists()
+    assert not (build_dir / "run_summary.yaml").exists()
+
+
+def test_run_plan_file_explicit_outdir_overrides_variation_default(
+    toy_author: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    author_path = _write_author(tmp_path, _author_with_systematics(toy_author))
+    build_dir = tmp_path / "build"
+    custom_dir = tmp_path / "custom"
+    compile_author_file(author_path, outdir=build_dir)
+
+    result = run_plan_file(
+        build_dir / "compile" / "trigger_eff_up" / "plan.yaml",
+        outdir=custom_dir,
+    )
+
+    assert result.success is True
+    assert (custom_dir / "run_summary.yaml").exists()
+    assert not (build_dir / "trigger_eff_up" / "run_summary.yaml").exists()
+
+
 def test_no_systematics_workflows_still_compile_to_existing_plan_path(
     toy_author_path: Path,
     tmp_path: Path,
@@ -247,21 +301,42 @@ def test_no_systematics_workflows_still_compile_to_existing_plan_path(
     assert not (build_dir / "compile" / "systematics.yaml").exists()
 
 
-def test_run_author_with_systematics_raises_clear_message(
+def test_run_author_with_systematics_runs_nominal_if_present(
     toy_author: dict[str, Any],
     tmp_path: Path,
 ) -> None:
     author_path = _write_author(tmp_path, _author_with_systematics(toy_author))
+    build_dir = tmp_path / "build"
 
-    with pytest.raises(ValueError, match="running all variations is not implemented"):
+    result = run_author_file(author_path, outdir=build_dir)
+
+    assert result.success is True
+    assert (build_dir / "nominal" / "run_summary.yaml").exists()
+    assert not (build_dir / "trigger_eff_up" / "run_summary.yaml").exists()
+
+
+def test_run_author_with_systematics_without_nominal_raises_clear_message(
+    toy_author: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    author_path = _write_author(
+        tmp_path,
+        _author_with_systematics(toy_author, include_nominal=False),
+    )
+
+    with pytest.raises(ValueError, match="no nominal variation was generated"):
         run_author_file(author_path, outdir=tmp_path / "build")
 
 
-def _author_with_systematics(toy_author: dict[str, Any]) -> dict[str, Any]:
+def _author_with_systematics(
+    toy_author: dict[str, Any],
+    *,
+    include_nominal: bool = True,
+) -> dict[str, Any]:
     return {
         **toy_author,
         "systematics": {
-            "include_nominal": True,
+            "include_nominal": include_nominal,
             "variations": [
                 {
                     "name": "trigger_eff_up",
