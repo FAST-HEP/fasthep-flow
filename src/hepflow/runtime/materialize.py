@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import re
 from pathlib import Path
@@ -23,6 +24,7 @@ def materialize_final_products(
     )
 
     items: list[dict[str, str]] = []
+    variation = _output_variation(plan)
     for node in plan.nodes:
         for output_name, product_kind in node.outputs.items():
             key = (node.id, output_name)
@@ -32,16 +34,58 @@ def materialize_final_products(
             if handler is None or handler.materialize is None:
                 continue
 
-            result = handler.materialize(
+            result = _call_materialize(
+                handler.materialize,
                 value_store[key],
                 node=node,
                 output_name=output_name,
                 outdir=outdir,
+                variation=variation,
             )
             value_store[key] = result.get("value", value_store[key])
             items.extend(_manifest_items(result.get("items")))
 
     return items
+
+
+def _output_variation(plan: ExecutionPlan) -> str | None:
+    variation = plan.context.get("variation")
+    if not isinstance(variation, dict):
+        return None
+    name = variation.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return None
+
+
+def _call_materialize(
+    materialize: Any,
+    value: Any,
+    *,
+    node: ExecutionNode,
+    output_name: str,
+    outdir: str | Path,
+    variation: str | None,
+) -> Any:
+    kwargs: dict[str, Any] = {
+        "node": node,
+        "output_name": output_name,
+        "outdir": outdir,
+    }
+    if variation is not None and _accepts_keyword(materialize, "variation"):
+        kwargs["variation"] = variation
+    return materialize(value, **kwargs)
+
+
+def _accepts_keyword(func: Any, name: str) -> bool:
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        return False
+    for param in signature.parameters.values():
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+    return name in signature.parameters
 
 
 def write_product_manifest(

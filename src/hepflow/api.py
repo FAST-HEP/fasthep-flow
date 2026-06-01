@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from hepflow.backends.loaders import load_backend
 from hepflow.backends.model import BackendResult
 from hepflow.build_layout import (
+    compile_dir,
     ensure_build_layout,
     graph_dir,
     normalized_path,
@@ -43,6 +45,7 @@ from hepflow.profiles.init import init_project as _init_project
 from hepflow.runtime.config import (
     _runtime_execution_with_overrides,
     default_run_outdir_for_plan,
+    output_variation_from_plan_context,
 )
 from hepflow.utils import read_yaml, write_yaml
 
@@ -89,7 +92,7 @@ def normalise_author_file(
     """Normalise an author YAML file and write ``compile/normalized.yaml``."""
     author_file = Path(author_path)
     out_path = Path(outdir)
-    ensure_build_layout(out_path)
+    compile_dir(out_path).mkdir(parents=True, exist_ok=True)
 
     author = load_author_yaml(str(author_file))
     normalized = normalize_author(author)
@@ -121,16 +124,16 @@ def make_plan_file(
     """Lower a normalized YAML file and write plan/graph artifacts."""
     normalized_file = resolve_normalized_path(normalized_path)
     out_path = Path(outdir)
-    ensure_build_layout(out_path)
-
     normalized = read_yaml(str(normalized_file)) or {}
     if "systematics" in normalized:
+        compile_dir(out_path).mkdir(parents=True, exist_ok=True)
         return make_systematic_plan_files(
             normalized,
             outdir=out_path,
             chunk_size=chunk_size,
         )
 
+    ensure_build_layout(out_path)
     graph, plan = build_plan_from_normalized(normalized, chunk_size=chunk_size)
 
     write_compile_artifacts(plan=plan, graph=graph, outdir=out_path)
@@ -221,12 +224,12 @@ def run_plan_file(
 ) -> BackendResult:
     """Run a compiled plan file and write ``run_summary.yaml``."""
     plan_file = resolve_plan_path(plan_path)
+    plan = load_plan_file(plan_file)
     out_path = (
         Path(outdir) if outdir is not None else default_run_outdir_for_plan(plan_file)
     )
-    ensure_build_layout(out_path)
-
-    plan = load_plan_file(plan_file)
+    variation_name = output_variation_from_plan_context(plan.context)
+    ensure_build_layout(out_path, variation=variation_name)
     runtime_execution = _runtime_execution_with_overrides(
         plan.execution,
         backend=backend,
@@ -237,7 +240,10 @@ def run_plan_file(
     plan.execution = runtime_execution
 
     backend_impl = load_backend(plan)
-    result = backend_impl.run(plan, ctx={"outdir": str(out_path.resolve())})
+    run_ctx: dict[str, Any] = {"outdir": str(out_path.resolve())}
+    if variation_name is not None:
+        run_ctx["output_variation"] = variation_name
+    result = backend_impl.run(plan, ctx=run_ctx)
 
     summary = {
         "backend": result.backend,
@@ -246,7 +252,11 @@ def run_plan_file(
         "execution": runtime_execution,
         **result.summary,
     }
-    write_yaml(summary, str(run_summary_path(out_path)))
+    if variation_name is not None:
+        summary["variation"] = plan.context.get("variation") or {
+            "name": variation_name
+        }
+    _write_run_summary(out_path, summary, variation_name=variation_name)
     return result
 
 
@@ -274,6 +284,7 @@ def run_author_file(
             )
         return run_plan_file(
             nominal_plan,
+            outdir=out_path,
             backend=backend,
             strategy=strategy,
             scheduler=scheduler,
@@ -299,3 +310,23 @@ def diff_plan_files(
         load_plan_yaml(new_plan),
     )
     return format_plan_diff(report), report.equal
+
+
+def _write_run_summary(
+    out_path: Path,
+    summary: dict[str, Any],
+    *,
+    variation_name: str | None = None,
+) -> None:
+    summary_path = run_summary_path(out_path)
+    if variation_name is None:
+        write_yaml(summary, str(summary_path))
+        return
+
+    existing = read_yaml(str(summary_path)) if summary_path.exists() else {}
+    merged = dict(existing) if isinstance(existing, dict) else {}
+    variations = dict(merged.get("variations") or {})
+    variations[variation_name] = deepcopy(summary)
+    merged.update(deepcopy(summary))
+    merged["variations"] = variations
+    write_yaml(merged, str(summary_path))

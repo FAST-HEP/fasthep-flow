@@ -73,6 +73,7 @@ class DaskLocalBackend:
                 dashboard_address=dashboard_address,
                 local_directory=config.get("local_directory"),
                 outdir=base_ctx.get("outdir"),
+                variation=base_ctx.get("output_variation"),
             )
         elif scheduler in {"threads", "processes", "synchronous"}:
             compute_kwargs: dict[str, Any] = {"scheduler": scheduler}
@@ -192,11 +193,16 @@ def _compute_distributed(
     dashboard_address: Any,
     local_directory: Any,
     outdir: Any,
+    variation: Any,
 ) -> tuple[list[Any], str | None]:
     from distributed import Client, LocalCluster  # noqa: PLC0415
 
     if local_directory is None:
-        local_directory = str(debug_dir(outdir) / "dask") if outdir else ".dask"
+        local_directory = (
+            str(debug_dir(outdir, variation=variation) / "dask")
+            if outdir
+            else ".dask"
+        )
     Path(str(local_directory)).mkdir(parents=True, exist_ok=True)
 
     cluster = LocalCluster(

@@ -35,11 +35,18 @@ def write_compile_artifacts(
         },
         str(compile_path / "report.compile.yaml"),
     )
-    _write_render_artifacts(plan=plan, outdir=out_path)
+    write_render_artifacts(plan=plan, outdir=out_path)
 
 
-def _write_render_artifacts(*, plan: ExecutionPlan, outdir: Path) -> None:
-    specs_dir = render_specs_dir(outdir)
+def write_render_artifacts(
+    *,
+    plan: ExecutionPlan,
+    outdir: str | Path,
+    variation: str | None = None,
+) -> None:
+    out_path = Path(outdir)
+    specs_dir = render_specs_dir(out_path, variation=variation)
+    specs_dir.mkdir(parents=True, exist_ok=True)
     render_specs: list[dict[str, Any]] = []
     for node in plan.nodes:
         if node.role != "sink":
@@ -57,7 +64,10 @@ def _write_render_artifacts(*, plan: ExecutionPlan, outdir: Path) -> None:
         safe_node_id = node.id.replace(".", "_").replace("/", "_")
         write_yaml(item, str(specs_dir / f"{safe_node_id}.yaml"))
 
-    (render_dir(outdir) / "report.render.json").write_text(
+    report_path = render_dir(out_path) / "report.render.json"
+    if variation:
+        report_path = specs_dir / "report.render.json"
+    report_path.write_text(
         json.dumps({"renders": render_specs}, indent=2, sort_keys=True),
         encoding="utf-8",
     )

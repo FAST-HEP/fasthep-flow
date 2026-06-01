@@ -37,10 +37,10 @@ def test_no_systematics_expands_to_one_nominal_workflow(
 def test_default_run_outdir_for_plan_handles_compile_layout() -> None:
     assert default_run_outdir_for_plan(Path("build/compile/plan.yaml")) == Path("build")
     assert default_run_outdir_for_plan(Path("build/compile/nominal/plan.yaml")) == Path(
-        "build/nominal"
+        "build"
     )
     assert default_run_outdir_for_plan(Path("build/compile/foo_up/plan.yaml")) == Path(
-        "build/foo_up"
+        "build"
     )
     assert default_run_outdir_for_plan(Path("other/path/plan.yaml")) == Path(
         "other/path"
@@ -640,7 +640,7 @@ def test_make_plan_file_expands_normalized_systematics(
     assert (build_dir / "compile" / "trigger_eff_up" / "plan.yaml").exists()
 
 
-def test_run_plan_file_uses_variation_outdir_by_default(
+def test_run_plan_file_uses_variation_namespace_by_default(
     toy_author: dict[str, Any],
     tmp_path: Path,
 ) -> None:
@@ -651,9 +651,15 @@ def test_run_plan_file_uses_variation_outdir_by_default(
     result = run_plan_file(build_dir / "compile" / "trigger_eff_up" / "plan.yaml")
 
     assert result.success is True
-    assert (build_dir / "trigger_eff_up" / "run_summary.yaml").exists()
-    assert (build_dir / "trigger_eff_up" / "artifacts").exists()
-    assert not (build_dir / "run_summary.yaml").exists()
+    assert (build_dir / "run_summary.yaml").exists()
+    assert (build_dir / "artifacts" / "trigger_eff_up" / "files").exists()
+    assert (
+        build_dir / "artifacts" / "trigger_eff_up" / "files" / "output.json"
+    ).exists()
+    assert (build_dir / "reports" / "trigger_eff_up" / "schema").exists()
+    assert (build_dir / "debug" / "trigger_eff_up" / "dask").exists()
+    assert not (build_dir / "trigger_eff_up" / "artifacts").exists()
+    assert not (build_dir / "artifacts" / "files").exists()
 
 
 def test_run_plan_file_explicit_outdir_overrides_variation_default(
@@ -672,7 +678,8 @@ def test_run_plan_file_explicit_outdir_overrides_variation_default(
 
     assert result.success is True
     assert (custom_dir / "run_summary.yaml").exists()
-    assert not (build_dir / "trigger_eff_up" / "run_summary.yaml").exists()
+    assert (custom_dir / "artifacts" / "trigger_eff_up" / "files").exists()
+    assert not (build_dir / "artifacts" / "trigger_eff_up" / "files").exists()
 
 
 def test_no_systematics_workflows_still_compile_to_existing_plan_path(
@@ -697,8 +704,13 @@ def test_run_author_with_systematics_runs_nominal_if_present(
     result = run_author_file(author_path, outdir=build_dir)
 
     assert result.success is True
-    assert (build_dir / "nominal" / "run_summary.yaml").exists()
-    assert not (build_dir / "trigger_eff_up" / "run_summary.yaml").exists()
+    assert (build_dir / "run_summary.yaml").exists()
+    assert (build_dir / "artifacts" / "nominal" / "files" / "output.json").exists()
+    assert not (build_dir / "nominal" / "artifacts").exists()
+    assert not (build_dir / "artifacts" / "files").exists()
+    assert not (
+        build_dir / "artifacts" / "trigger_eff_up" / "files" / "output.json"
+    ).exists()
 
 
 def test_run_author_with_systematics_without_nominal_raises_clear_message(

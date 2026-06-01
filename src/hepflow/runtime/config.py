@@ -32,11 +32,20 @@ def _runtime_execution_with_overrides(
 def default_run_outdir_for_plan(plan_file: Path) -> Path:
     plan_file = Path(plan_file)
     if plan_file.name == "plan.yaml" and plan_file.parent.parent.name == "compile":
-        build_root = plan_file.parent.parent.parent
-        return build_root / plan_file.parent.name
+        return plan_file.parent.parent.parent
     if plan_file.parent.name == "compile":
         return plan_file.parent.parent
     return plan_file.parent
 
 
 _default_run_outdir = default_run_outdir_for_plan
+
+
+def output_variation_from_plan_context(context: dict[str, Any]) -> str | None:
+    variation = context.get("variation")
+    if not isinstance(variation, dict):
+        return None
+    name = variation.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    return name.strip()
