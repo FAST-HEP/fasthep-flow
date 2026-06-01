@@ -160,6 +160,121 @@ class FieldSpec:
 
 
 @dataclass(frozen=True)
+class SystematicApplicability:
+    eventtypes: list[str] = field(default_factory=list)
+    datasets: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "eventtypes",
+            _optional_list_of_str(self.eventtypes, "systematics.applies_to.eventtypes"),
+        )
+        object.__setattr__(
+            self,
+            "datasets",
+            _optional_list_of_str(self.datasets, "systematics.applies_to.datasets"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class SystematicWeightRule:
+    multiply: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "multiply",
+            _optional_list_of_str(self.multiply, "systematics.weight.multiply"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class SystematicVariation:
+    name: str
+    group: str | None = None
+    direction: str | None = None
+    applies_to: SystematicApplicability = field(default_factory=SystematicApplicability)
+    requires: list[str] = field(default_factory=list)
+    weight: SystematicWeightRule = field(default_factory=SystematicWeightRule)
+    replace: dict[str, str] = field(default_factory=dict)
+    datasets: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "name", _nonempty_str(self.name, "systematics.variations[].name")
+        )
+        if self.group is not None:
+            object.__setattr__(
+                self,
+                "group",
+                _nonempty_str(self.group, f"systematics.variations[{self.name}].group"),
+            )
+        if self.direction is not None:
+            object.__setattr__(
+                self,
+                "direction",
+                _nonempty_str(
+                    self.direction, f"systematics.variations[{self.name}].direction"
+                ),
+            )
+        object.__setattr__(
+            self,
+            "requires",
+            _optional_list_of_str(
+                self.requires, f"systematics.variations[{self.name}].requires"
+            ),
+        )
+        if not isinstance(self.replace, dict):
+            raise ValueError(
+                f"systematics.variations[{self.name}].replace must be a mapping"
+            )
+        for key, value in self.replace.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError(
+                    f"systematics.variations[{self.name}].replace keys must be non-empty strings"
+                )
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"systematics.variations[{self.name}].replace[{key!r}] must be a non-empty string"
+                )
+        if not isinstance(self.datasets, dict):
+            raise ValueError(
+                f"systematics.variations[{self.name}].datasets must be a mapping"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class SystematicsConfig:
+    include_nominal: bool = False
+    profiles: list[str] = field(default_factory=list)
+    variations: list[SystematicVariation] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.include_nominal, bool):
+            raise ValueError("systematics.include_nominal must be a boolean")
+        object.__setattr__(
+            self,
+            "profiles",
+            _optional_list_of_str(self.profiles, "systematics.profiles"),
+        )
+        if not isinstance(self.variations, list):
+            raise ValueError("systematics.variations must be a list")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class NormalizedAuthor:
     version: str
     data: DataBlock
@@ -173,6 +288,7 @@ class NormalizedAuthor:
     use: dict[str, Any] = field(default_factory=dict)
     execution: dict[str, Any] = field(default_factory=dict)
     registry: dict[str, Any] = field(default_factory=dict)
+    systematics: SystematicsConfig | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "version", _nonempty_str(self.version, "version"))
@@ -193,6 +309,10 @@ class NormalizedAuthor:
             raise ValueError("use must be a mapping")
         if not isinstance(self.execution, dict):
             raise ValueError("execution must be a mapping")
+        if self.systematics is not None and not isinstance(
+            self.systematics, SystematicsConfig
+        ):
+            raise ValueError("systematics must be a SystematicsConfig")
 
         for k, v in self.styles.items():
             if not isinstance(k, str) or not k:
@@ -205,7 +325,10 @@ class NormalizedAuthor:
                 raise ValueError(f"observers[{idx}] must be a mapping")
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        if self.systematics is None:
+            data.pop("systematics", None)
+        return data
 
 
 # --- helpers used by normalize.py ---
@@ -214,3 +337,14 @@ class NormalizedAuthor:
 def inject_default_events_source(data_defaults: dict[str, Any]) -> RootTreeSourceSpec:
     tree = str(data_defaults.get("tree_primary", DEFAULT_ROOT_TREE))
     return RootTreeSourceSpec(tree=tree, stream_type=DEFAULT_STREAM_TYPE)
+
+
+def _optional_list_of_str(x: Any, where: str) -> list[str]:
+    if not isinstance(x, list):
+        raise ValueError(f"{where} must be a list")
+    out: list[str] = []
+    for i, v in enumerate(x):
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError(f"{where}[{i}] must be a non-empty string")
+        out.append(v)
+    return out

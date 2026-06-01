@@ -12,6 +12,10 @@ from hepflow.model.author import (
     JoinInputSpec,
     NormalizedAuthor,
     RootTreeSourceSpec,
+    SystematicApplicability,
+    SystematicsConfig,
+    SystematicVariation,
+    SystematicWeightRule,
     ZipJoinSpec,
     inject_default_events_source,
 )
@@ -33,9 +37,7 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
     version = str(doc.get("version", "1.0"))
     data = normalize_data(doc.get("data") or {})
 
-    sources = normalize_sources(
-        doc.get("sources"), data.defaults
-    )
+    sources = normalize_sources(doc.get("sources"), data.defaults)
 
     if not sources:
         sources["events"] = inject_default_events_source(data.defaults).to_dict()
@@ -53,6 +55,7 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
 
     use = normalize_use(doc.get("use"))
     execution = normalize_execution(doc.get("execution"))
+    systematics = normalize_systematics(doc.get("systematics"))
 
     registry_cfg = normalize_registry(doc.get("registry"))
     merged_registry_cfg = merge_registry_config(
@@ -76,6 +79,7 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
         use=use,
         execution=execution,
         registry=merged_registry_cfg,
+        systematics=systematics,
     )
     return norm.to_dict()
 
@@ -95,6 +99,76 @@ def normalize_execution(raw: Any) -> dict[str, Any]:
         "strategy": str(raw.get("strategy") or "default"),
         "config": dict(config),
     }
+
+
+def normalize_systematics(raw: Any) -> SystematicsConfig | None:
+    if raw is None:
+        return None
+    raw = _ensure_mapping(raw, "systematics")
+
+    variations_raw = raw.get("variations", [])
+    if not isinstance(variations_raw, list):
+        raise ValueError("systematics.variations must be a list")
+
+    profiles_raw = raw.get("profiles", [])
+    if not isinstance(profiles_raw, list):
+        raise ValueError("systematics.profiles must be a list")
+    profiles = _list_of_strings(profiles_raw, "systematics.profiles")
+
+    variations: list[SystematicVariation] = []
+    seen: set[str] = set()
+    for idx, variation_raw in enumerate(variations_raw):
+        variation = _ensure_mapping(variation_raw, f"systematics.variations[{idx}]")
+        name_raw = variation.get("name")
+        if not isinstance(name_raw, str) or not name_raw.strip():
+            raise ValueError(f"systematics.variations[{idx}].name is required")
+        name = name_raw.strip()
+        if name in seen:
+            raise ValueError(f"duplicate systematics variation name: {name}")
+        seen.add(name)
+
+        variations.append(
+            SystematicVariation(
+                name=name,
+                group=_optional_string(
+                    variation.get("group"), f"systematics.variations[{idx}].group"
+                ),
+                direction=_optional_string(
+                    variation.get("direction"),
+                    f"systematics.variations[{idx}].direction",
+                ),
+                applies_to=_normalize_systematic_applicability(
+                    variation.get("applies_to"),
+                    f"systematics.variations[{idx}].applies_to",
+                ),
+                requires=_normalize_optional_string_list(
+                    variation.get("requires"),
+                    f"systematics.variations[{idx}].requires",
+                ),
+                weight=_normalize_systematic_weight(
+                    variation.get("weight"),
+                    f"systematics.variations[{idx}].weight",
+                ),
+                replace=_normalize_string_mapping(
+                    variation.get("replace"),
+                    f"systematics.variations[{idx}].replace",
+                ),
+                datasets=_normalize_mapping_or_empty(
+                    variation.get("datasets"),
+                    f"systematics.variations[{idx}].datasets",
+                ),
+            )
+        )
+
+    include_nominal = raw.get("include_nominal", False)
+    if not isinstance(include_nominal, bool):
+        raise ValueError("systematics.include_nominal must be a boolean")
+
+    return SystematicsConfig(
+        include_nominal=include_nominal,
+        profiles=profiles,
+        variations=variations,
+    )
 
 
 def normalize_data(data: dict[str, Any]) -> DataBlock:
@@ -265,9 +339,7 @@ def normalize_top_level_observers(observers_raw: Any) -> list[dict[str, Any]]:
                     )
                 at.append(item)
         else:
-            raise ValueError(
-                f"observers[{idx}].at must be a string or list of strings"
-            )
+            raise ValueError(f"observers[{idx}].at must be a string or list of strings")
 
         out.append(
             {
@@ -284,6 +356,95 @@ def _ensure_mapping(x: Any, where: str) -> dict[str, Any]:
     if not isinstance(x, dict):
         raise ValueError(f"{where} must be a mapping")
     return x
+
+
+def _normalize_systematic_applicability(
+    raw: Any, where: str
+) -> SystematicApplicability:
+    if raw is None:
+        return SystematicApplicability()
+    if isinstance(raw, str):
+        if not raw.strip():
+            raise ValueError(f"{where} must be a non-empty string")
+        return SystematicApplicability(eventtypes=[raw.strip()])
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where} must be a string or mapping")
+
+    eventtypes = _normalize_optional_string_or_list(
+        raw.get("eventtypes"), f"{where}.eventtypes"
+    )
+    datasets = _normalize_optional_string_or_list(
+        raw.get("datasets"), f"{where}.datasets"
+    )
+    return SystematicApplicability(eventtypes=eventtypes, datasets=datasets)
+
+
+def _normalize_systematic_weight(raw: Any, where: str) -> SystematicWeightRule:
+    if raw is None:
+        return SystematicWeightRule()
+    raw = _ensure_mapping(raw, where)
+    multiply = _normalize_optional_string_or_list(
+        raw.get("multiply"), f"{where}.multiply"
+    )
+    return SystematicWeightRule(multiply=multiply)
+
+
+def _normalize_mapping_or_empty(raw: Any, where: str) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    raw = _ensure_mapping(raw, where)
+    return dict(raw)
+
+
+def _normalize_string_mapping(raw: Any, where: str) -> dict[str, str]:
+    if raw is None:
+        return {}
+    raw = _ensure_mapping(raw, where)
+    out: dict[str, str] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError(f"{where} keys must be non-empty strings")
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{where}[{key!r}] must be a non-empty string")
+        out[key] = value
+    return out
+
+
+def _normalize_optional_string_list(raw: Any, where: str) -> list[str]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"{where} must be a list")
+    return _list_of_strings(raw, where)
+
+
+def _normalize_optional_string_or_list(raw: Any, where: str) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        if not raw.strip():
+            raise ValueError(f"{where} must be a non-empty string")
+        return [raw.strip()]
+    if not isinstance(raw, list):
+        raise ValueError(f"{where} must be a string or list")
+    return _list_of_strings(raw, where)
+
+
+def _list_of_strings(raw: list[Any], where: str) -> list[str]:
+    out: list[str] = []
+    for idx, item in enumerate(raw):
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"{where}[{idx}] must be a non-empty string")
+        out.append(item.strip())
+    return out
+
+
+def _optional_string(raw: Any, where: str) -> str | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError(f"{where} must be a non-empty string")
+    return raw.strip()
 
 
 def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
@@ -341,7 +502,9 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
             )
         impl_ref = entry.get("impl")
         if not isinstance(impl_ref, str) or ":" not in impl_ref:
-            raise ValueError(f"registry.backends[{name!r}].impl must be 'module:object'")
+            raise ValueError(
+                f"registry.backends[{name!r}].impl must be 'module:object'"
+            )
 
     for name, entry in hooks.items():
         if not isinstance(name, str) or not name.strip():
@@ -368,5 +531,4 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
         "observers": {k: dict(v) for k, v in observers.items()},
         "backends": {k: dict(v) for k, v in backends.items()},
         "hooks": {k: dict(v) for k, v in hooks.items()},
-
     }
