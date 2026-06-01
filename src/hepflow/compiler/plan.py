@@ -12,6 +12,7 @@ from hepflow.compiler.data_flow import (
 )
 from hepflow.compiler.exec_dag import ExecDag
 from hepflow.compiler.exec_graph import fill_input_aliases
+from hepflow.compiler.lower_graph import lower_author_to_graph
 from hepflow.compiler.routing import rewrite_fieldmap_for_joins
 from hepflow.model.defaults import (
     DEFAULT_CHUNK_SIZE,
@@ -696,6 +697,26 @@ def build_execution_plan(
     apply_data_flow_to_sources(plan)
     plan.partitions = build_execution_partitions(plan, chunk_size=chunk_size)
     return plan
+
+
+def build_plan_from_normalized(
+    normalized: dict[str, Any],
+    *,
+    chunk_size: int | None = None,
+) -> tuple[nx.DiGraph, ExecutionPlan]:
+    graph = lower_author_to_graph(normalized)
+    plan = build_execution_plan(
+        graph,
+        chunk_size=chunk_size,
+        registry=dict(normalized.get("registry") or {}),
+        provenance=dict(normalized.get("provenance") or {}),
+        execution=dict(normalized.get("execution") or {}),
+        execution_hooks=list(normalized.get("execution_hooks") or []),
+    )
+    variation = normalized.get("variation")
+    if isinstance(variation, dict):
+        plan.context["variation"] = dict(variation)
+    return graph, plan
 
 
 def _normalize_execution_hooks(

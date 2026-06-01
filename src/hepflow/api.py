@@ -22,15 +22,15 @@ from hepflow.compiler.execution import (
 )
 from hepflow.compiler.graph_artifacts import write_graph_artifacts
 from hepflow.compiler.includes import load_author_with_includes
-from hepflow.compiler.lower_graph import lower_author_to_graph
 from hepflow.compiler.normalize import normalize_author
-from hepflow.compiler.plan import build_execution_plan
+from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.compiler.plan_diff import (
     diff_plans,
     format_plan_diff,
     load_plan_yaml,
 )
 from hepflow.compiler.registry_resolution import resolve_author_registry
+from hepflow.compiler.systematics import make_systematic_plan_files
 from hepflow.model.plan import (
     ExecutionNode,
     ExecutionPartition,
@@ -124,15 +124,14 @@ def make_plan_file(
     ensure_build_layout(out_path)
 
     normalized = read_yaml(str(normalized_file)) or {}
-    graph = lower_author_to_graph(normalized)
-    plan = build_execution_plan(
-        graph,
-        chunk_size=chunk_size,
-        registry=dict(normalized.get("registry") or {}),
-        provenance=dict(normalized.get("provenance") or {}),
-        execution=dict(normalized.get("execution") or {}),
-        execution_hooks=list(normalized.get("execution_hooks") or []),
-    )
+    if "systematics" in normalized:
+        return make_systematic_plan_files(
+            normalized,
+            outdir=out_path,
+            chunk_size=chunk_size,
+        )
+
+    graph, plan = build_plan_from_normalized(normalized, chunk_size=chunk_size)
 
     write_compile_artifacts(plan=plan, graph=graph, outdir=out_path)
     write_graph_artifacts(graph, graph_dir(out_path))
@@ -262,6 +261,13 @@ def run_author_file(
     """Compile and run an author YAML file in one call."""
     out_path = Path(outdir)
     compile_author_file(author_path, outdir=out_path, chunk_size=chunk_size)
+    normalized = read_yaml(str(normalized_path(out_path))) or {}
+    if "systematics" in normalized:
+        raise ValueError(
+            "Systematics expansion wrote per-variation plans, but running all "
+            "variations is not implemented yet. Run a specific variation plan, "
+            "for example build/compile/nominal/plan.yaml."
+        )
     return run_plan_file(
         plan_path(out_path),
         outdir=out_path,
