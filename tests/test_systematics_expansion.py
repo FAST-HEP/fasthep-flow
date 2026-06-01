@@ -218,6 +218,106 @@ def test_weight_rewrite_only_updates_analysis_stages(
     )
 
 
+def test_field_replacement_rewrites_exact_sources(toy_author: dict[str, Any]) -> None:
+    author = _author_with_field_replacements(_author_with_field_params(toy_author))
+    normalized = normalize_author(author)
+
+    variation = expand_systematics(normalized)[1]
+    params = variation.workflow["analysis"]["stages"][0]["params"]
+
+    assert params["source"] == "Jet_Pt_JESUp"
+    assert params["axes"][0]["source"] == "Jet_Eta_JESUp"
+
+
+def test_field_replacement_rewrites_expressions(toy_author: dict[str, Any]) -> None:
+    author = _author_with_field_replacements(_author_with_field_params(toy_author))
+    normalized = normalize_author(author)
+
+    variation = expand_systematics(normalized)[1]
+    params = variation.workflow["analysis"]["stages"][0]["params"]
+
+    assert params["variables"][0]["expr"] == "Jet_Pt_JESUp > 30"
+    assert params["weight_expr"] == "Jet_Pt_JESUp * EventWeight"
+    assert {
+        "stage": "Scale",
+        "original": "Jet_Pt > 30",
+        "rewritten": "Jet_Pt_JESUp > 30",
+        "replacements": {"Jet_Pt": "Jet_Pt_JESUp"},
+    } in variation.workflow["variation"]["rewrites"]["fields"]
+
+
+def test_field_replacement_avoids_longer_variable_names(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _author_with_field_replacements(_author_with_field_params(toy_author))
+    normalized = normalize_author(author)
+
+    variation = expand_systematics(normalized)[1]
+    params = variation.workflow["analysis"]["stages"][0]["params"]
+
+    assert params["variables"][1]["expr"] == "Jet_PtRaw > 30"
+
+
+def test_field_replacement_rewrites_selection_list(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _author_with_field_replacements(_author_with_field_params(toy_author))
+    normalized = normalize_author(author)
+
+    variation = expand_systematics(normalized)[1]
+    params = variation.workflow["analysis"]["stages"][0]["params"]
+
+    assert params["selection"] == [
+        "Jet_Pt_JESUp > 30",
+        "abs(Jet_Eta_JESUp) < 2.4",
+        "Jet_PtRaw > 30",
+    ]
+
+
+def test_field_replacement_leaves_labels_ids_and_paths_unchanged(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _author_with_field_replacements(_author_with_field_params(toy_author))
+    normalized = normalize_author(author)
+
+    variation = expand_systematics(normalized)[1]
+    stage = variation.workflow["analysis"]["stages"][0]
+    params = stage["params"]
+
+    assert stage["id"] == "Scale"
+    assert stage["op"] == "toy.scale"
+    assert stage["write"][0]["path"] == "output.json"
+    assert params["label"] == "Jet_Pt"
+    assert params["out"] == "Jet_Pt"
+
+
+def test_field_replacement_does_not_mutate_original_workflow(
+    toy_author: dict[str, Any],
+) -> None:
+    normalized = normalize_author(
+        _author_with_field_replacements(_author_with_field_params(toy_author))
+    )
+    before = deepcopy(normalized)
+
+    expand_systematics(normalized)
+
+    assert normalized == before
+
+
+def test_nominal_workflow_field_params_are_unchanged(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _author_with_field_replacements(_author_with_field_params(toy_author))
+    normalized = normalize_author(author)
+
+    nominal = expand_systematics(normalized)[0]
+    params = nominal.workflow["analysis"]["stages"][0]["params"]
+
+    assert params["source"] == "Jet_Pt"
+    assert params["variables"][0]["expr"] == "Jet_Pt > 30"
+    assert "rewrites" not in nominal.workflow["variation"]
+
+
 def test_expanded_workflows_preserve_normalized_sections(
     toy_author: dict[str, Any],
 ) -> None:
@@ -354,6 +454,28 @@ def test_nominal_plan_contains_original_weight_expr(
     assert stage_node["params"]["weight_expr"] == "EventWeight"
 
 
+def test_variation_plan_contains_rewritten_field_params(
+    toy_author: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    author_path = _write_author(
+        tmp_path, _author_with_field_replacements(_author_with_field_params(toy_author))
+    )
+    build_dir = tmp_path / "build"
+
+    compile_author_file(author_path, outdir=build_dir)
+
+    variation_plan = read_yaml(build_dir / "compile" / "jes_up" / "plan.yaml")
+    stage_node = _plan_node(variation_plan, "stage.Scale")
+    assert stage_node["params"]["source"] == "Jet_Pt_JESUp"
+    assert stage_node["params"]["variables"][0]["expr"] == "Jet_Pt_JESUp > 30"
+    assert stage_node["params"]["selection"][1] == "abs(Jet_Eta_JESUp) < 2.4"
+    assert variation_plan["context"]["variation"]["replace"] == {
+        "Jet_Pt": "Jet_Pt_JESUp",
+        "Jet_Eta": "Jet_Eta_JESUp",
+    }
+
+
 def test_make_plan_file_expands_normalized_systematics(
     toy_author: dict[str, Any],
     tmp_path: Path,
@@ -473,6 +595,52 @@ def _author_with_systematics(
 def _author_with_weight_expr(toy_author: dict[str, Any]) -> dict[str, Any]:
     author = deepcopy(toy_author)
     author["analysis"]["stages"][0]["params"]["weight_expr"] = "EventWeight"
+    return author
+
+
+def _author_with_field_replacements(toy_author: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **toy_author,
+        "systematics": {
+            "include_nominal": True,
+            "variations": [
+                {
+                    "name": "jes_up",
+                    "group": "jes",
+                    "direction": "up",
+                    "replace": {
+                        "Jet_Pt": "Jet_Pt_JESUp",
+                        "Jet_Eta": "Jet_Eta_JESUp",
+                    },
+                }
+            ],
+        },
+    }
+
+
+def _author_with_field_params(toy_author: dict[str, Any]) -> dict[str, Any]:
+    author = deepcopy(toy_author)
+    author["analysis"]["stages"][0]["params"].update(
+        {
+            "source": "Jet_Pt",
+            "variables": [
+                {"name": "pt_pass", "expr": "Jet_Pt > 30"},
+                {"name": "raw_pass", "expr": "Jet_PtRaw > 30"},
+            ],
+            "weight_expr": "Jet_Pt * EventWeight",
+            "selection": [
+                "Jet_Pt > 30",
+                "abs(Jet_Eta) < 2.4",
+                "Jet_PtRaw > 30",
+            ],
+            "axes": [
+                {"name": "eta", "source": "Jet_Eta"},
+                {"name": "raw_pt", "source": "Jet_PtRaw"},
+            ],
+            "label": "Jet_Pt",
+            "out": "Jet_Pt",
+        }
+    )
     return author
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -59,6 +60,7 @@ def expand_systematics(normalized: dict[str, Any]) -> list[ExpandedWorkflow]:
         variation = _variation_context(raw_variation)
         workflow = deepcopy(normalized)
         workflow["variation"] = variation.to_dict()
+        apply_field_replacements(workflow, variation)
         apply_weight_variation(workflow, variation)
         expanded.append(ExpandedWorkflow(variation=variation, workflow=workflow))
 
@@ -110,6 +112,74 @@ def apply_weight_variation(
         variation_block = workflow.setdefault("variation", variation.to_dict())
         if isinstance(variation_block, dict):
             variation_block.setdefault("rewrites", {})["weight_expr"] = rewrites
+
+    return workflow
+
+
+def apply_field_replacements(
+    workflow: dict[str, Any], variation: VariationContext
+) -> dict[str, Any]:
+    if variation.is_nominal:
+        return workflow
+
+    replacements = _field_replacements(variation)
+    if not replacements:
+        return workflow
+
+    rewrites: list[dict[str, Any]] = []
+    analysis = workflow.get("analysis") or {}
+    if not isinstance(analysis, dict):
+        return workflow
+
+    stages = analysis.get("stages") or []
+    if not isinstance(stages, list):
+        return workflow
+
+    for stage in stages:
+        if not isinstance(stage, dict):
+            continue
+        params = stage.get("params")
+        if not isinstance(params, dict):
+            continue
+
+        stage_id = str(stage.get("id") or "")
+        _rewrite_expression_param(
+            params,
+            "weight_expr",
+            replacements,
+            rewrites=rewrites,
+            stage_id=stage_id,
+        )
+        _rewrite_selection_param(
+            params,
+            replacements,
+            rewrites=rewrites,
+            stage_id=stage_id,
+        )
+        _rewrite_variables_param(
+            params,
+            replacements,
+            rewrites=rewrites,
+            stage_id=stage_id,
+        )
+        _rewrite_axes_param(
+            params,
+            replacements,
+            rewrites=rewrites,
+            stage_id=stage_id,
+        )
+        _rewrite_exact_param(
+            params,
+            "source",
+            replacements,
+            rewrites=rewrites,
+            stage_id=stage_id,
+        )
+
+    if rewrites:
+        variation_block = workflow.setdefault("variation", variation.to_dict())
+        if isinstance(variation_block, dict):
+            variation_block.setdefault("rewrites", {})["fields"] = rewrites
 
     return workflow
 
@@ -203,3 +273,181 @@ def _multiply_weight_expr(weight_expr: str, multipliers: list[str]) -> str:
     pieces = [f"({weight_expr})"]
     pieces.extend(f"({multiplier})" for multiplier in multipliers)
     return " * ".join(pieces)
+
+
+def _field_replacements(variation: VariationContext) -> dict[str, str]:
+    replace = variation.metadata.get("replace")
+    if not isinstance(replace, dict):
+        return {}
+    return {
+        key: value
+        for key, value in replace.items()
+        if isinstance(key, str)
+        and key.strip()
+        and isinstance(value, str)
+        and value.strip()
+    }
+
+
+def _rewrite_expression_param(
+    params: dict[str, Any],
+    key: str,
+    replacements: dict[str, str],
+    *,
+    rewrites: list[dict[str, Any]],
+    stage_id: str,
+) -> None:
+    original = params.get(key)
+    if not isinstance(original, str):
+        return
+    rewritten, used = _replace_expression_tokens(original, replacements)
+    if rewritten == original:
+        return
+    params[key] = rewritten
+    _append_field_rewrite(
+        rewrites,
+        stage_id=stage_id,
+        original=original,
+        rewritten=rewritten,
+        replacements=used,
+    )
+
+
+def _rewrite_selection_param(
+    params: dict[str, Any],
+    replacements: dict[str, str],
+    *,
+    rewrites: list[dict[str, Any]],
+    stage_id: str,
+) -> None:
+    selection = params.get("selection")
+    if isinstance(selection, str):
+        _rewrite_expression_param(
+            params,
+            "selection",
+            replacements,
+            rewrites=rewrites,
+            stage_id=stage_id,
+        )
+        return
+    if not isinstance(selection, list):
+        return
+
+    updated: list[Any] = []
+    changed = False
+    for item in selection:
+        if not isinstance(item, str):
+            updated.append(item)
+            continue
+        rewritten, used = _replace_expression_tokens(item, replacements)
+        updated.append(rewritten)
+        if rewritten != item:
+            changed = True
+            _append_field_rewrite(
+                rewrites,
+                stage_id=stage_id,
+                original=item,
+                rewritten=rewritten,
+                replacements=used,
+            )
+    if changed:
+        params["selection"] = updated
+
+
+def _rewrite_variables_param(
+    params: dict[str, Any],
+    replacements: dict[str, str],
+    *,
+    rewrites: list[dict[str, Any]],
+    stage_id: str,
+) -> None:
+    variables = params.get("variables")
+    if not isinstance(variables, list):
+        return
+    for variable in variables:
+        if not isinstance(variable, dict):
+            continue
+        _rewrite_expression_param(
+            variable,
+            "expr",
+            replacements,
+            rewrites=rewrites,
+            stage_id=stage_id,
+        )
+
+
+def _rewrite_axes_param(
+    params: dict[str, Any],
+    replacements: dict[str, str],
+    *,
+    rewrites: list[dict[str, Any]],
+    stage_id: str,
+) -> None:
+    axes = params.get("axes")
+    if not isinstance(axes, list):
+        return
+    for axis in axes:
+        if not isinstance(axis, dict):
+            continue
+        _rewrite_exact_param(
+            axis,
+            "source",
+            replacements,
+            rewrites=rewrites,
+            stage_id=stage_id,
+        )
+
+
+def _rewrite_exact_param(
+    params: dict[str, Any],
+    key: str,
+    replacements: dict[str, str],
+    *,
+    rewrites: list[dict[str, Any]],
+    stage_id: str,
+) -> None:
+    original = params.get(key)
+    if not isinstance(original, str):
+        return
+    rewritten = replacements.get(original)
+    if rewritten is None:
+        return
+    params[key] = rewritten
+    _append_field_rewrite(
+        rewrites,
+        stage_id=stage_id,
+        original=original,
+        rewritten=rewritten,
+        replacements={original: rewritten},
+    )
+
+
+def _replace_expression_tokens(
+    expression: str, replacements: dict[str, str]
+) -> tuple[str, dict[str, str]]:
+    rewritten = expression
+    used: dict[str, str] = {}
+    for source, target in replacements.items():
+        pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(source)}(?![A-Za-z0-9_])")
+        rewritten, count = pattern.subn(target, rewritten)
+        if count:
+            used[source] = target
+    return rewritten, used
+
+
+def _append_field_rewrite(
+    rewrites: list[dict[str, Any]],
+    *,
+    stage_id: str,
+    original: str,
+    rewritten: str,
+    replacements: dict[str, str],
+) -> None:
+    rewrites.append(
+        {
+            "stage": stage_id,
+            "original": original,
+            "rewritten": rewritten,
+            "replacements": dict(replacements),
+        }
+    )
