@@ -18,7 +18,9 @@ jobs:
   ci:
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
-    continue-on-error: ${{ matrix.experimental }}
+    # Temporary during alpha while package APIs and PyPI releases are not yet in sync.
+    # Remove this once alpha CI is deleted and normal PyPI-based CI becomes required again.
+    continue-on-error: true
 
     strategy:
       fail-fast: false
