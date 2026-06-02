@@ -54,7 +54,7 @@ docs = [
 source = "vcs"
 
 [tool.hatch.version.raw-options]
-fallback_version = "0.0.0"
+fallback_version = "2026.06.1"
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/hepflow/_version.py"
