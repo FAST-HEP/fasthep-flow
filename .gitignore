@@ -226,3 +226,4 @@ snapshots/
 
 # hatch-vcs generated version file
 src/hepflow/_version.py
+pixi.lock
