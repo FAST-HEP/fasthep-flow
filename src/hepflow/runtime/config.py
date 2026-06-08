@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from hepflow.backends.loaders import normalize_backend_override
+from hepflow.compiler.execution import normalize_global_execution
 
 
 def _runtime_execution_with_overrides(
@@ -14,14 +15,12 @@ def _runtime_execution_with_overrides(
     scheduler: str | None,
     workers: int | None,
 ) -> dict[str, Any]:
-    runtime_execution = dict(execution or {})
+    runtime_execution = normalize_global_execution(execution)
     override = normalize_backend_override(backend, strategy)
     if override:
         runtime_execution.update(override)
 
-    runtime_execution["backend"] = str(runtime_execution.get("backend") or "local")
-    runtime_execution["strategy"] = str(runtime_execution.get("strategy") or "default")
-    runtime_execution["config"] = dict(runtime_execution.get("config") or {})
+    runtime_execution = normalize_global_execution(runtime_execution)
     if scheduler is not None:
         runtime_execution["config"]["scheduler"] = scheduler
     if workers is not None:

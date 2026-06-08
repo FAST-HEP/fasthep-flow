@@ -4,6 +4,10 @@ from __future__ import annotations
 from dataclasses import fields
 from typing import Any
 
+from hepflow.compiler.execution import (
+    normalize_global_execution,
+    normalize_stage_execution,
+)
 from hepflow.compiler.profiles import normalize_profile_names
 from hepflow.model.author import (
     DataBlock,
@@ -54,7 +58,8 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
     primary_stream = str(primary) if primary is not None else None
 
     use = normalize_use(doc.get("use"))
-    execution = normalize_execution(doc.get("execution"))
+    execution = normalize_global_execution(doc.get("execution"))
+    analysis = _normalize_analysis_execution(analysis)
     systematics = normalize_systematics(doc.get("systematics"))
 
     registry_cfg = normalize_registry(doc.get("registry"))
@@ -88,16 +93,6 @@ def normalize_use(raw: Any) -> dict[str, Any]:
     raw = _ensure_mapping(raw or {}, "use")
     return {
         "profiles": normalize_profile_names(raw.get("profiles")),
-    }
-
-
-def normalize_execution(raw: Any) -> dict[str, Any]:
-    raw = _ensure_mapping(raw or {}, "execution")
-    config = _ensure_mapping(raw.get("config") or {}, "execution.config")
-    return {
-        "backend": str(raw.get("backend") or "local"),
-        "strategy": str(raw.get("strategy") or "default"),
-        "config": dict(config),
     }
 
 
@@ -350,6 +345,30 @@ def normalize_top_level_observers(observers_raw: Any) -> list[dict[str, Any]]:
         )
 
     return out
+
+
+def _normalize_analysis_execution(analysis: dict[str, Any]) -> dict[str, Any]:
+    analysis = dict(analysis)
+    stages_raw = analysis.get("stages")
+    if stages_raw is None:
+        return analysis
+    if not isinstance(stages_raw, list):
+        raise ValueError("analysis.stages must be a list")
+
+    stages: list[Any] = []
+    for idx, stage_raw in enumerate(stages_raw):
+        if not isinstance(stage_raw, dict):
+            raise ValueError(f"analysis.stages[{idx}] must be a mapping")
+        stage = dict(stage_raw)
+        if "execution" in stage:
+            stage_execution = normalize_stage_execution(stage.get("execution"))
+            if stage_execution is not None:
+                stage["execution"] = stage_execution
+            else:
+                stage.pop("execution", None)
+        stages.append(stage)
+    analysis["stages"] = stages
+    return analysis
 
 
 def _ensure_mapping(x: Any, where: str) -> dict[str, Any]:

@@ -5,6 +5,7 @@ from typing import Any
 
 import networkx as nx
 
+from hepflow.compiler.execution import normalize_stage_execution
 from hepflow.compiler.styles import (
     collect_styles,
     deep_merge,
@@ -311,16 +312,21 @@ def _make_stage_node(stage: dict[str, Any]) -> GraphNode:
     if op == "hep.hist":
         params = _canonicalize_hist_params(params)
 
+    meta: dict[str, Any] = {
+        "stage_id": stage_id,
+        "author_op": op,
+    }
+    execution = normalize_stage_execution(stage.get("execution"))
+    if execution is not None:
+        meta["execution"] = execution
+
     return GraphNode(
         id=f"stage.{stage_id}",
         role="transform",
         impl=op,
         params=params,
         outputs=_infer_stage_outputs(op),
-        meta={
-            "stage_id": stage_id,
-            "author_op": op,
-        },
+        meta=meta,
     )
 
 
@@ -396,16 +402,21 @@ def _make_render_stage_node(
     if "out" in stage:
         params["out"] = stage["out"]
 
+    meta: dict[str, Any] = {
+        "stage_id": stage_id,
+        "author_op": op,
+    }
+    execution = normalize_stage_execution(stage.get("execution"))
+    if execution is not None:
+        meta["execution"] = execution
+
     return GraphNode(
         id=node_id,
         role="sink",
         impl=op,
         params=params,
         outputs={"artifact": "artifact"},
-        meta={
-            "stage_id": stage_id,
-            "author_op": op,
-        },
+        meta=meta,
     )
 
 

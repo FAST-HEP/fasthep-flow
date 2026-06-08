@@ -314,6 +314,8 @@ class ExecutionPlan:
         default_factory=lambda: {
             "backend": "local",
             "strategy": "default",
+            "profiles": [],
+            "resources": {},
             "config": {},
         }
     )

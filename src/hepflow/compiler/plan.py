@@ -12,6 +12,7 @@ from hepflow.compiler.data_flow import (
 )
 from hepflow.compiler.exec_dag import ExecDag
 from hepflow.compiler.exec_graph import fill_input_aliases
+from hepflow.compiler.execution import normalize_global_execution
 from hepflow.compiler.lower_graph import lower_author_to_graph
 from hepflow.compiler.routing import rewrite_fieldmap_for_joins
 from hepflow.model.defaults import (
@@ -621,13 +622,7 @@ def build_execution_plan(
     plan = ExecutionPlan()
     plan.registry = dict(registry or {})
     plan.provenance = dict(provenance or {})
-    plan.execution = {
-        "backend": "local",
-        "strategy": "default",
-        "config": {},
-        **dict(execution or {}),
-    }
-    plan.execution["config"] = dict(plan.execution.get("config") or {})
+    plan.execution = normalize_global_execution(execution)
     plan.execution_hooks = _normalize_execution_hooks(execution_hooks or [])
     context_datasets_by_name: dict[str, dict[str, Any]] = {}
 
