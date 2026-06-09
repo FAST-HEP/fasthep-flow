@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from hepflow.backends.dask_htcondor import compute_with_htcondor
 from hepflow.backends.local import _store_outputs_summary
 from hepflow.backends.model import BackendResult
 from hepflow.build_layout import BuildPaths
@@ -39,6 +40,7 @@ class DaskLocalBackend:
     ) -> BackendResult:
         from dask import compute, delayed  # noqa: PLC0415
 
+        strategy = _normalize_dask_strategy(plan.execution)
         dask_config = _normalize_dask_local_config(plan.execution)
 
         base_ctx = dict(plan.context)
@@ -55,7 +57,14 @@ class DaskLocalBackend:
         ]
 
         dashboard_link: str | None = None
-        if dask_config["use_local_cluster"]:
+        htcondor_config: dict[str, Any] | None = None
+        if strategy == "htcondor":
+            task_results, dashboard_link, htcondor_config = compute_with_htcondor(
+                tasks,
+                execution=plan.execution,
+                build_paths=BuildPaths.from_ctx(base_ctx),
+            )
+        elif dask_config["use_local_cluster"]:
             task_results, dashboard_link = _compute_distributed(
                 tasks,
                 n_workers=dask_config["n_workers"],
@@ -136,17 +145,20 @@ class DaskLocalBackend:
 
         backend_summary: dict[str, Any] = {
             "name": self.name,
+            "strategy": strategy,
             "scheduler": dask_config["scheduler"],
             "n_workers": dask_config["n_workers"],
             "threads_per_worker": dask_config["threads_per_worker"],
             "processes": dask_config["processes"],
         }
+        if htcondor_config is not None:
+            backend_summary["htcondor"] = htcondor_config
         if dashboard_link is not None:
             backend_summary["dashboard_link"] = dashboard_link
 
         summary: dict[str, Any] = {
             "backend": backend_summary,
-            "strategy": "local",
+            "strategy": strategy,
             "scheduler": dask_config["scheduler"],
             "workers": dask_config["n_workers"],
             "n_workers": dask_config["n_workers"],
@@ -164,7 +176,7 @@ class DaskLocalBackend:
 
         return BackendResult(
             backend="dask",
-            strategy="local",
+            strategy=strategy,
             success=True,
             outputs={
                 "value_store": merged_value_store,
@@ -172,6 +184,15 @@ class DaskLocalBackend:
             },
             summary=summary,
         )
+
+
+def _normalize_dask_strategy(execution: dict[str, Any]) -> str:
+    strategy = str(execution.get("strategy") or "default")
+    if strategy in {"default", "local"}:
+        return "local"
+    if strategy == "htcondor":
+        return "htcondor"
+    raise ValueError(f"Dask strategy {strategy!r} is not implemented yet.")
 
 
 def _normalize_dask_local_config(execution: dict[str, Any]) -> dict[str, Any]:

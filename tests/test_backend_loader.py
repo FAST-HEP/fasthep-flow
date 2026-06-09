@@ -50,7 +50,7 @@ def test_dask_backend_default_strategy_loads_local(
     assert backend.name == "dask.local"
 
 
-def test_dask_unsupported_strategy_errors_clearly(
+def test_dask_htcondor_backend_loads_without_running(
     toy_author: dict[str, Any],
 ) -> None:
     normalized = normalize_author(toy_author)
@@ -60,9 +60,24 @@ def test_dask_unsupported_strategy_errors_clearly(
         execution={"backend": "dask", "strategy": "htcondor", "config": {}},
     )
 
+    backend = load_backend(plan)
+
+    assert backend.name == "dask.local"
+
+
+def test_dask_unsupported_strategy_errors_clearly(
+    toy_author: dict[str, Any],
+) -> None:
+    normalized = normalize_author(toy_author)
+    plan = build_execution_plan(
+        lower_author_to_graph(normalized),
+        registry=normalized["registry"],
+        execution={"backend": "dask", "strategy": "slurm", "config": {}},
+    )
+
     with pytest.raises(
         ValueError,
-        match=r"Dask strategy 'htcondor' is not implemented yet\.",
+        match=r"Dask strategy 'slurm' is not implemented yet\.",
     ):
         load_backend(plan)
 

@@ -37,6 +37,9 @@ local = [
 dask-local = [
     "dask[complete]",
 ]
+dask-htcondor = [
+    "dask-jobqueue",
+]
 test = [
     "pytest",
 ]

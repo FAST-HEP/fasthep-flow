@@ -13,6 +13,8 @@ def backend_key(execution: dict[str, Any]) -> str:
     if backend == "dask":
         if strategy in {None, "", "default", "local"}:
             return "dask.local"
+        if strategy == "htcondor":
+            return "dask.htcondor"
         raise ValueError(f"Dask strategy {strategy!r} is not implemented yet.")
     return f"{backend}.{strategy}"
 

@@ -80,6 +80,9 @@ def default_runtime_registry_config() -> dict[str, Any]:
             "dask.local": {
                 "impl": "hepflow.backends.dask_local:DaskLocalBackend",
             },
+            "dask.htcondor": {
+                "impl": "hepflow.backends.dask_local:DaskLocalBackend",
+            },
         },
         "hooks": {},
         "product_handlers": {},
