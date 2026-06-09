@@ -40,6 +40,12 @@ dask-local = [
 dask-htcondor = [
     "dask-jobqueue",
 ]
+dask-slurm = [
+    "dask-jobqueue",
+]
+dask-jobqueue = [
+    "dask-jobqueue",
+]
 test = [
     "pytest",
 ]

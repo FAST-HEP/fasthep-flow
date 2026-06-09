@@ -36,12 +36,16 @@ def test_dask_default_strategy_normalises_to_local() -> None:
     assert normalise_dask_strategy({"backend": "dask", "strategy": "default"}) == "local"
 
 
+def test_dask_slurm_strategy_is_supported() -> None:
+    assert normalise_dask_strategy({"backend": "dask", "strategy": "slurm"}) == "slurm"
+
+
 def test_dask_unsupported_strategy_errors_clearly() -> None:
     with pytest.raises(
         ValueError,
-        match=r"Dask strategy 'slurm' is not implemented yet\.",
+        match=r"Dask strategy 'pbs' is not implemented yet\.",
     ):
-        normalise_dask_strategy({"backend": "dask", "strategy": "slurm"})
+        normalise_dask_strategy({"backend": "dask", "strategy": "pbs"})
 
 
 def test_normalise_dask_config_preserves_empty_config_defaults() -> None:

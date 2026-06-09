@@ -25,7 +25,7 @@ class DaskBackend:
     Partition-granular Dask backend with pluggable worker provisioning strategies.
     """
 
-    name = "dask.local"
+    name = "dask"
 
     def run(
         self,
@@ -47,6 +47,15 @@ class DaskBackend:
                 "hepflow.backends._dask._htcondor"
             ).compute_with_htcondor
             task_results, dashboard_link, strategy_config = compute_with_htcondor(
+                tasks,
+                execution=plan.execution,
+                build_paths=BuildPaths.from_ctx(base_ctx),
+            )
+        elif strategy == "slurm":
+            compute_with_slurm = import_module(
+                "hepflow.backends._dask._slurm"
+            ).compute_with_slurm
+            task_results, dashboard_link, strategy_config = compute_with_slurm(
                 tasks,
                 execution=plan.execution,
                 build_paths=BuildPaths.from_ctx(base_ctx),
@@ -120,8 +129,8 @@ def normalise_dask_strategy(execution: dict[str, Any]) -> str:
     strategy = str(execution.get("strategy") or "default")
     if strategy in {"default", "local"}:
         return "local"
-    if strategy == "htcondor":
-        return "htcondor"
+    if strategy in {"htcondor", "slurm"}:
+        return strategy
     raise ValueError(f"Dask strategy {strategy!r} is not implemented yet.")
 
 
