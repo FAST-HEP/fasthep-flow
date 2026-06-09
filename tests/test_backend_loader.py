@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from hepflow.backends.loaders import load_backend, normalize_backend_override
 from hepflow.compiler.lower_graph import lower_author_to_graph
 from hepflow.compiler.normalize import normalize_author
@@ -31,6 +33,38 @@ def test_dask_local_backend_loads_without_running(toy_author: dict[str, Any]) ->
     backend = load_backend(plan)
 
     assert backend.name == "dask.local"
+
+
+def test_dask_backend_default_strategy_loads_local(
+    toy_author: dict[str, Any],
+) -> None:
+    normalized = normalize_author(toy_author)
+    plan = build_execution_plan(
+        lower_author_to_graph(normalized),
+        registry=normalized["registry"],
+        execution={"backend": "dask", "config": {}},
+    )
+
+    backend = load_backend(plan)
+
+    assert backend.name == "dask.local"
+
+
+def test_dask_unsupported_strategy_errors_clearly(
+    toy_author: dict[str, Any],
+) -> None:
+    normalized = normalize_author(toy_author)
+    plan = build_execution_plan(
+        lower_author_to_graph(normalized),
+        registry=normalized["registry"],
+        execution={"backend": "dask", "strategy": "htcondor", "config": {}},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"Dask strategy 'htcondor' is not implemented yet\.",
+    ):
+        load_backend(plan)
 
 
 def test_shorthand_backend_override_splits_backend_and_strategy() -> None:

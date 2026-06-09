@@ -10,6 +10,10 @@ from hepflow.registry.loaders import load_object
 def backend_key(execution: dict[str, Any]) -> str:
     backend = execution.get("backend", "local")
     strategy = execution.get("strategy", "default")
+    if backend == "dask":
+        if strategy in {None, "", "default", "local"}:
+            return "dask.local"
+        raise ValueError(f"Dask strategy {strategy!r} is not implemented yet.")
     return f"{backend}.{strategy}"
 
 

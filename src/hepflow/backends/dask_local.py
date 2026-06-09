@@ -39,15 +39,7 @@ class DaskLocalBackend:
     ) -> BackendResult:
         from dask import compute, delayed  # noqa: PLC0415
 
-        config = dict(plan.execution.get("config") or {})
-        scheduler = str(config.get("scheduler") or "threads")
-        n_workers = config.get("n_workers", config.get("workers"))
-        if n_workers is not None:
-            n_workers = int(n_workers)
-        threads_per_worker = int(config.get("threads_per_worker") or 1)
-        processes = _as_bool(config.get("processes", scheduler == "processes"))
-        memory_limit = config.get("memory_limit")
-        dashboard_address = config.get("dashboard_address")
+        dask_config = _normalize_dask_local_config(plan.execution)
 
         base_ctx = dict(plan.context)
         base_ctx.update(dict(ctx or {}))
@@ -63,21 +55,21 @@ class DaskLocalBackend:
         ]
 
         dashboard_link: str | None = None
-        if scheduler == "distributed":
+        if dask_config["use_local_cluster"]:
             task_results, dashboard_link = _compute_distributed(
                 tasks,
-                n_workers=n_workers,
-                threads_per_worker=threads_per_worker,
-                processes=processes,
-                memory_limit=memory_limit,
-                dashboard_address=dashboard_address,
-                local_directory=config.get("local_directory"),
+                n_workers=dask_config["n_workers"],
+                threads_per_worker=dask_config["threads_per_worker"],
+                processes=dask_config["processes"],
+                memory_limit=dask_config["memory_limit"],
+                dashboard_address=dask_config["dashboard_address"],
+                local_directory=dask_config["local_directory"],
                 build_paths=BuildPaths.from_ctx(base_ctx),
             )
-        elif scheduler in {"threads", "processes", "synchronous"}:
-            compute_kwargs: dict[str, Any] = {"scheduler": scheduler}
-            if n_workers is not None:
-                compute_kwargs["num_workers"] = n_workers
+        elif dask_config["scheduler"] in {"threads", "processes", "synchronous"}:
+            compute_kwargs: dict[str, Any] = {"scheduler": dask_config["scheduler"]}
+            if dask_config["n_workers"] is not None:
+                compute_kwargs["num_workers"] = dask_config["n_workers"]
             task_results = list(compute(*tasks, **compute_kwargs)) if tasks else []
         else:
             raise ValueError(
@@ -144,10 +136,10 @@ class DaskLocalBackend:
 
         backend_summary: dict[str, Any] = {
             "name": self.name,
-            "scheduler": scheduler,
-            "n_workers": n_workers,
-            "threads_per_worker": threads_per_worker,
-            "processes": processes,
+            "scheduler": dask_config["scheduler"],
+            "n_workers": dask_config["n_workers"],
+            "threads_per_worker": dask_config["threads_per_worker"],
+            "processes": dask_config["processes"],
         }
         if dashboard_link is not None:
             backend_summary["dashboard_link"] = dashboard_link
@@ -155,11 +147,11 @@ class DaskLocalBackend:
         summary: dict[str, Any] = {
             "backend": backend_summary,
             "strategy": "local",
-            "scheduler": scheduler,
-            "workers": n_workers,
-            "n_workers": n_workers,
-            "threads_per_worker": threads_per_worker,
-            "processes": processes,
+            "scheduler": dask_config["scheduler"],
+            "workers": dask_config["n_workers"],
+            "n_workers": dask_config["n_workers"],
+            "threads_per_worker": dask_config["threads_per_worker"],
+            "processes": dask_config["processes"],
             "dashboard_link": dashboard_link,
             "npartitions": len(plan.partitions),
             "warnings": warnings,
@@ -180,6 +172,37 @@ class DaskLocalBackend:
             },
             summary=summary,
         )
+
+
+def _normalize_dask_local_config(execution: dict[str, Any]) -> dict[str, Any]:
+    config = dict(execution.get("config") or {})
+    scheduler = str(config.get("scheduler") or "threads")
+    n_workers = config.get("n_workers", config.get("workers"))
+    if n_workers is not None:
+        n_workers = int(n_workers)
+
+    use_local_cluster = scheduler == "distributed" or any(
+        key in config
+        for key in (
+            "workers",
+            "threads_per_worker",
+            "processes",
+            "memory_limit",
+            "dashboard_address",
+            "local_directory",
+        )
+    )
+
+    return {
+        "scheduler": "distributed" if use_local_cluster else scheduler,
+        "use_local_cluster": use_local_cluster,
+        "n_workers": n_workers,
+        "threads_per_worker": int(config.get("threads_per_worker") or 1),
+        "processes": _as_bool(config.get("processes", scheduler == "processes")),
+        "memory_limit": config.get("memory_limit"),
+        "dashboard_address": config.get("dashboard_address"),
+        "local_directory": config.get("local_directory"),
+    }
 
 
 def _compute_distributed(
