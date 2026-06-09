@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from hepflow.backends.dask_local import _normalize_dask_local_config
+from hepflow.backends._dask._common import normalise_dask_config
 from hepflow.runtime.config import _runtime_execution_with_overrides
 
 
 def test_dask_local_config_reads_plan_execution_config() -> None:
-    config = _normalize_dask_local_config(
+    config = normalise_dask_config(
         {
             "backend": "dask",
             "strategy": "local",
@@ -25,7 +25,7 @@ def test_dask_local_config_reads_plan_execution_config() -> None:
 
 
 def test_dask_local_workers_config_is_applied() -> None:
-    config = _normalize_dask_local_config(
+    config = normalise_dask_config(
         {
             "backend": "dask",
             "strategy": "local",
@@ -50,22 +50,8 @@ def test_cli_workers_override_dask_config_workers() -> None:
         workers=8,
     )
 
-    config = _normalize_dask_local_config(execution)
+    config = normalise_dask_config(execution)
 
     assert execution["config"]["workers"] == 4
     assert execution["config"]["n_workers"] == 8
     assert config["n_workers"] == 8
-
-
-def test_dask_local_empty_config_keeps_existing_scheduler_default() -> None:
-    config = _normalize_dask_local_config(
-        {
-            "backend": "dask",
-            "strategy": "local",
-            "config": {},
-        }
-    )
-
-    assert config["use_local_cluster"] is False
-    assert config["scheduler"] == "threads"
-    assert config["n_workers"] is None

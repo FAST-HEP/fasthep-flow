@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from hepflow.backends._dask._common import compute_with_client
 from hepflow.build_layout import BuildPaths
 
 MISSING_DASK_JOBQUEUE_MESSAGE = (
@@ -87,11 +88,8 @@ def compute_with_htcondor(
         workers = htcondor_config["workers"]
         if workers is not None:
             cluster.scale(workers)
-        dashboard_link = getattr(client, "dashboard_link", None)
-        if not tasks:
-            return [], dashboard_link, htcondor_config
-        futures = client.compute(tasks)
-        return list(client.gather(futures)), dashboard_link, htcondor_config
+        results, dashboard_link = compute_with_client(client, tasks)
+        return results, dashboard_link, htcondor_config
     finally:
         client.close()
         cluster.close()

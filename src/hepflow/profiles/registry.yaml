@@ -14,7 +14,7 @@ registry:
   renderers: {}
   backends:
     local.default:
-      impl: hepflow.backends.local:LocalBackend
-    dask.local:
-      impl: hepflow.backends.dask_local:DaskLocalBackend
+      impl: hepflow.backends:Local
+    dask:
+      impl: hepflow.backends:Dask
   hooks: {}

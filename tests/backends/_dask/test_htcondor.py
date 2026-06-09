@@ -8,12 +8,12 @@ from typing import Any, cast
 
 import pytest
 
-from hepflow.backends.dask_htcondor import (
+from hepflow.backends._dask._common import DaskBackend
+from hepflow.backends._dask._htcondor import (
     MISSING_DASK_JOBQUEUE_MESSAGE,
     compute_with_htcondor,
     normalize_dask_htcondor_config,
 )
-from hepflow.backends.dask_local import DaskLocalBackend
 from hepflow.build_layout import BuildPaths
 from hepflow.model.plan import ExecutionPlan
 from hepflow.runtime.config import _runtime_execution_with_overrides
@@ -173,7 +173,7 @@ def test_dask_backend_dispatches_to_htcondor(
         return [], None, {"workers": 2, "cluster_options": {}}
 
     monkeypatch.setattr(
-        "hepflow.backends.dask_local.compute_with_htcondor",
+        "hepflow.backends._dask._htcondor.compute_with_htcondor",
         fake_compute_with_htcondor,
     )
     dask = types.ModuleType("dask")
@@ -192,7 +192,7 @@ def test_dask_backend_dispatches_to_htcondor(
         context={"outdir": "."},
     )
 
-    result = DaskLocalBackend().run(plan)
+    result = DaskBackend().run(plan)
 
     assert calls["execution"] == plan.execution
     assert result.strategy == "htcondor"
