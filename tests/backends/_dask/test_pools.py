@@ -23,8 +23,37 @@ def test_default_pool_descriptor_creation() -> None:
     assert pools[0].resource_name == "default"
     assert pools[0].workers == 4
     assert pools[0].resources == {"cpus": 1, "memory": "4GB"}
-    assert pools[0].dask_resources == {}
+    assert pools[0].dask_resources == {"resource.default": 1}
     assert pools[0].config["walltime"] == "02:00:00"
+
+
+def test_high_memory_pool_descriptor_creation() -> None:
+    pools = resolve_dask_worker_pools(
+        {
+            "resources": {
+                "high_memory": {"cpus": 8, "memory": "128GB", "disk": "100GB"}
+            },
+            "pools": {
+                "preprocess": {
+                    "resources": "high_memory",
+                    "workers": 2,
+                    "config": {},
+                }
+            },
+            "config": {},
+        }
+    )
+
+    assert len(pools) == 1
+    assert pools[0].name == "preprocess"
+    assert pools[0].resource_name == "high_memory"
+    assert pools[0].workers == 2
+    assert pools[0].resources == {
+        "cpus": 8,
+        "memory": "128GB",
+        "disk": "100GB",
+    }
+    assert pools[0].dask_resources == {"resource.high_memory": 1}
 
 
 def test_gpu_pool_descriptor_creation() -> None:
@@ -40,12 +69,18 @@ def test_gpu_pool_descriptor_creation() -> None:
     assert pools[0].name == "gpu"
     assert pools[0].resource_name == "gpu"
     assert pools[0].workers == 2
-    assert pools[0].dask_resources == {"GPU": 1}
+    assert pools[0].dask_resources == {"resource.gpu": 1, "GPU": 1}
 
 
 def test_gpu_resource_maps_to_dask_worker_resource() -> None:
-    assert dask_resources_for_resource({"gpus": "2"}) == {"GPU": 2}
-    assert dask_worker_resource_args({"GPU": 2}) == ["--resources", "GPU=2"]
+    assert dask_resources_for_resource("gpu", {"gpus": "2"}) == {
+        "resource.gpu": 1,
+        "GPU": 2,
+    }
+    assert dask_worker_resource_args({"resource.gpu": 1, "GPU": 2}) == [
+        "--resources",
+        "GPU=2,resource.gpu=1",
+    ]
 
 
 def test_pool_specific_config_overrides_global_config() -> None:

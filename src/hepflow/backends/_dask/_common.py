@@ -144,7 +144,7 @@ def dask_resource_annotations_for_node(
     if not isinstance(resource, dict):
         return {}
 
-    return dask_resources_for_resource(resource)
+    return dask_resources_for_resource(resource_name, resource)
 
 
 def _dask_resource_annotations_for_plan(plan: ExecutionPlan) -> dict[str, Any]:

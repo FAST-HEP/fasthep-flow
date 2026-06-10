@@ -68,7 +68,48 @@ def test_htcondor_default_pool_does_not_request_gpus() -> None:
     assert config["cluster_options"]["job_extra_directives"] == {
         "+JobFlavour": '"workday"'
     }
-    assert "worker_extra_args" not in config["cluster_options"]
+    assert config["cluster_options"]["worker_extra_args"] == [
+        "--resources",
+        "resource.default=1",
+    ]
+
+
+def test_htcondor_high_memory_pool_requests_high_memory() -> None:
+    config = normalize_dask_htcondor_config(
+        {
+            "backend": "dask",
+            "strategy": "htcondor",
+            "resources": {
+                "high_memory": {
+                    "cpus": 8,
+                    "memory": "128GB",
+                    "disk": "100GB",
+                }
+            },
+            "pools": {
+                "preprocess": {
+                    "resources": "high_memory",
+                    "workers": 2,
+                    "config": {"queue": "long", "walltime": "04:00:00"},
+                }
+            },
+            "config": {"queue": "workday", "walltime": "02:00:00"},
+        }
+    )
+
+    assert config["workers"] == 2
+    assert config["cluster_options"]["cores"] == 8
+    assert config["cluster_options"]["memory"] == "128GB"
+    assert config["cluster_options"]["disk"] == "100GB"
+    assert config["cluster_options"]["walltime"] == "04:00:00"
+    assert config["cluster_options"]["job_extra_directives"] == {
+        "+JobFlavour": '"long"'
+    }
+    assert config["cluster_options"]["worker_extra_args"] == [
+        "--resources",
+        "resource.high_memory=1",
+    ]
+    assert config["pools"][0]["dask_resources"] == {"resource.high_memory": 1}
 
 
 def test_htcondor_gpu_pool_requests_gpus_and_advertises_dask_resource() -> None:
@@ -106,9 +147,9 @@ def test_htcondor_gpu_pool_requests_gpus_and_advertises_dask_resource() -> None:
     }
     assert config["cluster_options"]["worker_extra_args"] == [
         "--resources",
-        "GPU=1",
+        "GPU=1,resource.gpu=1",
     ]
-    assert config["pools"][0]["dask_resources"] == {"GPU": 1}
+    assert config["pools"][0]["dask_resources"] == {"resource.gpu": 1, "GPU": 1}
 
 
 def test_htcondor_multiple_pools_fail_clearly() -> None:

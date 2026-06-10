@@ -59,18 +59,22 @@ def resolve_dask_worker_pools(execution: dict[str, Any]) -> list[DaskWorkerPool]
                 resource_name=resource_name,
                 workers=workers,
                 resources=dict(resource),
-                dask_resources=dask_resources_for_resource(resource),
+                dask_resources=dask_resources_for_resource(resource_name, resource),
                 config=config,
             )
         )
     return pools
 
 
-def dask_resources_for_resource(resource: dict[str, Any]) -> dict[str, Any]:
+def dask_resources_for_resource(
+    resource_name: str,
+    resource: dict[str, Any],
+) -> dict[str, Any]:
+    dask_resources: dict[str, Any] = {f"resource.{resource_name}": 1}
     gpus = resource.get("gpus")
-    if gpus is None:
-        return {}
-    return {"GPU": _resource_quantity(gpus)}
+    if gpus is not None:
+        dask_resources["GPU"] = _resource_quantity(gpus)
+    return dask_resources
 
 
 def dask_worker_resource_args(dask_resources: dict[str, Any]) -> list[str]:

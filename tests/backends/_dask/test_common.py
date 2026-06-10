@@ -84,7 +84,7 @@ def test_dask_default_pool_is_supported() -> None:
 def test_dask_heterogeneous_pools_fail_clearly() -> None:
     with pytest.raises(
         NotImplementedError,
-        match="does not support heterogeneous worker pools yet",
+        match="Dask htcondor heterogeneous worker pools are not fully implemented yet",
     ):
         validate_supported_dask_pools(
             {
@@ -120,7 +120,19 @@ def test_dask_resource_annotations_for_required_gpu_node() -> None:
     )
 
     assert dask_resource_annotations_for_node(plan, "stage.HeavyInference") == {
-        "GPU": 1
+        "resource.gpu": 1,
+        "GPU": 1,
+    }
+
+
+def test_dask_resource_annotations_for_required_high_memory_node() -> None:
+    plan = _plan_with_node_execution(
+        {"require": "high_memory"},
+        resources={"high_memory": {"cpus": 8, "memory": "128GB"}},
+    )
+
+    assert dask_resource_annotations_for_node(plan, "stage.HeavyInference") == {
+        "resource.high_memory": 1
     }
 
 
@@ -131,7 +143,8 @@ def test_dask_resource_annotations_coerce_string_gpu_count() -> None:
     )
 
     assert dask_resource_annotations_for_node(plan, "stage.HeavyInference") == {
-        "GPU": 2
+        "resource.gpu": 1,
+        "GPU": 2,
     }
 
 
@@ -154,13 +167,15 @@ def test_dask_resource_annotations_missing_resource_errors() -> None:
         dask_resource_annotations_for_node(plan, "stage.HeavyInference")
 
 
-def test_dask_resource_annotations_without_gpus_are_empty() -> None:
+def test_dask_resource_annotations_without_gpus_use_resource_label() -> None:
     plan = _plan_with_node_execution(
         {"require": "large"},
         resources={"large": {"cpus": 8, "memory": "32GB"}},
     )
 
-    assert dask_resource_annotations_for_node(plan, "stage.HeavyInference") == {}
+    assert dask_resource_annotations_for_node(plan, "stage.HeavyInference") == {
+        "resource.large": 1
+    }
 
 
 def test_build_dask_graph_applies_annotations_to_required_tasks(
@@ -198,8 +213,8 @@ def test_build_dask_graph_applies_annotations_to_required_tasks(
 
     tasks = build_dask_graph(plan, base_ctx={})
 
-    assert tasks[0]["annotations"] == {"resources": {"GPU": 1}}
-    assert records == [{"resources": {"GPU": 1}}]
+    assert tasks[0]["annotations"] == {"resources": {"resource.gpu": 1, "GPU": 1}}
+    assert records == [{"resources": {"resource.gpu": 1, "GPU": 1}}]
 
 
 def test_build_dask_graph_skips_annotations_without_required_resources(
