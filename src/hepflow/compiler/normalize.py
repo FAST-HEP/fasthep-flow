@@ -64,6 +64,7 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
     validate_stage_execution_resource_references(
         list(analysis.get("stages") or []),
         execution["resources"],
+        execution["pools"],
     )
     systematics = normalize_systematics(doc.get("systematics"))
 

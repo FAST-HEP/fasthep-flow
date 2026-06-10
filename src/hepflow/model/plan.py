@@ -316,6 +316,7 @@ class ExecutionPlan:
             "strategy": "default",
             "profiles": [],
             "resources": {},
+            "pools": {},
             "config": {},
         }
     )

@@ -34,6 +34,7 @@ class DaskBackend:
         ctx: dict[str, Any] | None = None,
     ) -> BackendResult:
         strategy = normalise_dask_strategy(plan.execution)
+        validate_supported_dask_pools(plan.execution, strategy=strategy)
         dask_config = normalise_dask_config(plan.execution)
 
         base_ctx = dict(plan.context)
@@ -137,7 +138,10 @@ def normalise_dask_strategy(execution: dict[str, Any]) -> str:
 def normalise_dask_config(execution: dict[str, Any]) -> dict[str, Any]:
     config = dict(execution.get("config") or {})
     scheduler = str(config.get("scheduler") or "threads")
+    default_pool = _default_pool(execution)
     n_workers = config.get("n_workers", config.get("workers"))
+    if n_workers is None and default_pool is not None:
+        n_workers = default_pool.get("workers")
     if n_workers is not None:
         n_workers = int(n_workers)
 
@@ -162,7 +166,27 @@ def normalise_dask_config(execution: dict[str, Any]) -> dict[str, Any]:
         "memory_limit": config.get("memory_limit"),
         "dashboard_address": config.get("dashboard_address"),
         "local_directory": config.get("local_directory"),
+        "pools": dict(execution.get("pools") or {}),
     }
+
+
+def validate_supported_dask_pools(
+    execution: dict[str, Any],
+    *,
+    strategy: str,
+) -> None:
+    pools = dict(execution.get("pools") or {})
+    if not pools:
+        return
+    if len(pools) > 1:
+        raise NotImplementedError(
+            f"Dask {strategy} strategy does not support heterogeneous worker pools yet."
+        )
+    pool_name, pool = next(iter(pools.items()))
+    if pool_name != "default" or dict(pool).get("resources") != "default":
+        raise NotImplementedError(
+            f"Dask {strategy} strategy currently supports only the default worker pool."
+        )
 
 
 def build_dask_backend_result(
@@ -236,6 +260,7 @@ def build_dask_backend_result(
         "n_workers": dask_config["n_workers"],
         "threads_per_worker": dask_config["threads_per_worker"],
         "processes": dask_config["processes"],
+        "pools": dask_config["pools"],
     }
     if strategy_config is not None:
         backend_summary[strategy] = strategy_config
@@ -250,6 +275,7 @@ def build_dask_backend_result(
         "n_workers": dask_config["n_workers"],
         "threads_per_worker": dask_config["threads_per_worker"],
         "processes": dask_config["processes"],
+        "pools": dask_config["pools"],
         "dashboard_link": dashboard_link,
         "npartitions": len(plan.partitions),
         "warnings": warnings,
@@ -329,3 +355,10 @@ def _as_bool(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _default_pool(execution: dict[str, Any]) -> dict[str, Any] | None:
+    pool = dict(execution.get("pools") or {}).get("default")
+    if not isinstance(pool, dict):
+        return None
+    return pool

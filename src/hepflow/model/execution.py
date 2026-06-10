@@ -10,6 +10,7 @@ class ExecutionConfig:
     strategy: str = "default"
     profiles: list[str] = field(default_factory=list)
     resources: dict[str, dict[str, Any]] = field(default_factory=dict)
+    pools: dict[str, dict[str, Any]] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -33,9 +34,10 @@ class NodeResourceIntent:
     require: str | None = None
     prefer: str | None = None
     fallback: str | None = None
-    required_resources: dict[str, Any] | None = None
-    preferred_resources: dict[str, Any] | None = None
-    fallback_resources: dict[str, Any] | None = None
+    required_resource: dict[str, Any] | None = None
+    preferred_resource: dict[str, Any] | None = None
+    fallback_resource: dict[str, Any] | None = None
+    candidate_pools: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -57,9 +59,10 @@ def resolve_node_resource_intent(plan: Any, node: Any) -> NodeResourceIntent:
         require=require,
         prefer=prefer,
         fallback=fallback,
-        required_resources=_resource_dict(resources, require),
-        preferred_resources=_resource_dict(resources, prefer),
-        fallback_resources=_resource_dict(resources, fallback),
+        required_resource=_resource_dict(resources, require),
+        preferred_resource=_resource_dict(resources, prefer),
+        fallback_resource=_resource_dict(resources, fallback),
+        candidate_pools=_candidate_pools(execution, require, prefer, fallback),
     )
 
 
@@ -79,3 +82,24 @@ def _resource_dict(
     if resource is None:
         return None
     return dict(resource)
+
+
+def _candidate_pools(
+    execution: dict[str, Any],
+    require: str | None,
+    prefer: str | None,
+    fallback: str | None,
+) -> list[dict[str, Any]]:
+    pools = dict(execution.get("pools") or {})
+    resource_order = [item for item in (require, prefer, fallback) if item is not None]
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for pool_name, pool_raw in pools.items():
+        if not isinstance(pool_raw, dict):
+            continue
+        pool_resources = pool_raw.get("resources")
+        if pool_resources not in resource_order or str(pool_name) in seen:
+            continue
+        seen.add(str(pool_name))
+        candidates.append({"name": str(pool_name), **dict(pool_raw)})
+    return candidates

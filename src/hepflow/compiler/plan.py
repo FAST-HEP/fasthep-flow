@@ -706,6 +706,7 @@ def build_plan_from_normalized(
     validate_stage_execution_resource_references(
         list((normalized.get("analysis") or {}).get("stages") or []),
         execution["resources"],
+        execution["pools"],
     )
     graph = lower_author_to_graph(normalized)
     plan = build_execution_plan(

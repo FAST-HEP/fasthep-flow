@@ -37,6 +37,24 @@ def test_dask_local_workers_config_is_applied() -> None:
     assert config["n_workers"] == 2
 
 
+def test_dask_local_uses_default_pool_workers_when_config_absent() -> None:
+    config = normalise_dask_config(
+        {
+            "backend": "dask",
+            "strategy": "local",
+            "config": {},
+            "pools": {
+                "default": {"resources": "default", "workers": 3, "config": {}}
+            },
+        }
+    )
+
+    assert config["n_workers"] == 3
+    assert config["pools"] == {
+        "default": {"resources": "default", "workers": 3, "config": {}}
+    }
+
+
 def test_cli_workers_override_dask_config_workers() -> None:
     execution = _runtime_execution_with_overrides(
         {

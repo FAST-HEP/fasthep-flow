@@ -8,6 +8,7 @@ from hepflow.backends._dask._common import (
     compute_with_client,
     normalise_dask_config,
     normalise_dask_strategy,
+    validate_supported_dask_pools,
 )
 
 
@@ -60,3 +61,30 @@ def test_normalise_dask_config_preserves_empty_config_defaults() -> None:
     assert config["use_local_cluster"] is False
     assert config["scheduler"] == "threads"
     assert config["n_workers"] is None
+
+
+def test_dask_default_pool_is_supported() -> None:
+    validate_supported_dask_pools(
+        {
+            "pools": {
+                "default": {"resources": "default", "workers": 4, "config": {}}
+            }
+        },
+        strategy="local",
+    )
+
+
+def test_dask_heterogeneous_pools_fail_clearly() -> None:
+    with pytest.raises(
+        NotImplementedError,
+        match="does not support heterogeneous worker pools yet",
+    ):
+        validate_supported_dask_pools(
+            {
+                "pools": {
+                    "default": {"resources": "default", "workers": 100},
+                    "gpu": {"resources": "gpu", "workers": 2},
+                }
+            },
+            strategy="htcondor",
+        )

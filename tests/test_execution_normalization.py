@@ -19,6 +19,7 @@ def test_missing_execution_block_gives_defaults(toy_author: dict[str, Any]) -> N
         "strategy": "default",
         "profiles": [],
         "resources": {},
+        "pools": {},
         "config": {},
     }
 
@@ -55,7 +56,16 @@ def test_global_execution_normalization_preserves_metadata(
 
     normalized = normalize_author(author)
 
-    assert normalized["execution"] == author["execution"]
+    assert normalized["execution"] == {
+        **author["execution"],
+        "pools": {
+            "default": {
+                "resources": "default",
+                "workers": 100,
+                "config": {},
+            }
+        },
+    }
 
 
 @pytest.mark.parametrize(
@@ -66,6 +76,7 @@ def test_global_execution_normalization_preserves_metadata(
         ({"strategy": 1}, "execution.strategy must be a string"),
         ({"profiles": ["ok", 1]}, "must be a non-empty string"),
         ({"resources": []}, "execution.resources must be a mapping"),
+        ({"pools": []}, "execution.pools must be a mapping"),
         ({"resources": {"gpu": 1}}, "must be a mapping"),
         (
             {"resources": {"gpu": {1: "bad"}}},
@@ -74,6 +85,34 @@ def test_global_execution_normalization_preserves_metadata(
         (
             {"resources": {"gpu": {"gpus": []}}},
             "execution.resources\\['gpu'\\].gpus must be an integer or string",
+        ),
+        (
+            {
+                "resources": {"default": {}},
+                "pools": {"gpu": {"resources": "gpu"}},
+            },
+            "references missing resource class 'gpu'",
+        ),
+        (
+            {
+                "resources": {"default": {}},
+                "pools": {"default": {"resources": "default", "workers": 0}},
+            },
+            "workers must be a positive integer",
+        ),
+        (
+            {
+                "resources": {"default": {}},
+                "pools": {"default": {"resources": 1}},
+            },
+            "resources must be a string",
+        ),
+        (
+            {
+                "resources": {"default": {}},
+                "pools": {"default": {"resources": "default", "config": []}},
+            },
+            "config must be a mapping",
         ),
         ({"config": []}, "execution.config must be a mapping"),
     ],
@@ -127,6 +166,44 @@ def test_stage_execution_require_preserved(toy_author: dict[str, Any]) -> None:
     }
 
 
+def test_execution_resources_and_pools_normalize(
+    toy_author: dict[str, Any],
+) -> None:
+    author = {
+        **toy_author,
+        "execution": {
+            "resources": {
+                "default": {"cpus": 1, "memory": "4GB"},
+                "gpu": {"cpus": 4, "memory": "16GB", "gpus": 1},
+            },
+            "pools": {
+                "default": {"resources": "default", "workers": 100},
+                "gpu": {"resources": "gpu", "workers": "2"},
+            },
+        },
+    }
+
+    normalized = normalize_author(author)
+
+    assert normalized["execution"]["pools"] == {
+        "default": {"resources": "default", "workers": 100, "config": {}},
+        "gpu": {"resources": "gpu", "workers": 2, "config": {}},
+    }
+
+
+def test_implicit_default_pool_from_config_workers(
+    toy_author: dict[str, Any],
+) -> None:
+    author = {**toy_author, "execution": {"config": {"workers": 4}}}
+
+    normalized = normalize_author(author)
+
+    assert normalized["execution"]["resources"] == {"default": {}}
+    assert normalized["execution"]["pools"] == {
+        "default": {"resources": "default", "workers": 4, "config": {}}
+    }
+
+
 @pytest.mark.parametrize(
     ("execution", "message"),
     [
@@ -166,6 +243,10 @@ def test_execution_metadata_propagates_to_plan(
                     "default": {"cpus": 1, "memory": "4GB"},
                     "gpu": {"cpus": 4, "memory": "16GB", "gpus": 1},
                 },
+                "pools": {
+                    "default": {"resources": "default", "workers": 100},
+                    "gpu": {"resources": "gpu", "workers": 2},
+                },
                 "config": {"workers": 100, "walltime": "02:00:00"},
             },
         },
@@ -177,7 +258,11 @@ def test_execution_metadata_propagates_to_plan(
     plan = compile_author_file(author_path, outdir=tmp_path / "build")
     plan_yaml = plan.to_dict()
 
-    assert plan_yaml["execution"] == author["execution"]
+    assert plan_yaml["execution"]["resources"] == author["execution"]["resources"]
+    assert plan_yaml["execution"]["pools"] == {
+        "default": {"resources": "default", "workers": 100, "config": {}},
+        "gpu": {"resources": "gpu", "workers": 2, "config": {}},
+    }
     stage_node = next(node for node in plan_yaml["nodes"] if node["id"] == "stage.Scale")
     assert stage_node["meta"]["execution"] == {
         "require": None,
@@ -203,6 +288,30 @@ def test_stage_execution_unknown_resource_class_errors(
         normalize_author(author)
 
 
+def test_stage_execution_resource_without_pool_errors_when_pools_defined(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _with_stage_execution(
+        {
+            **toy_author,
+            "execution": {
+                "resources": {
+                    "default": {"cpus": 1},
+                    "gpu": {"cpus": 4, "gpus": 1},
+                },
+                "pools": {"default": {"resources": "default", "workers": 2}},
+            },
+        },
+        {"require": "gpu"},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="no execution pool provides it",
+    ):
+        normalize_author(author)
+
+
 def test_node_resource_intent_resolves_gpu_resources(
     toy_author: dict[str, Any],
     tmp_path: Path,
@@ -219,13 +328,13 @@ def test_node_resource_intent_resolves_gpu_resources(
 
     assert intent.prefer == "gpu"
     assert intent.fallback == "default"
-    assert intent.preferred_resources == {
+    assert intent.preferred_resource == {
         "cpus": 4,
         "memory": "16GB",
         "disk": "20GB",
         "gpus": 1,
     }
-    assert intent.fallback_resources == {
+    assert intent.fallback_resource == {
         "cpus": 1,
         "memory": "4GB",
         "disk": "10GB",
@@ -244,12 +353,44 @@ def test_node_resource_intent_resolves_required_gpu_resources(
     intent = resolve_node_resource_intent(plan, plan.get_node("stage.Scale"))
 
     assert intent.require == "gpu"
-    assert intent.required_resources == {
+    assert intent.required_resource == {
         "cpus": 4,
         "memory": "16GB",
         "disk": "20GB",
         "gpus": 1,
     }
+
+
+def test_node_resource_intent_lists_candidate_pools(
+    toy_author: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    author = _with_stage_execution(
+        {
+            **toy_author,
+            "execution": {
+                "resources": {
+                    "default": {"cpus": 1},
+                    "gpu": {"cpus": 4, "gpus": 1},
+                },
+                "pools": {
+                    "default": {"resources": "default", "workers": 10},
+                    "gpu-small": {"resources": "gpu", "workers": 2},
+                },
+            },
+        },
+        {"prefer": "gpu", "fallback": "default"},
+    )
+    author_path = tmp_path / "author.yaml"
+    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    plan = compile_author_file(author_path, outdir=tmp_path / "build")
+
+    intent = resolve_node_resource_intent(plan, "stage.Scale")
+
+    assert intent.candidate_pools == [
+        {"name": "default", "resources": "default", "workers": 10, "config": {}},
+        {"name": "gpu-small", "resources": "gpu", "workers": 2, "config": {}},
+    ]
 
 
 def test_workflow_without_stage_execution_has_no_node_resource_intent(
@@ -264,9 +405,10 @@ def test_workflow_without_stage_execution_has_no_node_resource_intent(
         "require": None,
         "prefer": None,
         "fallback": None,
-        "required_resources": None,
-        "preferred_resources": None,
-        "fallback_resources": None,
+        "required_resource": None,
+        "preferred_resource": None,
+        "fallback_resource": None,
+        "candidate_pools": [],
     }
 
 
@@ -301,6 +443,7 @@ def _with_resources(toy_author: dict[str, Any]) -> dict[str, Any]:
                     "gpus": 1,
                 },
             },
+            "pools": {},
             "config": {},
         },
     }

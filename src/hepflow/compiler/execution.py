@@ -56,13 +56,21 @@ def normalize_global_execution(raw: Any) -> dict[str, Any]:
     config_raw = raw.get("config", {})
     if not isinstance(config_raw, dict):
         raise ValueError("execution.config must be a mapping")
+    config = dict(config_raw)
+
+    pools = _normalize_execution_pools(
+        raw.get("pools"),
+        resources=resources,
+        config=config,
+    )
 
     return ExecutionConfig(
         backend=backend.strip() or "local",
         strategy=strategy.strip() or "default",
         profiles=profiles,
         resources=resources,
-        config=dict(config_raw),
+        pools=pools,
+        config=config,
     ).to_dict()
 
 
@@ -98,7 +106,13 @@ def normalize_stage_execution(raw: Any) -> dict[str, Any] | None:
 def validate_stage_execution_resource_references(
     stages: list[Any],
     resources: dict[str, dict[str, Any]],
+    pools: dict[str, dict[str, Any]] | None = None,
 ) -> None:
+    resource_classes_with_pools = {
+        str(pool.get("resources"))
+        for pool in dict(pools or {}).values()
+        if isinstance(pool, dict) and pool.get("resources") is not None
+    }
     for idx, stage_raw in enumerate(stages):
         if not isinstance(stage_raw, dict):
             continue
@@ -116,6 +130,12 @@ def validate_stage_execution_resource_references(
                 raise ValueError(
                     f"analysis.stages[{idx}] ({stage_id!r}) execution.{field_name} "
                     f"references unknown resource class {resource_name!r}"
+                )
+            if pools and str(resource_name) not in resource_classes_with_pools:
+                raise ValueError(
+                    f"analysis.stages[{idx}] ({stage_id!r}) execution.{field_name} "
+                    f"references resource class {resource_name!r}, but no execution pool "
+                    "provides it"
                 )
 
 
@@ -139,6 +159,7 @@ def resolve_author_execution(
                 "strategy": "default",
                 "profiles": [],
                 "resources": {},
+                "pools": {},
                 "config": {},
             },
         }
@@ -228,12 +249,14 @@ def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:
         "strategy": "default",
         "profiles": [],
         "resources": {},
+        "pools": {},
         "config": {},
     }
     for layer in layers:
         execution = normalize_global_execution(layer.get("execution"))
         config = dict(execution.pop("config", {}) or {})
         resources = dict(execution.pop("resources", {}) or {})
+        pools = dict(execution.pop("pools", {}) or {})
         profiles = list(execution.pop("profiles", []) or [])
         merged.update(
             {key: value for key, value in execution.items() if value is not None}
@@ -242,6 +265,10 @@ def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:
         merged["resources"] = {
             **dict(merged.get("resources") or {}),
             **resources,
+        }
+        merged["pools"] = {
+            **dict(merged.get("pools") or {}),
+            **pools,
         }
         merged["config"] = {
             **dict(merged.get("config") or {}),
@@ -341,3 +368,82 @@ def _is_resource_value(value: Any) -> bool:
     if isinstance(value, int):
         return True
     return isinstance(value, str) and bool(value.strip())
+
+
+def _normalize_execution_pools(
+    raw: Any,
+    *,
+    resources: dict[str, dict[str, Any]],
+    config: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    if raw is None:
+        workers = config.get("workers", config.get("n_workers"))
+        if workers is None:
+            return {}
+        if "default" not in resources:
+            resources["default"] = {}
+        return {
+            "default": {
+                "resources": "default",
+                "workers": _normalize_pool_workers(
+                    workers,
+                    "execution.pools.default.workers",
+                ),
+                "config": {},
+            }
+        }
+
+    if not isinstance(raw, dict):
+        raise ValueError("execution.pools must be a mapping")
+
+    pools: dict[str, dict[str, Any]] = {}
+    for pool_name, pool_raw in raw.items():
+        if not isinstance(pool_name, str) or not pool_name.strip():
+            raise ValueError("execution.pools keys must be non-empty strings")
+        if not isinstance(pool_raw, dict):
+            raise ValueError(f"execution.pools[{pool_name!r}] must be a mapping")
+
+        resource_name = pool_raw.get("resources")
+        if not isinstance(resource_name, str) or not resource_name.strip():
+            raise ValueError(
+                f"execution.pools[{pool_name!r}].resources must be a string"
+            )
+        resource_name = resource_name.strip()
+        if resource_name not in resources:
+            if resource_name == "default" and not resources:
+                resources["default"] = {}
+            else:
+                raise ValueError(
+                    f"execution.pools[{pool_name!r}] references missing resource "
+                    f"class {resource_name!r}"
+                )
+
+        workers = pool_raw.get("workers")
+        config_raw = pool_raw.get("config", {})
+        if not isinstance(config_raw, dict):
+            raise ValueError(f"execution.pools[{pool_name!r}].config must be a mapping")
+
+        pool: dict[str, Any] = {
+            "resources": resource_name,
+            "workers": None,
+            "config": dict(config_raw),
+        }
+        if workers is not None:
+            pool["workers"] = _normalize_pool_workers(
+                workers,
+                f"execution.pools[{pool_name!r}].workers",
+            )
+        pools[pool_name.strip()] = pool
+    return pools
+
+
+def _normalize_pool_workers(raw: Any, where: str) -> int:
+    if isinstance(raw, bool):
+        raise ValueError(f"{where} must be a positive integer")
+    try:
+        workers = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{where} must be a positive integer") from exc
+    if workers <= 0:
+        raise ValueError(f"{where} must be a positive integer")
+    return workers

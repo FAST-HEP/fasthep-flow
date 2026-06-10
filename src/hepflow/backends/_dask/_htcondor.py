@@ -15,8 +15,11 @@ MISSING_DASK_JOBQUEUE_MESSAGE = (
 def normalize_dask_htcondor_config(execution: dict[str, Any]) -> dict[str, Any]:
     config = dict(execution.get("config") or {})
     default_resources = dict((execution.get("resources") or {}).get("default") or {})
+    default_pool = dict((execution.get("pools") or {}).get("default") or {})
 
     workers = config.get("n_workers", config.get("workers"))
+    if workers is None:
+        workers = default_pool.get("workers")
     if workers is not None:
         workers = int(workers)
 
