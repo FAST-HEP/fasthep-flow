@@ -46,6 +46,10 @@ def normalize_global_execution(raw: Any) -> dict[str, Any]:
                 raise ValueError(
                     f"execution.resources[{resource_name!r}] keys must be non-empty strings"
                 )
+            if key == "gpus" and not _is_resource_value(value):
+                raise ValueError(
+                    f"execution.resources[{resource_name!r}].gpus must be an integer or string"
+                )
             resource[key] = value
         resources[resource_name] = resource
 
@@ -89,6 +93,30 @@ def normalize_stage_execution(raw: Any) -> dict[str, Any] | None:
         timeout=timeout,
         modifiers=_list_of_strings(modifiers_raw, "stage execution.modifiers"),
     ).to_dict()
+
+
+def validate_stage_execution_resource_references(
+    stages: list[Any],
+    resources: dict[str, dict[str, Any]],
+) -> None:
+    for idx, stage_raw in enumerate(stages):
+        if not isinstance(stage_raw, dict):
+            continue
+        stage_id = str(stage_raw.get("id") or idx)
+        execution = stage_raw.get("execution")
+        if execution is None:
+            continue
+        if not isinstance(execution, dict):
+            raise ValueError(f"analysis.stages[{idx}].execution must be a mapping")
+        for field_name in ("require", "prefer", "fallback"):
+            resource_name = execution.get(field_name)
+            if resource_name is None:
+                continue
+            if str(resource_name) not in resources:
+                raise ValueError(
+                    f"analysis.stages[{idx}] ({stage_id!r}) execution.{field_name} "
+                    f"references unknown resource class {resource_name!r}"
+                )
 
 
 def resolve_author_execution(
@@ -305,3 +333,11 @@ def _optional_string(raw: Any, where: str) -> str | None:
     if not isinstance(raw, str) or not raw.strip():
         raise ValueError(f"{where} must be a non-empty string")
     return raw.strip()
+
+
+def _is_resource_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    return isinstance(value, str) and bool(value.strip())

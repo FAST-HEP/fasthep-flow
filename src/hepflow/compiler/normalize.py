@@ -7,6 +7,7 @@ from typing import Any
 from hepflow.compiler.execution import (
     normalize_global_execution,
     normalize_stage_execution,
+    validate_stage_execution_resource_references,
 )
 from hepflow.compiler.profiles import normalize_profile_names
 from hepflow.model.author import (
@@ -60,6 +61,10 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
     use = normalize_use(doc.get("use"))
     execution = normalize_global_execution(doc.get("execution"))
     analysis = _normalize_analysis_execution(analysis)
+    validate_stage_execution_resource_references(
+        list(analysis.get("stages") or []),
+        execution["resources"],
+    )
     systematics = normalize_systematics(doc.get("systematics"))
 
     registry_cfg = normalize_registry(doc.get("registry"))
