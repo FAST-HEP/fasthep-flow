@@ -53,6 +53,88 @@ def test_slurm_resources_map_to_cluster_options() -> None:
     }
 
 
+def test_slurm_default_pool_does_not_request_gpus() -> None:
+    config = normalize_dask_slurm_config(
+        {
+            "backend": "dask",
+            "strategy": "slurm",
+            "resources": {"default": {"cpus": 1, "memory": "4GB"}},
+            "pools": {
+                "default": {"resources": "default", "workers": 100, "config": {}}
+            },
+            "config": {"queue": "compute"},
+        }
+    )
+
+    assert config["workers"] == 100
+    assert config["cluster_options"]["queue"] == "compute"
+    assert "job_extra_directives" not in config["cluster_options"]
+    assert "worker_extra_args" not in config["cluster_options"]
+
+
+def test_slurm_gpu_pool_requests_gpus_and_advertises_dask_resource() -> None:
+    config = normalize_dask_slurm_config(
+        {
+            "backend": "dask",
+            "strategy": "slurm",
+            "resources": {
+                "gpu": {
+                    "cpus": 4,
+                    "memory": "16GB",
+                    "disk": "20GB",
+                    "gpus": 1,
+                }
+            },
+            "pools": {
+                "gpu": {
+                    "resources": "gpu",
+                    "workers": 2,
+                    "config": {
+                        "queue": "gpu",
+                        "walltime": "01:00:00",
+                        "job_extra_directives": ["--exclusive"],
+                    },
+                }
+            },
+            "config": {"queue": "compute", "walltime": "02:00:00"},
+        }
+    )
+
+    assert config["workers"] == 2
+    assert config["cluster_options"]["cores"] == 4
+    assert config["cluster_options"]["memory"] == "16GB"
+    assert config["cluster_options"]["queue"] == "gpu"
+    assert config["cluster_options"]["walltime"] == "01:00:00"
+    assert config["cluster_options"]["job_extra_directives"] == [
+        "--exclusive",
+        "--gres=gpu:1",
+    ]
+    assert config["cluster_options"]["worker_extra_args"] == [
+        "--resources",
+        "GPU=1",
+    ]
+    assert config["pools"][0]["dask_resources"] == {"GPU": 1}
+
+
+def test_slurm_multiple_pools_fail_clearly() -> None:
+    with pytest.raises(
+        NotImplementedError,
+        match="Dask Slurm strategy does not yet support heterogeneous worker pools",
+    ):
+        normalize_dask_slurm_config(
+            {
+                "backend": "dask",
+                "strategy": "slurm",
+                "resources": {"default": {}, "gpu": {"gpus": 1}},
+                "pools": {
+                    "default": {"resources": "default", "workers": 100},
+                    "gpu": {"resources": "gpu", "workers": 2},
+                },
+                "config": {},
+            }
+        )
+
+
 def test_slurm_missing_dask_jobqueue_errors_clearly(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

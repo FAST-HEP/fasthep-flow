@@ -3,6 +3,7 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
+from hepflow.backends._dask._pools import dask_resources_for_resource
 from hepflow.backends.local import _store_outputs_summary
 from hepflow.backends.model import BackendResult
 from hepflow.build_layout import BuildPaths
@@ -140,10 +141,10 @@ def dask_resource_annotations_for_node(
             f"Dask resource annotation for node {node.id!r} references unknown "
             f"resource class {resource_name!r}."
         )
-    if not isinstance(resource, dict) or "gpus" not in resource:
+    if not isinstance(resource, dict):
         return {}
 
-    return {"GPU": _dask_resource_quantity(resource["gpus"])}
+    return dask_resources_for_resource(resource)
 
 
 def _dask_resource_annotations_for_plan(plan: ExecutionPlan) -> dict[str, Any]:
@@ -156,14 +157,6 @@ def _dask_resource_annotations_for_plan(plan: ExecutionPlan) -> dict[str, Any]:
                 quantity,
             )
     return annotations
-
-
-def _dask_resource_quantity(value: Any) -> Any:
-    if isinstance(value, str):
-        stripped = value.strip()
-        if stripped.isdigit():
-            return int(stripped)
-    return value
 
 
 def _merge_dask_resource_quantity(current: Any, new: Any) -> Any:
@@ -249,6 +242,16 @@ def validate_supported_dask_pools(
     if not pools:
         return
     if strategy == "local":
+        if len(pools) > 1:
+            raise NotImplementedError(
+                "Dask local strategy does not yet support heterogeneous worker pools. "
+                "Use htcondor/slurm or remove additional pools."
+            )
+        pool_name, pool = next(iter(pools.items()))
+        if pool_name != "default" or dict(pool).get("resources") != "default":
+            raise NotImplementedError(
+                "Dask local strategy currently supports only the default worker pool."
+            )
         return
     if len(pools) > 1:
         raise NotImplementedError(

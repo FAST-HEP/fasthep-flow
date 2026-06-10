@@ -97,16 +97,20 @@ def test_dask_heterogeneous_pools_fail_clearly() -> None:
         )
 
 
-def test_dask_local_accepts_heterogeneous_pool_metadata() -> None:
-    validate_supported_dask_pools(
-        {
-            "pools": {
-                "default": {"resources": "default", "workers": 4},
-                "gpu": {"resources": "gpu", "workers": 1},
-            }
-        },
-        strategy="local",
-    )
+def test_dask_local_heterogeneous_pools_fail_clearly() -> None:
+    with pytest.raises(
+        NotImplementedError,
+        match="Dask local strategy does not yet support heterogeneous worker pools",
+    ):
+        validate_supported_dask_pools(
+            {
+                "pools": {
+                    "default": {"resources": "default", "workers": 4},
+                    "gpu": {"resources": "gpu", "workers": 1},
+                }
+            },
+            strategy="local",
+        )
 
 
 def test_dask_resource_annotations_for_required_gpu_node() -> None:
