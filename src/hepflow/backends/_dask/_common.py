@@ -6,7 +6,7 @@ from typing import Any
 from hepflow.backends.local import _store_outputs_summary
 from hepflow.backends.model import BackendResult
 from hepflow.build_layout import BuildPaths
-from hepflow.model.plan import ExecutionPartition, ExecutionPlan
+from hepflow.model.plan import ExecutionNode, ExecutionPartition, ExecutionPlan
 from hepflow.runtime.engine import (
     build_dataset_context,
     build_partition_context,
@@ -93,15 +93,85 @@ def build_dask_graph(
 ) -> list[Any]:
     from dask import delayed  # noqa: PLC0415
 
-    return [
-        delayed(_execute_partition_task)(
-            plan,
-            partition,
-            base_ctx=base_ctx,
-            registry_cfg=plan.registry,
+    tasks: list[Any] = []
+    annotations = _dask_resource_annotations_for_plan(plan)
+    for partition in plan.partitions:
+        # The backend is currently partition-granular: one Dask task executes the
+        # partition plan. These annotations route that task only when matching
+        # Dask workers have been provisioned with the same resource names.
+        if annotations:
+            import dask  # noqa: PLC0415
+
+            with dask.annotate(resources=annotations):
+                task = delayed(_execute_partition_task)(
+                    plan,
+                    partition,
+                    base_ctx=base_ctx,
+                    registry_cfg=plan.registry,
+                )
+        else:
+            task = delayed(_execute_partition_task)(
+                plan,
+                partition,
+                base_ctx=base_ctx,
+                registry_cfg=plan.registry,
+            )
+        tasks.append(task)
+    return tasks
+
+
+def dask_resource_annotations_for_node(
+    plan: ExecutionPlan,
+    node: ExecutionNode | str,
+) -> dict[str, Any]:
+    if isinstance(node, str):
+        node = plan.get_node(node)
+
+    node_execution = dict((node.meta or {}).get("execution") or {})
+    required_resource_name = node_execution.get("require")
+    if required_resource_name is None:
+        return {}
+
+    resource_name = str(required_resource_name)
+    resources = dict((plan.execution or {}).get("resources") or {})
+    resource = resources.get(resource_name)
+    if resource is None:
+        raise ValueError(
+            f"Dask resource annotation for node {node.id!r} references unknown "
+            f"resource class {resource_name!r}."
         )
-        for partition in plan.partitions
-    ]
+    if not isinstance(resource, dict) or "gpus" not in resource:
+        return {}
+
+    return {"GPU": _dask_resource_quantity(resource["gpus"])}
+
+
+def _dask_resource_annotations_for_plan(plan: ExecutionPlan) -> dict[str, Any]:
+    annotations: dict[str, Any] = {}
+    for node in plan.nodes:
+        node_annotations = dask_resource_annotations_for_node(plan, node)
+        for resource_name, quantity in node_annotations.items():
+            annotations[resource_name] = _merge_dask_resource_quantity(
+                annotations.get(resource_name),
+                quantity,
+            )
+    return annotations
+
+
+def _dask_resource_quantity(value: Any) -> Any:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.isdigit():
+            return int(stripped)
+    return value
+
+
+def _merge_dask_resource_quantity(current: Any, new: Any) -> Any:
+    if current is None:
+        return new
+    if isinstance(current, int | float) and isinstance(new, int | float):
+        return max(current, new)
+    return new
 
 
 def compute_with_client(client: Any, tasks: list[Any]) -> tuple[list[Any], str | None]:
@@ -177,6 +247,8 @@ def validate_supported_dask_pools(
 ) -> None:
     pools = dict(execution.get("pools") or {})
     if not pools:
+        return
+    if strategy == "local":
         return
     if len(pools) > 1:
         raise NotImplementedError(
