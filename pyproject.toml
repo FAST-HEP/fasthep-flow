@@ -30,21 +30,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-local = [
-    "awkward",
-    "uproot",
-]
-dask-local = [
+distributed = [
     "dask[complete]",
-]
-dask-htcondor = [
     "dask-jobqueue",
 ]
-dask-slurm = [
-    "dask-jobqueue",
-]
-dask-jobqueue = [
-    "dask-jobqueue",
+gpu = [
+  "cupy",
 ]
 test = [
     "pytest",
