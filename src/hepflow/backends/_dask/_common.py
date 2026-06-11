@@ -245,7 +245,7 @@ def validate_supported_dask_pools(
         if len(pools) > 1:
             raise NotImplementedError(
                 "Dask local strategy does not yet support heterogeneous worker pools. "
-                "Use htcondor/slurm or remove additional pools."
+                "Use htcondor/slurm or configure a single default pool."
             )
         pool_name, pool = next(iter(pools.items()))
         if pool_name != "default" or dict(pool).get("resources") != "default":
@@ -255,7 +255,7 @@ def validate_supported_dask_pools(
         return
     if len(pools) > 1:
         raise NotImplementedError(
-            f"Dask {strategy} strategy does not support heterogeneous worker pools yet."
+            f"Dask {strategy} heterogeneous worker pools are not fully implemented yet."
         )
     pool_name, pool = next(iter(pools.items()))
     if pool_name != "default" or dict(pool).get("resources") != "default":
