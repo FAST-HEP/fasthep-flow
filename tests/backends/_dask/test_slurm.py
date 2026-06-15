@@ -50,6 +50,7 @@ def test_slurm_resources_map_to_cluster_options() -> None:
         "account": "my-account",
         "log_directory": "debug/dask/slurm",
         "job_extra_directives": ["--exclusive"],
+        "worker_extra_args": ["--resources", "resource.default=1"],
     }
 
 
@@ -154,23 +155,34 @@ def test_slurm_gpu_pool_requests_gpus_and_advertises_dask_resource() -> None:
     assert config["pools"][0]["dask_resources"] == {"resource.gpu": 1, "GPU": 1}
 
 
-def test_slurm_multiple_pools_fail_clearly() -> None:
-    with pytest.raises(
-        NotImplementedError,
-        match="Dask Slurm strategy does not yet support heterogeneous worker pools",
-    ):
-        normalize_dask_slurm_config(
-            {
-                "backend": "dask",
-                "strategy": "slurm",
-                "resources": {"default": {}, "gpu": {"gpus": 1}},
-                "pools": {
-                    "default": {"resources": "default", "workers": 100},
-                    "gpu": {"resources": "gpu", "workers": 2},
-                },
-                "config": {},
-            }
-        )
+def test_slurm_multiple_pools_create_pooled_specs() -> None:
+    config = normalize_dask_slurm_config(
+        {
+            "backend": "dask",
+            "strategy": "slurm",
+            "resources": {
+                "default": {"cpus": 1, "memory": "4GB"},
+                "gpu": {"cpus": 4, "memory": "16GB", "gpus": 1},
+            },
+            "pools": {
+                "default": {"resources": "default", "workers": 100},
+                "gpu": {"resources": "gpu", "workers": 2},
+            },
+            "config": {"queue": "compute"},
+        }
+    )
+
+    assert config["scale"] == {"default": 100, "gpu": 2}
+    assert sorted(config["pool_specs"]) == ["default", "gpu"]
+    assert config["pool_specs"]["default"]["job_kwargs"]["memory"] == "4GB"
+    assert config["pool_specs"]["gpu"]["job_kwargs"]["memory"] == "16GB"
+    assert config["pool_specs"]["gpu"]["job_kwargs"]["job_extra_directives"] == [
+        "--gres=gpu:1"
+    ]
+    assert config["pool_specs"]["gpu"]["job_kwargs"]["worker_extra_args"] == [
+        "--resources",
+        "GPU=1,resource.gpu=1",
+    ]
 
 
 def test_slurm_missing_dask_jobqueue_errors_clearly(
@@ -193,14 +205,14 @@ def test_slurm_cluster_scales_workers_and_computes_tasks(
 ) -> None:
     calls: dict[str, Any] = {}
 
-    class FakeSLURMCluster:
-        def __init__(self, **kwargs: Any) -> None:
-            calls["cluster_options"] = kwargs
+    class FakePooledSlurmCluster:
+        def __init__(self, *, pools: dict[str, Any]) -> None:
+            calls["pools"] = pools
             calls["cluster"] = self
-            self.scaled_to: int | None = None
+            self.scaled_to: dict[str, int] | None = None
             self.closed = False
 
-        def scale(self, workers: int) -> None:
+        def scale(self, workers: dict[str, int]) -> None:
             self.scaled_to = workers
 
         def close(self) -> None:
@@ -209,7 +221,7 @@ def test_slurm_cluster_scales_workers_and_computes_tasks(
     class FakeClient:
         dashboard_link = "http://scheduler.example/status"
 
-        def __init__(self, cluster: FakeSLURMCluster) -> None:
+        def __init__(self, cluster: FakePooledSlurmCluster) -> None:
             calls["client_cluster"] = cluster
             self.closed = False
 
@@ -226,11 +238,14 @@ def test_slurm_cluster_scales_workers_and_computes_tasks(
             calls["client_closed"] = True
 
     dask_jobqueue = types.ModuleType("dask_jobqueue")
-    cast(Any, dask_jobqueue).SLURMCluster = FakeSLURMCluster
     distributed = types.ModuleType("distributed")
     cast(Any, distributed).Client = FakeClient
     monkeypatch.setitem(sys.modules, "dask_jobqueue", dask_jobqueue)
     monkeypatch.setitem(sys.modules, "distributed", distributed)
+    monkeypatch.setattr(
+        "hepflow.backends._dask._slurm.DaskPooledSlurmCluster",
+        FakePooledSlurmCluster,
+    )
 
     results, dashboard_link, config = compute_with_slurm(
         ["task"],
@@ -251,14 +266,15 @@ def test_slurm_cluster_scales_workers_and_computes_tasks(
     assert results == [{"value_store": {}, "warnings": [], "hooks": {"enabled": []}}]
     assert dashboard_link == "http://scheduler.example/status"
     assert config["workers"] == 3
-    assert calls["cluster"].scaled_to == 3
+    assert calls["cluster"].scaled_to == {"default": 3}
     assert calls["cluster"].closed is True
     assert calls["client_closed"] is True
-    assert calls["cluster_options"]["cores"] == 2
-    assert calls["cluster_options"]["memory"] == "8GB"
-    assert calls["cluster_options"]["queue"] == "compute"
-    assert calls["cluster_options"]["account"] == "my-account"
-    assert calls["cluster_options"]["job_extra_directives"] == ["--exclusive"]
+    job_kwargs = calls["pools"]["default"]["job_kwargs"]
+    assert job_kwargs["cores"] == 2
+    assert job_kwargs["memory"] == "8GB"
+    assert job_kwargs["queue"] == "compute"
+    assert job_kwargs["account"] == "my-account"
+    assert job_kwargs["job_extra_directives"] == ["--exclusive"]
 
 
 def test_cli_workers_override_slurm_config_workers() -> None:

@@ -81,20 +81,17 @@ def test_dask_default_pool_is_supported() -> None:
     )
 
 
-def test_dask_heterogeneous_pools_fail_clearly() -> None:
-    with pytest.raises(
-        NotImplementedError,
-        match="Dask htcondor heterogeneous worker pools are not fully implemented yet",
-    ):
-        validate_supported_dask_pools(
-            {
-                "pools": {
-                    "default": {"resources": "default", "workers": 100},
-                    "gpu": {"resources": "gpu", "workers": 2},
-                }
-            },
-            strategy="htcondor",
-        )
+@pytest.mark.parametrize("strategy", ["htcondor", "slurm"])
+def test_dask_jobqueue_heterogeneous_pools_are_supported(strategy: str) -> None:
+    validate_supported_dask_pools(
+        {
+            "pools": {
+                "default": {"resources": "default", "workers": 100},
+                "gpu": {"resources": "gpu", "workers": 2},
+            }
+        },
+        strategy=strategy,
+    )
 
 
 def test_dask_local_heterogeneous_pools_fail_clearly() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -233,10 +234,16 @@ def _merge_job_kwargs(
     merged = dict(common or {})
     for key, value in pool.items():
         if key == "job_extra_directives":
-            merged[key] = {
-                **dict(merged.get(key) or {}),
-                **dict(value or {}),
-            }
+            current = merged.get(key)
+            if isinstance(current, Mapping) or isinstance(value, Mapping):
+                merged[key] = {
+                    **dict(current or {}),
+                    **dict(value or {}),
+                }
+            elif isinstance(current, list) or isinstance(value, list):
+                merged[key] = [*list(current or []), *list(value or [])]
+            else:
+                merged[key] = value
             continue
         if key in {"job_script_prologue", "worker_extra_args"}:
             merged[key] = [*list(merged.get(key) or []), *list(value or [])]

@@ -253,15 +253,6 @@ def validate_supported_dask_pools(
                 "Dask local strategy currently supports only the default worker pool."
             )
         return
-    if len(pools) > 1:
-        raise NotImplementedError(
-            f"Dask {strategy} heterogeneous worker pools are not fully implemented yet."
-        )
-    pool_name, pool = next(iter(pools.items()))
-    if pool_name != "default" or dict(pool).get("resources") != "default":
-        raise NotImplementedError(
-            f"Dask {strategy} strategy currently supports only the default worker pool."
-        )
 
 
 def build_dask_backend_result(

@@ -4,8 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from hepflow.backends._dask._common import compute_with_client
+from hepflow.backends._dask._pooled import DaskPooledSlurmCluster
 from hepflow.backends._dask._pools import (
     DaskWorkerPool,
+    dask_resources_for_resource,
     dask_worker_resource_args,
     resolve_dask_worker_pools,
 )
@@ -18,44 +20,53 @@ MISSING_DASK_JOBQUEUE_MESSAGE = (
 
 
 def normalize_dask_slurm_config(execution: dict[str, Any]) -> dict[str, Any]:
-    config = dict(execution.get("config") or {})
-    pools = resolve_dask_worker_pools(execution)
-    if len(pools) > 1:
-        raise NotImplementedError(
-            "Dask Slurm strategy does not yet support heterogeneous worker pools."
-        )
-    if pools:
-        pool = pools[0]
-        return {
-            "workers": pool.workers,
-            "cluster_options": _slurm_cluster_options_for_pool(pool),
-            "pools": [_pool_summary(pool)],
+    pools = _resolve_slurm_worker_pools(execution)
+    pool_specs: dict[str, dict[str, Any]] = {
+        pool.name: {
+            "workers": pool.workers or 0,
+            "job_kwargs": _slurm_cluster_options_for_pool(pool),
         }
-
-    default_resources = dict((execution.get("resources") or {}).get("default") or {})
-    default_pool = dict((execution.get("pools") or {}).get("default") or {})
-
-    workers = config.get("n_workers", config.get("workers"))
-    if workers is None:
-        workers = default_pool.get("workers")
-    if workers is not None:
-        workers = int(workers)
-
-    log_directory = config.get("log_directory")
-    if log_directory is None:
-        log_directory = "debug/dask/slurm"
-
-    cluster_options = _slurm_cluster_options(
-        resources=default_resources,
-        config={**config, "log_directory": log_directory},
-        dask_resources={},
-    )
+        for pool in pools
+    }
+    scale = {pool.name: pool.workers or 0 for pool in pools}
+    first_pool = pools[0]
+    first_options = dict(pool_specs[first_pool.name]["job_kwargs"])
 
     return {
-        "workers": workers,
-        "cluster_options": cluster_options,
-        "pools": [],
+        "workers": first_pool.workers,
+        "cluster_options": first_options,
+        "pool_specs": pool_specs,
+        "scale": scale,
+        "pools": [_pool_summary(pool) for pool in pools],
     }
+
+
+def _resolve_slurm_worker_pools(execution: dict[str, Any]) -> list[DaskWorkerPool]:
+    pools = resolve_dask_worker_pools(execution)
+    if pools:
+        return pools
+
+    config = dict(execution.get("config") or {})
+    resources_by_name = dict(execution.get("resources") or {})
+    default_resources = dict(resources_by_name.get("default") or {})
+    workers = config.get("n_workers", config.get("workers"))
+    if workers is not None:
+        workers = int(workers)
+    dask_resources = (
+        dask_resources_for_resource("default", default_resources)
+        if "default" in resources_by_name
+        else {}
+    )
+    return [
+        DaskWorkerPool(
+            name="default",
+            resource_name="default",
+            workers=workers,
+            resources=default_resources,
+            dask_resources=dask_resources,
+            config=config,
+        )
+    ]
 
 
 def compute_with_slurm(
@@ -65,33 +76,48 @@ def compute_with_slurm(
     build_paths: BuildPaths,
 ) -> tuple[list[Any], str | None, dict[str, Any]]:
     try:
-        from dask_jobqueue import SLURMCluster  # noqa: PLC0415
+        import dask_jobqueue  # noqa: F401, PLC0415
     except ModuleNotFoundError as exc:
         raise RuntimeError(MISSING_DASK_JOBQUEUE_MESSAGE) from exc
 
     from distributed import Client  # noqa: PLC0415
 
     slurm_config = normalize_dask_slurm_config(execution)
-    cluster_options = dict(slurm_config["cluster_options"])
-    log_directory = cluster_options.get("log_directory")
-    if log_directory is not None:
-        log_path = Path(str(log_directory))
-        if not log_path.is_absolute():
-            log_path = build_paths.root / log_path
-            cluster_options["log_directory"] = str(log_path)
-        log_path.mkdir(parents=True, exist_ok=True)
+    pool_specs = _prepare_slurm_pool_specs(
+        slurm_config["pool_specs"],
+        build_paths=build_paths,
+    )
 
-    cluster = SLURMCluster(**cluster_options)
+    cluster = DaskPooledSlurmCluster(pools=pool_specs)
     client = Client(cluster)
     try:
-        workers = slurm_config["workers"]
-        if workers is not None:
-            cluster.scale(workers)
+        cluster.scale(slurm_config["scale"])
         results, dashboard_link = compute_with_client(client, tasks)
         return results, dashboard_link, slurm_config
     finally:
         client.close()
         cluster.close()
+
+
+def _prepare_slurm_pool_specs(
+    pool_specs: dict[str, dict[str, Any]],
+    *,
+    build_paths: BuildPaths,
+) -> dict[str, dict[str, Any]]:
+    prepared = {
+        name: {"workers": spec["workers"], "job_kwargs": dict(spec["job_kwargs"])}
+        for name, spec in pool_specs.items()
+    }
+    for spec in prepared.values():
+        job_kwargs = spec["job_kwargs"]
+        log_directory = job_kwargs.get("log_directory")
+        if log_directory is not None:
+            log_path = Path(str(log_directory))
+            if not log_path.is_absolute():
+                log_path = build_paths.root / log_path
+                job_kwargs["log_directory"] = str(log_path)
+            log_path.mkdir(parents=True, exist_ok=True)
+    return prepared
 
 
 def _normalize_job_extra_directives(raw: Any) -> list[str]:
