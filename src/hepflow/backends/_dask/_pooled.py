@@ -32,13 +32,17 @@ class DaskPooledCluster(SpecCluster):
         self,
         *,
         pools: dict[str, dict[str, Any]],
+        job_kwargs: dict[str, Any] | None = None,
         schedd_class: type[Any] = Scheduler,
         scheduler_options: dict[str, Any] | None = None,
         asynchronous: bool = False,
         start: bool = True,
         **kwargs: Any,
     ) -> None:
-        self.pools = normalize_pooled_worker_pools(pools)
+        self.pools = normalize_pooled_worker_pools(
+            pools,
+            job_kwargs=job_kwargs,
+        )
         self.scheduler_options = dict(scheduler_options or {})
         self._pooled_started = start
         self._worker_pool: dict[str, str] = {}
@@ -189,6 +193,8 @@ class DaskPooledSlurmCluster(DaskPooledCluster):
 
 def normalize_pooled_worker_pools(
     pools: dict[str, dict[str, Any]],
+    *,
+    job_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, DaskPooledWorkerPool]:
     if not isinstance(pools, dict) or not pools:
         raise ValueError("Dask pooled cluster pools must be a non-empty mapping")
@@ -205,17 +211,38 @@ def normalize_pooled_worker_pools(
             f"pools[{pool_name!r}].workers",
             allow_zero=True,
         )
-        job_kwargs_raw = pool_raw.get("job_kwargs") or {}
-        if not isinstance(job_kwargs_raw, dict):
+        pool_job_kwargs = pool_raw.get("job_kwargs") or {}
+        if not isinstance(pool_job_kwargs, dict):
             raise ValueError(
                 f"Dask worker pool {pool_name!r}.job_kwargs must be a mapping"
             )
         normalized[pool_name] = DaskPooledWorkerPool(
             name=pool_name,
             workers=workers,
-            job_kwargs=_normalize_job_kwargs(job_kwargs_raw),
+            job_kwargs=_normalize_job_kwargs(
+                _merge_job_kwargs(job_kwargs, pool_job_kwargs)
+            ),
         )
     return normalized
+
+
+def _merge_job_kwargs(
+    common: dict[str, Any] | None,
+    pool: dict[str, Any],
+) -> dict[str, Any]:
+    merged = dict(common or {})
+    for key, value in pool.items():
+        if key == "job_extra_directives":
+            merged[key] = {
+                **dict(merged.get(key) or {}),
+                **dict(value or {}),
+            }
+            continue
+        if key in {"job_script_prologue", "worker_extra_args"}:
+            merged[key] = [*list(merged.get(key) or []), *list(value or [])]
+            continue
+        merged[key] = value
+    return merged
 
 
 def _normalize_job_kwargs(job_kwargs: dict[str, Any]) -> dict[str, Any]:

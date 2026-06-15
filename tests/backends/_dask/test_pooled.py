@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -58,6 +60,49 @@ def test_pooled_cluster_worker_specs_keep_distinct_job_kwargs() -> None:
     assert cluster.worker_spec["high_memory-0"]["options"]["worker_extra_args"] == [
         "--resources",
         "resource.high_memory=1",
+    ]
+
+
+def test_pooled_cluster_common_job_kwargs_merge_with_pool_overrides() -> None:
+    cluster = FakePooledCluster(
+        pools={
+            "default": {
+                "workers": 1,
+                "job_kwargs": {
+                    "memory": "4GB",
+                    "resources": {"resource.default": 1},
+                },
+            },
+            "high_memory": {
+                "workers": 1,
+                "job_kwargs": {
+                    "memory": "32GB",
+                    "job_extra_directives": {"RequestMemory": "32768"},
+                    "job_script_prologue": ["echo pool"],
+                    "resources": {"resource.high_memory": 1},
+                },
+            },
+        },
+        job_kwargs={
+            "cores": 1,
+            "memory": "2GB",
+            "python": "./env/bin/python",
+            "job_extra_directives": {"should_transfer_files": "YES"},
+            "job_script_prologue": ["echo common"],
+        },
+        start=False,
+    )
+
+    assert cluster.worker_spec["default-0"]["options"]["memory"] == "4GB"
+    assert cluster.worker_spec["default-0"]["options"]["python"] == "./env/bin/python"
+    assert cluster.worker_spec["high_memory-0"]["options"]["memory"] == "32GB"
+    assert cluster.worker_spec["high_memory-0"]["options"]["job_extra_directives"] == {
+        "should_transfer_files": "YES",
+        "RequestMemory": "32768",
+    }
+    assert cluster.worker_spec["high_memory-0"]["options"]["job_script_prologue"] == [
+        "echo common",
+        "echo pool",
     ]
 
 
@@ -145,6 +190,30 @@ def test_pooled_cluster_invalid_scale_count_errors() -> None:
         cluster.scale({"default": -1})
 
 
+def test_manual_packed_env_job_kwargs_include_transfer_directives(tmp_path: Path) -> None:
+    manual = _load_manual_pooled_htcondor()
+    paths = manual.prepare_debug_paths(tmp_path / "htcondor")
+    kwargs = manual.build_packed_env_job_kwargs(
+        tmp_path / "htcondor" / "env.sh",
+        paths=paths,
+        worker_python="./env/bin/python",
+    )
+
+    directives = kwargs["job_extra_directives"]
+    assert directives["should_transfer_files"] == "YES"
+    assert directives["when_to_transfer_output"] == "ON_EXIT"
+    assert directives["transfer_executable"] == "False"
+    assert directives["transfer_input_files"].endswith("/env.sh")
+    assert "out/worker-$(ClusterId).$(ProcId).out" in directives["Output"]
+    assert "err/worker-$(ClusterId).$(ProcId).err" in directives["Error"]
+    assert kwargs["python"] == "./env/bin/python"
+    assert not Path(str(kwargs["python"])).is_absolute()
+    assert any(
+        "./env.sh --output-directory . --env-name env" in item
+        for item in kwargs["job_script_prologue"]
+    )
+
+
 def _pool_config() -> dict[str, dict[str, Any]]:
     return {
         "default": {
@@ -166,3 +235,18 @@ def _pool_config() -> dict[str, dict[str, Any]]:
             },
         },
     }
+
+
+def _load_manual_pooled_htcondor() -> Any:
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "scripts"
+        / "manual"
+        / "test_pooled_htcondor.py"
+    )
+    spec = importlib.util.spec_from_file_location("manual_pooled_htcondor", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load manual script from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
