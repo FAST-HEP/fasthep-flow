@@ -6,7 +6,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from hepflow.compiler.artifacts import write_render_artifacts
+from hepflow.compiler.artifacts import (
+    write_render_artifacts,
+    write_worker_environment_artifact,
+)
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.model.plan import ExecutionPlan
 from hepflow.utils import write_yaml
@@ -292,6 +295,7 @@ def make_systematic_plan_files(
 
         write_yaml(item.workflow, str(variation_dir / "normalized.yaml"))
         write_yaml(plan.to_dict(), str(variation_dir / "plan.yaml"))
+        write_worker_environment_artifact(plan=plan, compile_path=variation_dir)
         write_render_artifacts(plan=plan, outdir=outdir, variation=variation_name)
 
         variation_summary = item.variation.to_dict()

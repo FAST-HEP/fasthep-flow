@@ -11,6 +11,7 @@ class ExecutionConfig:
     profiles: list[str] = field(default_factory=list)
     resources: dict[str, dict[str, Any]] = field(default_factory=dict)
     pools: dict[str, dict[str, Any]] = field(default_factory=dict)
+    environment: dict[str, Any] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

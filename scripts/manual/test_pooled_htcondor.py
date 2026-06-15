@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 from pathlib import Path
 
 from distributed import Client
 
 from hepflow.backends._dask._pooled import DaskPooledHTCondorCluster
+from hepflow.backends._dask._worker_env import (
+    PackedPixiEnvironmentSpec,
+    build_htcondor_worker_environment_job_kwargs,
+    build_packed_pixi_worker_environment,
+    pack_pixi_environment,
+)
 
 DEBUG_ROOT = Path("build/debug/distributed/htcondor")
 PACKED_ENV_NAME = "env.sh"
-WORKER_ENV_DIR = "env"
-PACKED_WORKER_PYTHON = f"./{WORKER_ENV_DIR}/bin/python"
+WORKER_ENV_DIR = "worker-env"
 
 
 def where_am_i(label: str) -> dict[str, object]:
@@ -38,11 +42,17 @@ def main() -> None:
             paths["root"] / PACKED_ENV_NAME,
             environment=args.environment,
         )
+        worker_env = build_packed_pixi_worker_environment(
+            PackedPixiEnvironmentSpec(
+                environment=args.environment,
+                archive_path=str(packed_env),
+                worker_env_dir=WORKER_ENV_DIR,
+            )
+        )
         common_job_kwargs.update(
-            build_packed_env_job_kwargs(
-                packed_env,
-                paths=paths,
-                worker_python=PACKED_WORKER_PYTHON,
+            build_htcondor_worker_environment_job_kwargs(
+                worker_env,
+                log_paths=paths,
             )
         )
 
@@ -130,63 +140,6 @@ def prepare_debug_paths(root: Path) -> dict[str, Path]:
     for path in paths.values():
         path.mkdir(parents=True, exist_ok=True)
     return paths
-
-
-def pack_pixi_environment(output_file: Path, *, environment: str) -> Path:
-    output_file = output_file.resolve()
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    print(f"packing Pixi environment {environment!r} to {output_file}")
-    subprocess.run(
-        [
-            "pixi",
-            "pack",
-            "--environment",
-            environment,
-            "--ignore-pypi-non-wheel",
-            "--create-executable",
-            "--output-file",
-            str(output_file),
-        ],
-        check=True,
-    )
-    return output_file
-
-
-def build_packed_env_job_kwargs(
-    archive_path: Path,
-    *,
-    paths: dict[str, Path],
-    worker_python: str,
-) -> dict[str, object]:
-    archive_path = archive_path.resolve()
-    archive_name = archive_path.name
-    return {
-        "python": worker_python,
-        "job_extra_directives": {
-            "should_transfer_files": "YES",
-            "when_to_transfer_output": "ON_EXIT",
-            "transfer_executable": "False",
-            "transfer_input_files": str(archive_path),
-            "Output": str((paths["out"] / "worker-$(ClusterId).$(ProcId).out").resolve()),
-            "Error": str((paths["err"] / "worker-$(ClusterId).$(ProcId).err").resolve()),
-            "Log": str((paths["logs"] / "worker-$(ClusterId).log").resolve()),
-            "Stream_Output": "True",
-            "Stream_Error": "True",
-        },
-        "job_script_prologue": [
-            "set -e",
-            "echo '[fasthep] extracting packed Pixi environment'",
-            "pwd",
-            "ls -la",
-            f"chmod +x {archive_name}",
-            f"./{archive_name} --output-directory . --env-name {WORKER_ENV_DIR}",
-            f"echo '[fasthep] worker python: {worker_python}'",
-            f"ls -l {worker_python}",
-            f"{worker_python} --version",
-            f"{worker_python} -m distributed.cli.dask_worker --help >/dev/null",
-            "echo '[fasthep] launching dask worker'",
-        ],
-    }
 
 
 if __name__ == "__main__":

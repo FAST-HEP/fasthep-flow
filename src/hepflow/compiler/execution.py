@@ -58,6 +58,11 @@ def normalize_global_execution(raw: Any) -> dict[str, Any]:
         raise ValueError("execution.config must be a mapping")
     config = dict(config_raw)
 
+    environment_raw = raw.get("environment", {})
+    if not isinstance(environment_raw, dict):
+        raise ValueError("execution.environment must be a mapping")
+    environment = dict(environment_raw)
+
     pools = _normalize_execution_pools(
         raw.get("pools"),
         resources=resources,
@@ -70,6 +75,7 @@ def normalize_global_execution(raw: Any) -> dict[str, Any]:
         profiles=profiles,
         resources=resources,
         pools=pools,
+        environment=environment,
         config=config,
     ).to_dict()
 
@@ -160,6 +166,7 @@ def resolve_author_execution(
                 "profiles": [],
                 "resources": {},
                 "pools": {},
+                "environment": {},
                 "config": {},
             },
         }
@@ -250,6 +257,7 @@ def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:
         "profiles": [],
         "resources": {},
         "pools": {},
+        "environment": {},
         "config": {},
     }
     for layer in layers:
@@ -257,6 +265,7 @@ def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:
         config = dict(execution.pop("config", {}) or {})
         resources = dict(execution.pop("resources", {}) or {})
         pools = dict(execution.pop("pools", {}) or {})
+        environment = dict(execution.pop("environment", {}) or {})
         profiles = list(execution.pop("profiles", []) or [])
         merged.update(
             {key: value for key, value in execution.items() if value is not None}
@@ -269,6 +278,10 @@ def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:
         merged["pools"] = {
             **dict(merged.get("pools") or {}),
             **pools,
+        }
+        merged["environment"] = {
+            **dict(merged.get("environment") or {}),
+            **environment,
         }
         merged["config"] = {
             **dict(merged.get("config") or {}),

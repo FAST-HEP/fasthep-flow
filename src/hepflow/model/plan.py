@@ -317,6 +317,7 @@ class ExecutionPlan:
             "profiles": [],
             "resources": {},
             "pools": {},
+            "environment": {},
             "config": {},
         }
     )

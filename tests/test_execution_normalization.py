@@ -20,6 +20,7 @@ def test_missing_execution_block_gives_defaults(toy_author: dict[str, Any]) -> N
         "profiles": [],
         "resources": {},
         "pools": {},
+        "environment": {},
         "config": {},
     }
 
@@ -58,6 +59,7 @@ def test_global_execution_normalization_preserves_metadata(
 
     assert normalized["execution"] == {
         **author["execution"],
+        "environment": {},
         "pools": {
             "default": {
                 "resources": "default",
@@ -115,6 +117,7 @@ def test_global_execution_normalization_preserves_metadata(
             "config must be a mapping",
         ),
         ({"config": []}, "execution.config must be a mapping"),
+        ({"environment": []}, "execution.environment must be a mapping"),
     ],
 )
 def test_invalid_global_execution_errors(
@@ -259,6 +262,7 @@ def test_execution_metadata_propagates_to_plan(
     plan_yaml = plan.to_dict()
 
     assert plan_yaml["execution"]["resources"] == author["execution"]["resources"]
+    assert plan_yaml["execution"]["environment"] == {}
     assert plan_yaml["execution"]["pools"] == {
         "default": {"resources": "default", "workers": 100, "config": {}},
         "gpu": {"resources": "gpu", "workers": 2, "config": {}},
@@ -270,6 +274,41 @@ def test_execution_metadata_propagates_to_plan(
         "fallback": "default",
         "timeout": None,
         "modifiers": ["gpu.preload"],
+    }
+
+
+def test_packed_pixi_worker_environment_spec_written_at_compile(
+    toy_author: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    author = {
+        **toy_author,
+        "execution": {
+            "backend": "dask",
+            "strategy": "htcondor",
+            "environment": {
+                "type": "packed-pixi",
+                "environment": "default",
+                "archive_path": "debug/distributed/htcondor/env.sh",
+                "worker_env_dir": "worker-env",
+            },
+        },
+    }
+    author_path = tmp_path / "author.yaml"
+    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+
+    compile_author_file(author_path, outdir=tmp_path / "build")
+
+    worker_env = yaml.safe_load(
+        (tmp_path / "build" / "compile" / "worker_environment.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert worker_env == {
+        "type": "packed-pixi",
+        "environment": "default",
+        "archive_path": "debug/distributed/htcondor/env.sh",
+        "worker_env_dir": "worker-env",
     }
 
 

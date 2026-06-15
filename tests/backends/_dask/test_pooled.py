@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from hepflow.backends._dask._pooled import (
     DaskPooledCluster,
     normalize_pooled_worker_pools,
+)
+from hepflow.backends._dask._worker_env import (
+    PackedPixiEnvironmentSpec,
+    build_htcondor_worker_environment_job_kwargs,
+    build_packed_pixi_worker_environment,
 )
 
 
@@ -190,28 +196,77 @@ def test_pooled_cluster_invalid_scale_count_errors() -> None:
         cluster.scale({"default": -1})
 
 
-def test_manual_packed_env_job_kwargs_include_transfer_directives(tmp_path: Path) -> None:
-    manual = _load_manual_pooled_htcondor()
-    paths = manual.prepare_debug_paths(tmp_path / "htcondor")
-    kwargs = manual.build_packed_env_job_kwargs(
-        tmp_path / "htcondor" / "env.sh",
-        paths=paths,
-        worker_python="./env/bin/python",
+def test_packed_pixi_environment_spec_serializes() -> None:
+    spec = PackedPixiEnvironmentSpec(
+        environment="default",
+        archive_path="debug/distributed/htcondor/env.sh",
+        worker_env_dir="worker-env",
     )
 
-    directives = kwargs["job_extra_directives"]
+    assert spec.to_dict() == {
+        "type": "packed-pixi",
+        "environment": "default",
+        "archive_path": "debug/distributed/htcondor/env.sh",
+        "worker_env_dir": "worker-env",
+    }
+
+
+def test_packed_pixi_worker_environment_describes_unpack() -> None:
+    env = build_packed_pixi_worker_environment(
+        PackedPixiEnvironmentSpec(
+            environment="default",
+            archive_path="debug/distributed/htcondor/env.sh",
+            worker_env_dir="worker-env",
+        )
+    )
+
+    assert env.python == "./worker-env/bin/python"
+    assert env.transfer_files == [Path("debug/distributed/htcondor/env.sh")]
+    assert any(
+        "./env.sh --output-directory . --env-name worker-env" in item
+        for item in env.prologue
+    )
+    assert any("./worker-env/bin/python --version" in item for item in env.prologue)
+
+
+def test_htcondor_worker_environment_job_kwargs_include_transfer_directives(
+    tmp_path: Path,
+) -> None:
+    paths = {
+        "logs": tmp_path / "logs",
+        "out": tmp_path / "out",
+        "err": tmp_path / "err",
+    }
+    env = build_packed_pixi_worker_environment(
+        PackedPixiEnvironmentSpec(
+            environment="default",
+            archive_path=str(tmp_path / "env.sh"),
+            worker_env_dir="worker-env",
+        )
+    )
+    kwargs = build_htcondor_worker_environment_job_kwargs(env, log_paths=paths)
+
+    directives = cast("Mapping[str, str]", kwargs["job_extra_directives"])
     assert directives["should_transfer_files"] == "YES"
     assert directives["when_to_transfer_output"] == "ON_EXIT"
     assert directives["transfer_executable"] == "False"
     assert directives["transfer_input_files"].endswith("/env.sh")
     assert "out/worker-$(ClusterId).$(ProcId).out" in directives["Output"]
     assert "err/worker-$(ClusterId).$(ProcId).err" in directives["Error"]
-    assert kwargs["python"] == "./env/bin/python"
+    assert kwargs["python"] == "./worker-env/bin/python"
     assert not Path(str(kwargs["python"])).is_absolute()
+    prologue = cast("list[str]", kwargs["job_script_prologue"])
     assert any(
-        "./env.sh --output-directory . --env-name env" in item
-        for item in kwargs["job_script_prologue"]
+        "./env.sh --output-directory . --env-name worker-env" in item
+        for item in prologue
     )
+
+
+def test_manual_script_uses_shared_worker_env_helpers() -> None:
+    manual = _load_manual_pooled_htcondor()
+
+    assert not hasattr(manual, "build_packed_env_job_kwargs")
+    assert manual.pack_pixi_environment.__module__ == "hepflow.backends._dask._worker_env"
 
 
 def _pool_config() -> dict[str, dict[str, Any]]:
