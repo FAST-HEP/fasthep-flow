@@ -20,7 +20,8 @@ from hepflow.registry.loaders import (
     runtime_registry_from_config,
 )
 from hepflow.registry.runtime import RuntimeRegistry
-from hepflow.runtime.handlers import run_observer, run_sink, run_source, run_transform
+from hepflow.runtime.execution_modifiers import run_transform_with_execution_modifiers
+from hepflow.runtime.handlers import run_observer, run_sink, run_source
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
 from hepflow.runtime.materialize import materialize_final_products
 from hepflow.runtime.stream_readers import read_stream
@@ -482,11 +483,12 @@ def execute_graph_transform(
 
         inputs[input_name] = value
 
-    result = run_transform(
-        transform_name=node.impl,
+    result = run_transform_with_execution_modifiers(
+        node=node,
         inputs=inputs,
         params=node.params,
         registry_cfg=registry_cfg,
+        ctx={},
     )
     _store_node_outputs(transform_node_id, node.outputs, result, value_store)
     output_names = list(node.outputs.keys())
@@ -553,8 +555,8 @@ def execute_plan_partition(
             if node.role == "transform":
                 with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
                     hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
-                    result = run_transform(
-                        transform_name=node.impl,
+                    result = run_transform_with_execution_modifiers(
+                        node=node,
                         inputs=inputs,
                         params=node.params,
                         registry_cfg=registry_cfg,
