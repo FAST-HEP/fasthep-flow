@@ -6,9 +6,14 @@ from hepflow.model.author import (
     SystematicVariation,
     SystematicWeightRule,
 )
-from hepflow.model.execution import NodeResourceIntent, resolve_node_resource_intent
+from hepflow.model.execution import (
+    ExecutionModifier,
+    NodeResourceIntent,
+    resolve_node_resource_intent,
+)
 
 __all__ = [
+    "ExecutionModifier",
     "NodeResourceIntent",
     "SystematicApplicability",
     "SystematicVariation",

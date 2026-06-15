@@ -7,7 +7,11 @@ from hepflow.compiler.profiles import (
     load_profile_config_with_provenance,
     normalize_profile_names,
 )
-from hepflow.model.execution import ExecutionConfig, StageExecutionConfig
+from hepflow.model.execution import (
+    ExecutionConfig,
+    ExecutionModifier,
+    StageExecutionConfig,
+)
 from hepflow.model.lifecycle import WHEN_ALIASES
 
 
@@ -97,16 +101,68 @@ def normalize_stage_execution(raw: Any) -> dict[str, Any] | None:
         raise ValueError("stage execution.timeout must be a string or integer")
 
     modifiers_raw = raw.get("modifiers", [])
-    if not isinstance(modifiers_raw, list):
-        raise ValueError("stage execution.modifiers must be a list of strings")
 
     return StageExecutionConfig(
         require=require,
         prefer=prefer,
         fallback=fallback,
         timeout=timeout,
-        modifiers=_list_of_strings(modifiers_raw, "stage execution.modifiers"),
+        modifiers=normalise_execution_modifiers(modifiers_raw),
     ).to_dict()
+
+
+def normalise_execution_modifiers(raw: Any) -> list[ExecutionModifier]:
+    """
+    Normalise stage execution modifiers.
+
+    Modifier names are intentionally metadata-only for now. Registry resolution
+    will live here, or in a nearby helper, once concrete modifier specs/impls are
+    introduced under an `execution_modifiers` registry section.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("stage execution.modifiers must be a list")
+
+    modifiers: list[ExecutionModifier] = []
+    seen: set[str] = set()
+    for idx, item in enumerate(raw):
+        if isinstance(item, str):
+            name = item.strip()
+            params: dict[str, Any] = {}
+            if not name:
+                raise ValueError(
+                    f"stage execution.modifiers[{idx}] must be a non-empty string"
+                )
+        elif isinstance(item, dict):
+            raw_name = item.get("name")
+            if raw_name is None:
+                raise ValueError(
+                    f"stage execution.modifiers[{idx}] mapping must define name"
+                )
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                raise ValueError(
+                    f"stage execution.modifiers[{idx}].name must be a non-empty string"
+                )
+            name = raw_name.strip()
+            raw_params = item.get("params", {})
+            if not isinstance(raw_params, dict):
+                raise ValueError(
+                    f"stage execution.modifiers[{idx}].params must be a mapping"
+                )
+            params = dict(raw_params)
+        else:
+            raise ValueError(
+                f"stage execution.modifiers[{idx}] must be a string or mapping"
+            )
+
+        if name in seen:
+            raise ValueError(
+                f"stage execution.modifiers contains duplicate modifier {name!r}"
+            )
+        seen.add(name)
+        modifiers.append(ExecutionModifier(name=name, params=params))
+    return modifiers
 
 
 def validate_stage_execution_resource_references(

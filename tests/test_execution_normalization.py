@@ -151,8 +151,35 @@ def test_stage_execution_prefer_fallback_modifiers_preserved(
         "prefer": "gpu",
         "fallback": "default",
         "timeout": "10m",
-        "modifiers": ["gpu.preload", "cuda.jit"],
+        "modifiers": [
+            {"name": "gpu.preload", "params": {}},
+            {"name": "cuda.jit", "params": {}},
+        ],
     }
+
+
+def test_stage_execution_expanded_modifiers_preserve_params_and_order(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _with_stage_execution(
+        toy_author,
+        {
+            "modifiers": [
+                {
+                    "name": "gpu.preload",
+                    "params": {"fields": ["Jet_Pt", "Jet_Eta"]},
+                },
+                {"name": "cuda.jit", "params": {"mode": "eager"}},
+            ]
+        },
+    )
+
+    normalized = normalize_author(author)
+
+    assert normalized["analysis"]["stages"][0]["execution"]["modifiers"] == [
+        {"name": "gpu.preload", "params": {"fields": ["Jet_Pt", "Jet_Eta"]}},
+        {"name": "cuda.jit", "params": {"mode": "eager"}},
+    ]
 
 
 def test_stage_execution_require_preserved(toy_author: dict[str, Any]) -> None:
@@ -216,7 +243,26 @@ def test_implicit_default_pool_from_config_workers(
             "stage execution cannot define both require and prefer",
         ),
         ({"modifiers": "gpu.preload"}, "stage execution.modifiers must be a list"),
-        ({"modifiers": ["ok", 1]}, "must be a non-empty string"),
+        (
+            {"modifiers": [1]},
+            r"stage execution\.modifiers\[0\] must be a string or mapping",
+        ),
+        (
+            {"modifiers": [{"params": {}}]},
+            r"stage execution\.modifiers\[0\] mapping must define name",
+        ),
+        (
+            {"modifiers": [{"name": 1}]},
+            r"stage execution\.modifiers\[0\]\.name must be a non-empty string",
+        ),
+        (
+            {"modifiers": [{"name": "gpu.preload", "params": []}]},
+            r"stage execution\.modifiers\[0\]\.params must be a mapping",
+        ),
+        (
+            {"modifiers": ["gpu.preload", {"name": "gpu.preload"}]},
+            "stage execution.modifiers contains duplicate modifier 'gpu.preload'",
+        ),
         ({"timeout": []}, "stage execution.timeout must be a string or integer"),
     ],
 )
@@ -273,7 +319,7 @@ def test_execution_metadata_propagates_to_plan(
         "prefer": "gpu",
         "fallback": "default",
         "timeout": None,
-        "modifiers": ["gpu.preload"],
+        "modifiers": [{"name": "gpu.preload", "params": {}}],
     }
 
 

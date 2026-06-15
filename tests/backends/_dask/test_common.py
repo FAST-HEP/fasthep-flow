@@ -242,6 +242,34 @@ def test_build_dask_graph_skips_annotations_without_required_resources(
     assert records == [{}]
 
 
+def test_build_dask_graph_ignores_modifier_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    records: list[dict[str, Any]] = []
+
+    def fake_delayed(func: Any) -> Any:
+        def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            records.append({})
+            return {"func": func, "annotations": {}}
+
+        return wrapper
+
+    dask = types.ModuleType("dask")
+    cast(Any, dask).delayed = fake_delayed
+    monkeypatch.setitem(sys.modules, "dask", dask)
+
+    plan = _plan_with_node_execution(
+        {"modifiers": [{"name": "gpu.preload", "params": {}}]},
+        resources={},
+    )
+    plan.partitions = [_partition()]
+
+    tasks = build_dask_graph(plan, base_ctx={})
+
+    assert tasks[0]["annotations"] == {}
+    assert records == [{}]
+
+
 def _plan_with_node_execution(
     node_execution: dict[str, Any],
     *,

@@ -19,12 +19,21 @@ class ExecutionConfig:
 
 
 @dataclass(frozen=True)
+class ExecutionModifier:
+    name: str
+    params: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class StageExecutionConfig:
     require: str | None = None
     prefer: str | None = None
     fallback: str | None = None
     timeout: str | int | None = None
-    modifiers: list[str] = field(default_factory=list)
+    modifiers: list[ExecutionModifier] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
