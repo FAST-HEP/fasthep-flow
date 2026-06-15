@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Any
 
 
@@ -7,66 +8,62 @@ class ToyExecutionModifier:
     def __init__(self, label: str) -> None:
         self.label = label
 
-    def before(
+    def before_node(
         self,
         *,
-        stream: dict[str, Any],
-        params: dict[str, Any],
+        inputs: dict[str, Any],
         ctx: dict[str, Any],
         **_: Any,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
+    ) -> None:
         _record(ctx, f"{self.label}.before")
-        next_stream = dict(stream)
-        next_params = dict(params)
-        field = next_params.pop(f"{self.label}_field", None)
+        stream = dict(inputs["stream"])
+        field = ctx.get(f"{self.label}_field")
         if field:
-            next_stream[str(field)] = [value + 1 for value in next_stream["pt"]]
-        factor = next_params.pop(f"{self.label}_factor", None)
-        if factor is not None:
-            next_params["factor"] = factor
-        return next_stream, next_params
+            stream[str(field)] = [value + 1 for value in stream["pt"]]
+        inputs["stream"] = stream
 
-    def wrap(self, *, func: Any, ctx: dict[str, Any], **_: Any) -> Any:
-        def wrapped(**kwargs: Any) -> Any:
-            _record(ctx, f"{self.label}.wrap.enter")
-            result = func(**kwargs)
-            _record(ctx, f"{self.label}.wrap.exit")
-            return result
+    @contextmanager
+    def around_node(self, *, ctx: dict[str, Any], **_: Any) -> Any:
+        _record(ctx, f"{self.label}.around.enter")
+        try:
+            yield
+        finally:
+            _record(ctx, f"{self.label}.around.exit")
 
-        return wrapped
-
-    def after(
+    def after_node(
         self,
         *,
-        result: dict[str, Any],
+        outputs: dict[str, Any],
         ctx: dict[str, Any],
         **_: Any,
-    ) -> dict[str, Any]:
+    ) -> None:
         _record(ctx, f"{self.label}.after")
-        stream = dict(result.get("stream") or {})
+        stream = dict(outputs.get("stream") or {})
         stream[f"{self.label}_after"] = True
-        return {**result, "stream": stream}
+        outputs["stream"] = stream
 
 
 class FailingBeforeModifier:
-    def before(self, **_: Any) -> None:
+    def before_node(self, **_: Any) -> None:
         raise ValueError("before boom")
 
 
-class FailingWrapModifier:
-    def wrap(self, **_: Any) -> None:
-        raise ValueError("wrap boom")
+class FailingAroundModifier:
+    @contextmanager
+    def around_node(self, **_: Any) -> Any:
+        raise ValueError("around boom")
+        yield
 
 
 class FailingAfterModifier:
-    def after(self, **_: Any) -> None:
+    def after_node(self, **_: Any) -> None:
         raise ValueError("after boom")
 
 
 MODIFIER_A = ToyExecutionModifier("A")
 MODIFIER_B = ToyExecutionModifier("B")
 FAILING_BEFORE = FailingBeforeModifier()
-FAILING_WRAP = FailingWrapModifier()
+FAILING_AROUND = FailingAroundModifier()
 FAILING_AFTER = FailingAfterModifier()
 INVALID_MODIFIER = object()
 

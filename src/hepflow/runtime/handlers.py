@@ -230,35 +230,9 @@ def run_transform(
     registry_cfg: dict[str, Any] | None,
     ctx: dict[str, Any] | None = None,
 ) -> Any:
-    spec, impl = load_transform_spec_and_impl(registry_cfg, transform_name)
+    spec, impl = load_runtime_spec_and_impl(registry_cfg, "transforms", transform_name)
     _validate_transform_call(spec=spec, inputs=inputs, params=params)
-    return call_transform_impl(impl=impl, inputs=inputs, params=params, ctx=ctx)
-
-
-def load_transform_spec_and_impl(
-    registry_cfg: dict[str, Any] | None,
-    transform_name: str,
-) -> tuple[Any, Any]:
-    return load_runtime_spec_and_impl(registry_cfg, "transforms", transform_name)
-
-
-def call_transform_impl(
-    *,
-    impl: Any,
-    inputs: dict[str, Any],
-    params: dict[str, Any],
-    ctx: dict[str, Any] | None = None,
-) -> Any:
     return impl(**inputs, **params, ctx=dict(ctx or {}))
-
-
-def validate_transform_call(
-    *,
-    spec: Any,
-    inputs: dict[str, Any],
-    params: dict[str, Any],
-) -> None:
-    _validate_transform_call(spec=spec, inputs=inputs, params=params)
 
 
 def _validate_component_call(

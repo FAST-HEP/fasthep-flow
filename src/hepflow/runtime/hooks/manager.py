@@ -8,28 +8,51 @@ from hepflow.registry.defaults import (
     default_runtime_registry_config,
     merge_registry_config,
 )
+from hepflow.registry.loaders import load_object, load_runtime_entry
 from hepflow.runtime.hooks.loaders import load_hook_impl, load_hook_spec
 
 
 class HookDispatchError(RuntimeError):
-    def __init__(self, *, kind: str, event: str, cause: BaseException) -> None:
+    def __init__(
+        self,
+        *,
+        kind: str,
+        event: str,
+        cause: BaseException,
+        source: str = "execution_hook",
+        node_id: str | None = None,
+    ) -> None:
         self.kind = kind
         self.event = event
         self.cause = cause
-        super().__init__(f"Error hook {kind} failed during {event}: {cause}")
+        self.source = source
+        self.node_id = node_id
+        node_text = f" for node {node_id}" if node_id else ""
+        super().__init__(
+            f"Error {source} {kind!r} failed during {event}{node_text}: {cause}"
+        )
 
 
 class HookManager:
     """
-    Execution lifecycle hook dispatcher.
+    Execution lifecycle plugin dispatcher.
 
-    HookManager intentionally manages execution hooks only. Sinks and observers
-    remain graph components; the shared lifecycle vocabulary keeps a future
-    PluginManager possible without merging those concepts before alpha.
+    Author-facing execution hooks and execution modifiers are distinct concepts,
+    but internally they share the same ordered node lifecycle. Lifecycle plugins
+    receive mutable runtime objects. Observer-style hooks should treat
+    inputs/outputs/ctx as read-only; execution modifiers may intentionally mutate
+    inputs, outputs, or ctx as part of their documented contract.
     """
 
-    def __init__(self, hooks: list[tuple[Any, set[str]]] | None = None) -> None:
+    def __init__(
+        self,
+        hooks: list[tuple[Any, set[str]]] | None = None,
+        *,
+        registry_cfg: dict[str, Any] | None = None,
+    ) -> None:
         self.hooks: list[dict[str, Any]] = []
+        self.registry_cfg = dict(registry_cfg or {})
+        self._node_modifier_bindings: dict[str, list[dict[str, Any]]] = {}
         for index, item in enumerate(list(hooks or [])):
             hook, events = item
             normalized_events = {_normalize_hook_event(event) for event in events}
@@ -41,9 +64,14 @@ class HookManager:
                     "spec": {
                         "kind": kind,
                         "events": sorted(normalized_events),
+                        "source": "execution_hook",
                     },
                     "calls": 0,
                     "index": index,
+                    "order": 100,
+                    "source": "execution_hook",
+                    "scope": "global",
+                    "mutates": False,
                 }
             )
 
@@ -87,13 +115,28 @@ class HookManager:
                     "events": sorted(configured_events),
                 }
             )
-        manager = cls(hooks)
+        manager = cls(hooks, registry_cfg=registry_cfg)
         for binding, spec in zip(manager.hooks, enabled_specs, strict=False):
-            binding["spec"] = dict(spec)
+            binding["spec"] = {
+                "source": "execution_hook",
+                "scope": "global",
+                **dict(spec),
+            }
         return manager
 
-    def _dispatch(self, event: str, **kwargs: Any) -> None:
-        for binding in self.hooks:
+    def _dispatch(
+        self,
+        event: str,
+        *,
+        reverse: bool = False,
+        node: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        bindings = self._bindings_for_event(event, node=node)
+        if reverse:
+            bindings = list(reversed(bindings))
+        call_kwargs = {"node": node, **kwargs} if node is not None else kwargs
+        for binding in bindings:
             hook = binding["hook"]
             events = binding["events"]
             if events and event not in events:
@@ -102,7 +145,8 @@ class HookManager:
             if method is not None:
                 binding["calls"] += 1
                 try:
-                    method(**kwargs)
+                    _apply_binding_params(binding, call_kwargs)
+                    method(**call_kwargs)
                 except Exception as exc:
                     spec = dict(binding.get("spec") or {})
                     kind = str(spec.get("kind") or type(hook).__name__)
@@ -110,10 +154,12 @@ class HookManager:
                         kind=kind,
                         event=event,
                         cause=exc,
+                        source=str(spec.get("source") or binding.get("source")),
+                        node_id=_node_id(node),
                     ) from exc
 
-    def has_event(self, event: str) -> bool:
-        for binding in self.hooks:
+    def has_event(self, event: str, *, node: Any = None) -> bool:
+        for binding in self._bindings_for_event(event, node=node):
             events = binding["events"]
             hook = binding["hook"]
             if events and event not in events:
@@ -125,7 +171,7 @@ class HookManager:
     @contextmanager
     def around_node(self, *, node, inputs: dict[str, Any], ctx: dict[str, Any]):
         with ExitStack() as stack:
-            for binding in self.hooks:
+            for binding in self._bindings_for_event("around_node", node=node):
                 hook = binding["hook"]
                 events = binding["events"]
                 if events and "around_node" not in events:
@@ -135,6 +181,10 @@ class HookManager:
                     continue
                 binding["calls"] += 1
                 try:
+                    _apply_binding_params(
+                        binding,
+                        {"node": node, "inputs": inputs, "ctx": ctx},
+                    )
                     stack.enter_context(method(node=node, inputs=inputs, ctx=ctx))
                 except Exception as exc:
                     spec = dict(binding.get("spec") or {})
@@ -143,6 +193,8 @@ class HookManager:
                         kind=kind,
                         event="around_node",
                         cause=exc,
+                        source=str(spec.get("source") or binding.get("source")),
+                        node_id=_node_id(node),
                     ) from exc
             yield
 
@@ -160,7 +212,14 @@ class HookManager:
         outputs: Any,
         ctx: dict[str, Any],
     ) -> None:
-        self._dispatch("after_node", node=node, inputs=inputs, outputs=outputs, ctx=ctx)
+        self._dispatch(
+            "after_node",
+            reverse=True,
+            node=node,
+            inputs=inputs,
+            outputs=outputs,
+            ctx=ctx,
+        )
 
     def on_node_error(
         self,
@@ -170,7 +229,14 @@ class HookManager:
         ctx: dict[str, Any],
         exc: BaseException,
     ) -> None:
-        self._dispatch("on_node_error", node=node, inputs=inputs, ctx=ctx, exc=exc)
+        self._dispatch(
+            "on_node_error",
+            reverse=True,
+            node=node,
+            inputs=inputs,
+            ctx=ctx,
+            exc=exc,
+        )
 
     def partition_end(self, *, partition, ctx: dict[str, Any], value_store) -> None:
         self._dispatch(
@@ -230,7 +296,7 @@ class HookManager:
 
     def usage_summary(self) -> dict[str, Any]:
         enabled: list[dict[str, Any]] = []
-        for binding in self.hooks:
+        for binding in [*self.hooks, *self._all_node_modifier_bindings()]:
             spec = dict(binding.get("spec") or {})
             item = {
                 "kind": spec.get("kind"),
@@ -239,10 +305,119 @@ class HookManager:
             }
             if "source" in spec:
                 item["source"] = spec["source"]
+            if "scope" in spec:
+                item["scope"] = spec["scope"]
+            if "node" in spec:
+                item["node"] = spec["node"]
+            if "mutates" in spec:
+                item["mutates"] = spec["mutates"]
             if "params" in spec:
                 item["params"] = spec["params"]
             enabled.append(item)
         return {"enabled": enabled}
+
+    def _bindings_for_event(self, event: str, *, node: Any = None) -> list[dict[str, Any]]:
+        bindings = list(self.hooks)
+        if node is not None and event in NODE_EVENTS:
+            bindings.extend(self._node_modifier_bindings_for(node))
+        return sorted(bindings, key=lambda binding: int(binding.get("order") or 0))
+
+    def _node_modifier_bindings_for(self, node: Any) -> list[dict[str, Any]]:
+        node_id = _node_id(node)
+        if node_id in self._node_modifier_bindings:
+            return self._node_modifier_bindings[node_id]
+        bindings: list[dict[str, Any]] = []
+        execution = dict((getattr(node, "meta", {}) or {}).get("execution") or {})
+        for index, raw in enumerate(list(execution.get("modifiers") or [])):
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name") or "")
+            if not name:
+                continue
+            params = dict(raw.get("params") or {})
+            hook = self._load_execution_modifier(name=name, node=node, params=params)
+            events = _supported_node_events(hook)
+            bindings.append(
+                {
+                    "hook": hook,
+                    "events": events,
+                    "spec": {
+                        "kind": name,
+                        "source": "execution_modifier",
+                        "scope": "node",
+                        "node": node_id,
+                        "mutates": True,
+                        "events": sorted(events),
+                        "params": params,
+                    },
+                    "calls": 0,
+                    "index": index,
+                    "order": 300 + index,
+                    "source": "execution_modifier",
+                    "scope": "node",
+                    "mutates": True,
+                }
+            )
+        self._node_modifier_bindings[node_id] = bindings
+        return bindings
+
+    def _load_execution_modifier(
+        self,
+        *,
+        name: str,
+        node: Any,
+        params: dict[str, Any],
+    ) -> Any:
+        try:
+            entry = load_runtime_entry(self.registry_cfg, "execution_modifiers", name)
+        except Exception as exc:
+            raise HookDispatchError(
+                kind=name,
+                event="resolve",
+                source="execution_modifier",
+                node_id=_node_id(node),
+                cause=RuntimeError(f"Execution modifier {name!r} is not registered"),
+            ) from exc
+        impl_ref = entry.get("impl")
+        if not isinstance(impl_ref, str) or ":" not in impl_ref:
+            raise HookDispatchError(
+                kind=name,
+                event="resolve",
+                source="execution_modifier",
+                node_id=_node_id(node),
+                cause=RuntimeError(
+                    f"Execution modifier {name!r} must define string 'impl' "
+                    "as 'module:object'"
+                ),
+            )
+        try:
+            impl = load_object(impl_ref)
+        except Exception as exc:
+            raise HookDispatchError(
+                kind=name,
+                event="resolve",
+                source="execution_modifier",
+                node_id=_node_id(node),
+                cause=exc,
+            ) from exc
+        hook = impl(**params) if isinstance(impl, type) else impl
+        if not _supported_node_events(hook):
+            raise HookDispatchError(
+                kind=name,
+                event="resolve",
+                source="execution_modifier",
+                node_id=_node_id(node),
+                cause=TypeError(
+                    "execution modifier must define at least one node lifecycle method"
+                ),
+            )
+        return hook
+
+    def _all_node_modifier_bindings(self) -> list[dict[str, Any]]:
+        bindings: list[dict[str, Any]] = []
+        for node_bindings in self._node_modifier_bindings.values():
+            bindings.extend(node_bindings)
+        return bindings
 
 
 def _hook_params(hook_cfg: dict[str, Any]) -> dict[str, Any]:
@@ -257,3 +432,24 @@ def _hook_params(hook_cfg: dict[str, Any]) -> dict[str, Any]:
 def _normalize_hook_event(event: Any) -> str:
     value = str(event).strip()
     return WHEN_ALIASES.get(value, value)
+
+
+NODE_EVENTS = {"before_node", "around_node", "after_node", "on_node_error"}
+
+
+def _supported_node_events(hook: Any) -> set[str]:
+    return {event for event in NODE_EVENTS if callable(getattr(hook, event, None))}
+
+
+def _apply_binding_params(binding: dict[str, Any], call_kwargs: dict[str, Any]) -> None:
+    if binding.get("source") != "execution_modifier":
+        return
+    ctx = call_kwargs.get("ctx")
+    if not isinstance(ctx, dict):
+        return
+    params = dict((binding.get("spec") or {}).get("params") or {})
+    ctx.update(params)
+
+
+def _node_id(node: Any) -> str:
+    return str(getattr(node, "id", "node"))

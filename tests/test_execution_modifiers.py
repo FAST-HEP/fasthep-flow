@@ -9,32 +9,41 @@ import pytest
 import yaml
 
 from hepflow.api import compile_author_file, run_plan_file
-from hepflow.model.plan import ExecutionNode
-from hepflow.runtime.execution_modifiers import (
-    resolve_execution_modifiers_for_node,
-    run_transform_with_execution_modifiers,
-)
+from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
+from hepflow.runtime.engine import execute_plan_partition
+from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
 
 
-def test_modifier_name_resolves_through_registry(toy_registry: dict[str, Any]) -> None:
-    registry = _registry_with_modifiers(toy_registry)
-    node = _modifier_node(["toy.A"])
+def test_modifier_name_resolves_through_hook_manager(toy_registry: dict[str, Any]) -> None:
+    plan = _plan_with_modifier(toy_registry, ["toy.A"])
+    manager = HookManager.from_plan(plan)
 
-    resolved = resolve_execution_modifiers_for_node(node, registry_cfg=registry)
+    manager.before_node(
+        node=plan.get_node("stage.Scale"),
+        inputs={"stream": {"pt": [1]}},
+        ctx={"A_field": "pt_plus"},
+    )
 
-    assert [modifier.name for modifier in resolved] == ["toy.A"]
+    assert manager.usage_summary()["enabled"][0]["kind"] == "toy.A"
+    assert manager.usage_summary()["enabled"][0]["source"] == "execution_modifier"
 
 
 def test_missing_modifier_errors_clearly(toy_registry: dict[str, Any]) -> None:
-    node = _modifier_node(["toy.missing"])
+    plan = _plan_with_modifier(toy_registry, ["toy.missing"])
+    manager = HookManager.from_plan(plan)
 
     with pytest.raises(
-        RuntimeError,
+        HookDispatchError,
         match=escape(
-            "Execution modifier 'toy.missing' is not registered for node stage.Scale"
+            "Error execution_modifier 'toy.missing' failed during resolve "
+            "for node stage.Scale: Execution modifier 'toy.missing' is not registered"
         ),
     ):
-        resolve_execution_modifiers_for_node(node, registry_cfg=toy_registry)
+        manager.before_node(
+            node=plan.get_node("stage.Scale"),
+            inputs={"stream": {"pt": [1]}},
+            ctx={},
+        )
 
 
 def test_invalid_modifier_shape_errors_clearly(toy_registry: dict[str, Any]) -> None:
@@ -42,47 +51,93 @@ def test_invalid_modifier_shape_errors_clearly(toy_registry: dict[str, Any]) -> 
         toy_registry,
         {"toy.invalid": {"impl": "tests.toy_components.modifiers:INVALID_MODIFIER"}},
     )
-    node = _modifier_node(["toy.invalid"])
+    plan = _plan_with_modifier(registry, ["toy.invalid"])
+    manager = HookManager.from_plan(plan)
 
     with pytest.raises(
-        TypeError,
-        match="must define at least one callable hook",
+        HookDispatchError,
+        match="execution modifier must define at least one node lifecycle method",
     ):
-        resolve_execution_modifiers_for_node(node, registry_cfg=registry)
+        manager.before_node(
+            node=plan.get_node("stage.Scale"),
+            inputs={"stream": {"pt": [1]}},
+            ctx={},
+        )
 
 
 def test_modifier_lifecycle_order_and_mutation(toy_registry: dict[str, Any]) -> None:
     registry = _registry_with_modifiers(toy_registry)
-    node = _modifier_node(["toy.A", "toy.B"])
-    node.params = {
-        "source": "pt_plus",
-        "output": "scaled",
-        "factor": 2,
-        "A_field": "pt_plus",
-    }
-    ctx: dict[str, Any] = {"_modifier_events": []}
+    plan = _plan_with_modifier(registry, ["toy.A", "toy.B"])
+    node = plan.get_node("stage.Scale")
+    node.params = {"source": "pt_plus", "output": "scaled", "factor": 2}
+    ctx: dict[str, Any] = {"_modifier_events": [], "A_field": "pt_plus"}
 
-    result = run_transform_with_execution_modifiers(
-        node=node,
-        inputs={"stream": {"pt": [1, 2]}},
-        params=node.params,
-        registry_cfg=registry,
+    value_store = execute_plan_partition(
+        plan,
         ctx=ctx,
+        registry_cfg=registry,
+        initial_values={("source.Events", "stream"): {"pt": [1, 2]}},
+        skip_roles={"source"},
     )
 
     assert ctx["_modifier_events"] == [
+        "A.around.enter",
+        "B.around.enter",
         "A.before",
         "B.before",
-        "B.wrap.enter",
-        "A.wrap.enter",
-        "A.wrap.exit",
-        "B.wrap.exit",
         "B.after",
         "A.after",
+        "B.around.exit",
+        "A.around.exit",
     ]
-    assert result["stream"]["scaled"] == [4, 6]
-    assert result["stream"]["A_after"] is True
-    assert result["stream"]["B_after"] is True
+    stream = value_store[("stage.Scale", "stream")]
+    assert stream["scaled"] == [4, 6]
+    assert stream["A_after"] is True
+    assert stream["B_after"] is True
+
+
+def test_global_hook_wraps_node_modifier_lifecycle(toy_registry: dict[str, Any]) -> None:
+    registry = _registry_with_modifiers(
+        {
+            **toy_registry,
+            "hooks": {
+                **dict(toy_registry.get("hooks") or {}),
+                "toy.order": {
+                    "spec": "tests.toy_components.hooks:TOY_ORDER_HOOK_SPEC",
+                    "impl": "tests.toy_components.hooks:ToyOrderHook",
+                },
+            },
+        }
+    )
+    plan = _plan_with_modifier(registry, ["toy.A"])
+    plan.execution_hooks = [
+        {
+            "kind": "toy.order",
+            "events": ["around_node", "before_node", "after_node"],
+        }
+    ]
+    node = plan.get_node("stage.Scale")
+    node.params = {"source": "pt_plus", "output": "scaled", "factor": 2}
+    ctx: dict[str, Any] = {"_modifier_events": [], "A_field": "pt_plus"}
+
+    execute_plan_partition(
+        plan,
+        ctx=ctx,
+        registry_cfg=registry,
+        initial_values={("source.Events", "stream"): {"pt": [1]}},
+        skip_roles={"source"},
+    )
+
+    assert ctx["_modifier_events"] == [
+        "global.around.enter",
+        "A.around.enter",
+        "global.before",
+        "A.before",
+        "A.after",
+        "global.after",
+        "A.around.exit",
+        "global.around.exit",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -90,36 +145,36 @@ def test_modifier_lifecycle_order_and_mutation(toy_registry: dict[str, Any]) -> 
     [
         (
             "toy.fail_before",
-            "Execution modifier 'toy.fail_before' failed during before phase "
+            "Error execution_modifier 'toy.fail_before' failed during before_node "
             "for node stage.Scale: before boom",
         ),
         (
-            "toy.fail_wrap",
-            "Execution modifier 'toy.fail_wrap' failed during wrap phase "
-            "for node stage.Scale: wrap boom",
+            "toy.fail_around",
+            "Error execution_modifier 'toy.fail_around' failed during around_node "
+            "for node stage.Scale: around boom",
         ),
         (
             "toy.fail_after",
-            "Execution modifier 'toy.fail_after' failed during after phase "
+            "Error execution_modifier 'toy.fail_after' failed during after_node "
             "for node stage.Scale: after boom",
         ),
     ],
 )
-def test_modifier_hook_failures_include_phase_node_and_name(
+def test_modifier_hook_failures_use_hook_dispatch_error(
     toy_registry: dict[str, Any],
     modifier_name: str,
     message: str,
 ) -> None:
     registry = _registry_with_modifiers(toy_registry)
-    node = _modifier_node([modifier_name])
+    plan = _plan_with_modifier(registry, [modifier_name])
 
-    with pytest.raises(RuntimeError, match=escape(message)):
-        run_transform_with_execution_modifiers(
-            node=node,
-            inputs={"stream": {"pt": [1, 2]}},
-            params=node.params,
-            registry_cfg=registry,
+    with pytest.raises(HookDispatchError, match=escape(message)):
+        execute_plan_partition(
+            plan,
             ctx={},
+            registry_cfg=registry,
+            initial_values={("source.Events", "stream"): {"pt": [1, 2]}},
+            skip_roles={"source"},
         )
 
 
@@ -136,9 +191,10 @@ def test_runtime_executes_transform_with_modifier_hooks(
         "source": "pt_plus",
         "output": "modified",
         "factor": 2,
-        "A_field": "pt_plus",
     }
-    stage["execution"] = {"modifiers": ["toy.A"]}
+    stage["execution"] = {
+        "modifiers": [{"name": "toy.A", "params": {"A_field": "pt_plus"}}]
+    }
 
     author_path = tmp_path / "author.yaml"
     author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
@@ -157,22 +213,46 @@ def test_runtime_executes_transform_with_modifier_hooks(
     assert payload["A_after"] is True
 
 
-def _modifier_node(modifiers: list[str]) -> ExecutionNode:
-    return ExecutionNode(
-        id="stage.Scale",
-        graph_node_id="stage.Scale",
-        role="transform",
-        impl="toy.scale",
-        params={"factor": 2},
-        outputs={"stream": "event_stream"},
-        meta={
-            "execution": {
-                "modifiers": [
-                    {"name": modifier, "params": {}} for modifier in modifiers
-                ]
-            }
-        },
+def _plan_with_modifier(
+    registry: dict[str, Any],
+    modifiers: list[str],
+) -> ExecutionPlan:
+    plan = ExecutionPlan(registry=_registry_with_modifiers(registry))
+    plan.add_node(
+        ExecutionNode(
+            id="source.Events",
+            graph_node_id="source.Events",
+            role="source",
+            impl="toy.source",
+            outputs={"stream": "event_stream"},
+        )
     )
+    plan.add_node(
+        ExecutionNode(
+            id="stage.Scale",
+            graph_node_id="stage.Scale",
+            role="transform",
+            impl="toy.scale",
+            inputs=[
+                PlanInputRef(
+                    node_id="source.Events",
+                    output_name="stream",
+                    input_name="stream",
+                )
+            ],
+            params={"factor": 2},
+            outputs={"stream": "event_stream"},
+            meta={
+                "execution": {
+                    "modifiers": [
+                        {"name": modifier, "params": {}}
+                        for modifier in modifiers
+                    ]
+                }
+            },
+        )
+    )
+    return plan
 
 
 def _registry_with_modifiers(
@@ -182,12 +262,15 @@ def _registry_with_modifiers(
     return {
         **registry,
         "execution_modifiers": {
+            **dict(registry.get("execution_modifiers") or {}),
             "toy.A": {"impl": "tests.toy_components.modifiers:MODIFIER_A"},
             "toy.B": {"impl": "tests.toy_components.modifiers:MODIFIER_B"},
             "toy.fail_before": {
                 "impl": "tests.toy_components.modifiers:FAILING_BEFORE"
             },
-            "toy.fail_wrap": {"impl": "tests.toy_components.modifiers:FAILING_WRAP"},
+            "toy.fail_around": {
+                "impl": "tests.toy_components.modifiers:FAILING_AROUND"
+            },
             "toy.fail_after": {"impl": "tests.toy_components.modifiers:FAILING_AFTER"},
             **dict(modifiers or {}),
         },

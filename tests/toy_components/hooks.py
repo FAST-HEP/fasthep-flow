@@ -16,6 +16,13 @@ TOY_CONTEXT_HOOK_SPEC = {
     "context_outputs": ["toy_context"],
 }
 
+TOY_ORDER_HOOK_SPEC = {
+    "name": "toy.order",
+    "kind": "hook",
+    "events": ["around_node", "before_node", "after_node"],
+    "context_outputs": [],
+}
+
 
 class ToyContextHook:
     def __init__(self, value: str = "ready") -> None:
@@ -47,3 +54,23 @@ class ToyContextHook:
     def run_end(self, *, plan: Any, ctx: dict[str, Any], summary: dict[str, Any]) -> None:
         self.events.append("run_end")
         summary["toy_hook_events"] = list(self.events)
+
+
+class ToyOrderHook:
+    @contextmanager
+    def around_node(self, *, node: Any, ctx: dict[str, Any], **_: Any):
+        if node.id == "stage.Scale":
+            ctx.setdefault("_modifier_events", []).append("global.around.enter")
+        try:
+            yield
+        finally:
+            if node.id == "stage.Scale":
+                ctx.setdefault("_modifier_events", []).append("global.around.exit")
+
+    def before_node(self, *, node: Any, ctx: dict[str, Any], **_: Any) -> None:
+        if node.id == "stage.Scale":
+            ctx.setdefault("_modifier_events", []).append("global.before")
+
+    def after_node(self, *, node: Any, ctx: dict[str, Any], **_: Any) -> None:
+        if node.id == "stage.Scale":
+            ctx.setdefault("_modifier_events", []).append("global.after")
