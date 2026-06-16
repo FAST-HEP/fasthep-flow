@@ -116,6 +116,7 @@ The current focus areas include:
 :maxdepth: 1
 :hidden:
 overview/index
+concepts/index
 extensibility/index
 custom-operations/index
 developer-architecture/index
