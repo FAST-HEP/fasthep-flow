@@ -13,8 +13,10 @@ from hepflow.backends._dask._pooled import (
 )
 from hepflow.backends._dask._worker_env import (
     PackedPixiEnvironmentSpec,
+    WorkerCredential,
     build_htcondor_worker_environment_job_kwargs,
     build_packed_pixi_worker_environment,
+    x509_proxy_from_environment,
 )
 
 
@@ -262,11 +264,135 @@ def test_htcondor_worker_environment_job_kwargs_include_transfer_directives(
     )
 
 
+def test_x509_proxy_from_environment_returns_none_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("X509_USER_PROXY", raising=False)
+
+    assert x509_proxy_from_environment() is None
+
+
+def test_x509_proxy_from_environment_can_require_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("X509_USER_PROXY", raising=False)
+
+    with pytest.raises(ValueError, match="X509_USER_PROXY is not set"):
+        x509_proxy_from_environment(required=True)
+
+
+def test_x509_proxy_from_environment_resolves_existing_proxy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    proxy = tmp_path / "x509up_u12345"
+    proxy.write_text("secret proxy bytes", encoding="utf-8")
+    monkeypatch.setenv("X509_USER_PROXY", str(proxy))
+
+    credential = x509_proxy_from_environment()
+
+    assert credential == WorkerCredential(
+        type="x509_proxy",
+        source_path=proxy.resolve(),
+        target_name="x509_proxy",
+        env_var="X509_USER_PROXY",
+    )
+
+
+def test_x509_proxy_from_environment_errors_for_missing_proxy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    proxy = tmp_path / "missing-proxy"
+    monkeypatch.setenv("X509_USER_PROXY", str(proxy))
+
+    with pytest.raises(FileNotFoundError, match="missing X509 proxy file"):
+        x509_proxy_from_environment()
+
+
+def test_htcondor_worker_environment_job_kwargs_include_x509_credential(
+    tmp_path: Path,
+) -> None:
+    paths = {
+        "logs": tmp_path / "logs",
+        "out": tmp_path / "out",
+        "err": tmp_path / "err",
+    }
+    env_archive = tmp_path / "env.sh"
+    proxy = tmp_path / "x509up_u12345"
+    env_archive.write_text("env", encoding="utf-8")
+    proxy.write_text("secret proxy bytes", encoding="utf-8")
+    env = build_packed_pixi_worker_environment(
+        PackedPixiEnvironmentSpec(
+            environment="default",
+            archive_path=str(env_archive),
+            worker_env_dir="worker-env",
+        ),
+        credentials=[
+            WorkerCredential(
+                type="x509_proxy",
+                source_path=proxy,
+                target_name="x509_proxy",
+                env_var="X509_USER_PROXY",
+            )
+        ],
+    )
+
+    kwargs = build_htcondor_worker_environment_job_kwargs(env, log_paths=paths)
+
+    directives = cast("Mapping[str, str]", kwargs["job_extra_directives"])
+    transfer_files = directives["transfer_input_files"]
+    assert str(env_archive.resolve()) in transfer_files
+    assert str(proxy.resolve()) in transfer_files
+    prologue = cast("list[str]", kwargs["job_script_prologue"])
+    assert any("configuring x509_proxy credential" in item for item in prologue)
+    assert 'export X509_USER_PROXY="$X509_USER_PROXY_TARGET"' in prologue
+    assert 'chmod 600 "$X509_USER_PROXY"' in prologue
+    assert not any("secret proxy bytes" in item for item in prologue)
+    assert any(
+        "./env.sh --output-directory . --env-name worker-env" in item
+        for item in prologue
+    )
+
+
+def test_htcondor_worker_environment_transfer_basenames_must_be_unique(
+    tmp_path: Path,
+) -> None:
+    paths = {
+        "logs": tmp_path / "logs",
+        "out": tmp_path / "out",
+        "err": tmp_path / "err",
+    }
+    first = tmp_path / "a" / "x509_proxy"
+    second = tmp_path / "b" / "x509_proxy"
+    env = build_packed_pixi_worker_environment(
+        PackedPixiEnvironmentSpec(
+            environment="default",
+            archive_path=str(first),
+            worker_env_dir="worker-env",
+        ),
+        credentials=[
+            WorkerCredential(
+                type="x509_proxy",
+                source_path=second,
+                target_name="x509_proxy",
+                env_var="X509_USER_PROXY",
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match="unique basenames"):
+        build_htcondor_worker_environment_job_kwargs(env, log_paths=paths)
+
+
 def test_manual_script_uses_shared_worker_env_helpers() -> None:
     manual = _load_manual_pooled_htcondor()
 
     assert not hasattr(manual, "build_packed_env_job_kwargs")
     assert manual.pack_pixi_environment.__module__ == "hepflow.backends._dask._worker_env"
+    assert manual.x509_proxy_from_environment.__module__ == (
+        "hepflow.backends._dask._worker_env"
+    )
 
 
 def _pool_config() -> dict[str, dict[str, Any]]:

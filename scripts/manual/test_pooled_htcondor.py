@@ -11,6 +11,7 @@ from hepflow.backends._dask._worker_env import (
     build_htcondor_worker_environment_job_kwargs,
     build_packed_pixi_worker_environment,
     pack_pixi_environment,
+    x509_proxy_from_environment,
 )
 
 DEBUG_ROOT = Path("build/debug/distributed/htcondor")
@@ -31,13 +32,18 @@ def where_am_i(label: str) -> dict[str, object]:
 
 def main() -> None:
     args = parse_args()
+    if args.x509_proxy_from_env and not args.pack_env:
+        raise SystemExit("--x509-proxy-from-env currently requires --pack-env")
     paths = prepare_debug_paths(DEBUG_ROOT)
     packed_env = None
+    x509_credential = None
     common_job_kwargs: dict[str, object] = {
         "log_directory": str(paths["logs"].resolve()),
     }
 
     if args.pack_env:
+        if args.x509_proxy_from_env:
+            x509_credential = x509_proxy_from_environment(required=True)
         packed_env = pack_pixi_environment(
             paths["root"] / PACKED_ENV_NAME,
             environment=args.environment,
@@ -47,7 +53,8 @@ def main() -> None:
                 environment=args.environment,
                 archive_path=str(packed_env),
                 worker_env_dir=WORKER_ENV_DIR,
-            )
+            ),
+            credentials=[x509_credential] if x509_credential is not None else None,
         )
         common_job_kwargs.update(
             build_htcondor_worker_environment_job_kwargs(
@@ -57,12 +64,16 @@ def main() -> None:
         )
 
     print(f"packed mode: {args.pack_env}")
+    print(f"x509 proxy transfer: {args.x509_proxy_from_env}")
     print(f"debug root: {paths['root'].resolve()}")
     print(f"HTCondor log directory: {paths['logs'].resolve()}")
     print(f"HTCondor stdout directory: {paths['out'].resolve()}")
     print(f"HTCondor stderr directory: {paths['err'].resolve()}")
     print(f"packed environment: {packed_env.resolve() if packed_env else '<disabled>'}")
     print(f"worker python: {common_job_kwargs.get('python', '<submit-host default>')}")
+    if x509_credential is not None:
+        print(f"x509 proxy source: {x509_credential.source_path}")
+        print(f"x509 proxy worker env var: {x509_credential.env_var}")
 
     cluster = DaskPooledHTCondorCluster(
         job_kwargs=common_job_kwargs,
@@ -126,6 +137,11 @@ def parse_args() -> argparse.Namespace:
         "--environment",
         default="default",
         help="Pixi environment to pack when --pack-env is enabled.",
+    )
+    parser.add_argument(
+        "--x509-proxy-from-env",
+        action="store_true",
+        help="Transfer the X509 proxy named by X509_USER_PROXY to HTCondor workers.",
     )
     return parser.parse_args()
 
