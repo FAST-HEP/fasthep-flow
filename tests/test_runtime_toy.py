@@ -70,6 +70,56 @@ def test_partition_dataset_and_run_end_sink_timing(
 
 
 def test_root_tree_source_metadata_only_when_only_schema_observers() -> None:
+    plan, source = _root_tree_plan(
+        [
+            _schema_observer(
+                "observe.schema.read_events",
+                upstream="read.events",
+            )
+        ]
+    )
+
+    assert _source_should_read_metadata_only(plan, source) is True
+
+
+def test_root_tree_source_not_metadata_only_when_transform_consumes_stream() -> None:
+    plan, source = _root_tree_plan([_define_transform(upstream="read.events")])
+
+    assert _source_should_read_metadata_only(plan, source) is False
+
+
+def test_root_tree_source_not_metadata_only_with_schema_and_transform() -> None:
+    plan, source = _root_tree_plan(
+        [
+            _schema_observer(
+                "observe.schema.read_events",
+                upstream="read.events",
+            ),
+            _define_transform(upstream="read.events"),
+        ]
+    )
+
+    assert _source_should_read_metadata_only(plan, source) is False
+
+
+def test_root_tree_source_not_metadata_only_with_downstream_transform() -> None:
+    plan, source = _root_tree_plan(
+        [
+            _schema_observer(
+                "observe.schema.read_events",
+                upstream="read.events",
+            ),
+            _define_transform(
+                upstream="observe.schema.read_events",
+                upstream_output="report",
+            ),
+        ]
+    )
+
+    assert _source_should_read_metadata_only(plan, source) is False
+
+
+def _root_tree_plan(nodes: list[ExecutionNode]) -> tuple[ExecutionPlan, ExecutionNode]:
     plan = ExecutionPlan()
     source = ExecutionNode(
         id="read.events",
@@ -78,50 +128,41 @@ def test_root_tree_source_metadata_only_when_only_schema_observers() -> None:
         impl="root_tree",
         outputs={"stream": "event_stream"},
     )
-    observer = ExecutionNode(
-        id="observe.schema.read_events",
-        graph_node_id="observe.schema.read_events",
+    plan.add_node(source)
+    for node in nodes:
+        plan.add_node(node)
+    return plan, source
+
+
+def _schema_observer(node_id: str, *, upstream: str) -> ExecutionNode:
+    return ExecutionNode(
+        id=node_id,
+        graph_node_id=node_id,
         role="observer",
         impl="hep.schema_snapshot",
         inputs=[
             PlanInputRef(
-                node_id="read.events",
+                node_id=upstream,
                 output_name="stream",
                 input_name="target",
             )
         ],
         outputs={"report": "report"},
     )
-    plan.add_node(source)
-    plan.add_node(observer)
-
-    assert _source_should_read_metadata_only(plan, source) is True
 
 
-def test_root_tree_source_not_metadata_only_when_transform_consumes_stream() -> None:
-    plan = ExecutionPlan()
-    source = ExecutionNode(
-        id="read.events",
-        graph_node_id="read.events",
-        role="source",
-        impl="root_tree",
-        outputs={"stream": "event_stream"},
-    )
-    transform = ExecutionNode(
-        id="stage.Derived",
-        graph_node_id="stage.Derived",
+def _define_transform(*, upstream: str, upstream_output: str = "stream") -> ExecutionNode:
+    return ExecutionNode(
+        id=f"stage.Derived.from.{upstream}",
+        graph_node_id=f"stage.Derived.from.{upstream}",
         role="transform",
         impl="hep.define",
         inputs=[
             PlanInputRef(
-                node_id="read.events",
-                output_name="stream",
+                node_id=upstream,
+                output_name=upstream_output,
                 input_name="stream",
             )
         ],
-        outputs={"events": "event_stream"},
+        outputs={"stream": "event_stream"},
     )
-    plan.add_node(source)
-    plan.add_node(transform)
-
-    assert _source_should_read_metadata_only(plan, source) is False

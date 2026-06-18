@@ -1107,20 +1107,49 @@ def _source_should_read_metadata_only(
         return False
 
     output_names = set(node.outputs)
-    consumers: list[ExecutionNode] = []
+    direct_consumers: list[ExecutionNode] = []
     for candidate in plan.nodes:
         for ref in candidate.inputs:
             if ref.node_id == node.id and ref.output_name in output_names:
-                consumers.append(candidate)
+                direct_consumers.append(candidate)
                 break
 
-    if not consumers:
+    if not direct_consumers:
         return False
 
-    return all(
-        consumer.role == "observer" and consumer.impl == "hep.schema_snapshot"
-        for consumer in consumers
-    )
+    downstream = _downstream_consumers(plan, direct_consumers)
+    return bool(downstream) and all(_is_schema_snapshot_observer(n) for n in downstream)
+
+
+def _downstream_consumers(
+    plan: ExecutionPlan,
+    initial: list[ExecutionNode],
+) -> list[ExecutionNode]:
+    by_id = {node.id: node for node in plan.nodes}
+    seen: set[str] = set()
+    out: list[ExecutionNode] = []
+    queue = list(initial)
+    while queue:
+        current = queue.pop(0)
+        if current.id in seen:
+            continue
+        seen.add(current.id)
+        out.append(current)
+
+        current_outputs = set(current.outputs)
+        for candidate in plan.nodes:
+            if candidate.id in seen:
+                continue
+            if any(
+                ref.node_id == current.id and ref.output_name in current_outputs
+                for ref in candidate.inputs
+            ):
+                queue.append(by_id[candidate.id])
+    return out
+
+
+def _is_schema_snapshot_observer(node: ExecutionNode) -> bool:
+    return node.role == "observer" and node.impl == "hep.schema_snapshot"
 
 
 def _collect_inputs(
