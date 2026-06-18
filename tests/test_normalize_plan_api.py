@@ -71,6 +71,77 @@ def test_include_handling_then_normalization(
     assert "toy.source" in normalized["registry"]["sources"]
 
 
+def test_include_dataset_mapping_then_normalization(tmp_path: Path) -> None:
+    include_path = tmp_path / "datasets.yaml"
+    include_path.write_text(
+        yaml.safe_dump(
+            {
+                "datasets": {
+                    "DoubleMuon": {
+                        "eventtype": "data",
+                        "files": ["root://example.test/events.root"],
+                    }
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    author_path = tmp_path / "author.yaml"
+    author_path.write_text(
+        yaml.safe_dump(
+            {
+                "include": ["datasets.yaml"],
+                "data": {"defaults": {"eventtype": "mc", "tree_primary": "Events"}},
+                "sources": {"events": {"kind": "root_tree", "tree": "Events"}},
+                "analysis": {"stages": []},
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_author_with_includes(author_path)
+    normalized = normalize_author(loaded.doc)
+
+    assert normalized["data"]["datasets"] == [
+        {
+            "name": "DoubleMuon",
+            "files": ["root://example.test/events.root"],
+            "nevents": None,
+            "eventtype": "data",
+            "group": "DoubleMuon",
+            "meta": {},
+        }
+    ]
+
+
+def test_root_tree_source_preserves_reader_options(toy_author: dict[str, Any]) -> None:
+    author = {
+        **toy_author,
+        "sources": {
+            "events": {
+                "kind": "root_tree",
+                "tree": "Events",
+                "branches": ["Muon_pt"],
+                "start": 10,
+                "stop": 20,
+            }
+        },
+    }
+
+    normalized = normalize_author(author)
+
+    assert normalized["sources"]["events"] == {
+        "tree": "Events",
+        "stream_type": "event_stream",
+        "kind": "root_tree",
+        "branches": ["Muon_pt"],
+        "start": 10,
+        "stop": 20,
+    }
+
+
 def test_lowering_and_plan_creation_write_graph_artifacts(
     tmp_path: Path,
     toy_author_path: Path,

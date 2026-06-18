@@ -40,7 +40,7 @@ from hepflow.registry.defaults import (
 def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
     doc = _ensure_mapping(doc, "document")
     version = str(doc.get("version", "1.0"))
-    data = normalize_data(doc.get("data") or {})
+    data = normalize_data(doc.get("data") or {}, doc.get("datasets"))
 
     sources = normalize_sources(doc.get("sources"), data.defaults)
 
@@ -172,12 +172,34 @@ def normalize_systematics(raw: Any) -> SystematicsConfig | None:
     )
 
 
-def normalize_data(data: dict[str, Any]) -> DataBlock:
+def normalize_data(data: dict[str, Any], datasets_include: Any = None) -> DataBlock:
     data = _ensure_mapping(data, "data")
     defaults = _ensure_mapping(data.get("defaults") or {}, "data.defaults")
-    datasets_raw = data.get("datasets") or []
+    datasets_raw = _merge_included_datasets(data.get("datasets"), datasets_include)
     datasets = normalize_datasets(datasets_raw, data_defaults=defaults)
     return DataBlock(defaults=defaults, datasets=datasets)
+
+
+def _merge_included_datasets(data_datasets: Any, included: Any) -> Any:
+    included_list = _normalize_dataset_collection(included, "datasets")
+    data_list = _normalize_dataset_collection(data_datasets, "data.datasets")
+    return included_list + data_list
+
+
+def _normalize_dataset_collection(raw: Any, where: str) -> list[dict[str, Any]]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return list(raw)
+    if isinstance(raw, dict):
+        out: list[dict[str, Any]] = []
+        for name, spec_raw in raw.items():
+            spec = _ensure_mapping(spec_raw, f"{where}.{name}")
+            item = dict(spec)
+            item.setdefault("name", str(name))
+            out.append(item)
+        return out
+    raise ValueError(f"{where} must be a list or mapping")
 
 
 def normalize_datasets(
@@ -233,11 +255,15 @@ def normalize_sources(
             tree = spec.get("tree")
             if not tree:
                 raise ValueError(f"sources.{sid} missing tree")
-            out[str(sid)] = RootTreeSourceSpec(
+            source = RootTreeSourceSpec(
                 kind="root_tree",
                 tree=str(tree),
                 stream_type=str(spec.get("stream_type", DEFAULT_STREAM_TYPE)),
             ).to_dict()
+            for optional_key in ("branches", "start", "stop"):
+                if optional_key in spec:
+                    source[optional_key] = spec[optional_key]
+            out[str(sid)] = source
             continue
 
         out[str(sid)] = {

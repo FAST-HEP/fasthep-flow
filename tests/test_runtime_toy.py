@@ -7,6 +7,8 @@ from typing import Any
 import yaml
 
 from hepflow.api import compile_author_file, run_plan_file
+from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
+from hepflow.runtime.engine import _source_should_read_metadata_only
 
 
 def test_runtime_executes_toy_source_transform_and_final_sink(
@@ -65,3 +67,61 @@ def test_partition_dataset_and_run_end_sink_timing(
     assert (files_dir / "partition" / "toydata" / "0_1.json").exists()
     assert (files_dir / "dataset.json").exists()
     assert (files_dir / "run.json").exists()
+
+
+def test_root_tree_source_metadata_only_when_only_schema_observers() -> None:
+    plan = ExecutionPlan()
+    source = ExecutionNode(
+        id="read.events",
+        graph_node_id="read.events",
+        role="source",
+        impl="root_tree",
+        outputs={"stream": "event_stream"},
+    )
+    observer = ExecutionNode(
+        id="observe.schema.read_events",
+        graph_node_id="observe.schema.read_events",
+        role="observer",
+        impl="hep.schema_snapshot",
+        inputs=[
+            PlanInputRef(
+                node_id="read.events",
+                output_name="stream",
+                input_name="target",
+            )
+        ],
+        outputs={"report": "report"},
+    )
+    plan.add_node(source)
+    plan.add_node(observer)
+
+    assert _source_should_read_metadata_only(plan, source) is True
+
+
+def test_root_tree_source_not_metadata_only_when_transform_consumes_stream() -> None:
+    plan = ExecutionPlan()
+    source = ExecutionNode(
+        id="read.events",
+        graph_node_id="read.events",
+        role="source",
+        impl="root_tree",
+        outputs={"stream": "event_stream"},
+    )
+    transform = ExecutionNode(
+        id="stage.Derived",
+        graph_node_id="stage.Derived",
+        role="transform",
+        impl="hep.define",
+        inputs=[
+            PlanInputRef(
+                node_id="read.events",
+                output_name="stream",
+                input_name="stream",
+            )
+        ],
+        outputs={"events": "event_stream"},
+    )
+    plan.add_node(source)
+    plan.add_node(transform)
+
+    assert _source_should_read_metadata_only(plan, source) is False

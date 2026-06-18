@@ -533,6 +533,8 @@ def execute_plan_partition(
                     params = _resolve_source_params(
                         node.params, plan=plan, plan_ctx=ctx
                     )
+                    if _source_should_read_metadata_only(plan, node):
+                        params["metadata_only"] = True
                     result = run_source(
                         source_name=node.impl,
                         params=params,
@@ -1095,6 +1097,30 @@ def _resolve_source_params(
             return resolved
 
     raise KeyError(f"Could not resolve source datasets_ref {ref!r}")
+
+
+def _source_should_read_metadata_only(
+    plan: ExecutionPlan,
+    node: ExecutionNode,
+) -> bool:
+    if node.role != "source" or node.impl != "root_tree":
+        return False
+
+    output_names = set(node.outputs)
+    consumers: list[ExecutionNode] = []
+    for candidate in plan.nodes:
+        for ref in candidate.inputs:
+            if ref.node_id == node.id and ref.output_name in output_names:
+                consumers.append(candidate)
+                break
+
+    if not consumers:
+        return False
+
+    return all(
+        consumer.role == "observer" and consumer.impl == "hep.schema_snapshot"
+        for consumer in consumers
+    )
 
 
 def _collect_inputs(
