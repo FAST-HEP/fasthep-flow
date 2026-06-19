@@ -250,3 +250,35 @@ def test_render_spec_does_not_define_cutflow_product_contract(tmp_path: Path) ->
     ).read_text(encoding="utf-8")
     assert "product:" not in spec
     assert "products:" not in spec
+
+
+def test_dataset_entries_artifact_omits_unknown_nevents(tmp_path: Path) -> None:
+    plan = ExecutionPlan(
+        context={
+            "datasets": {
+                "data": {
+                    "name": "data",
+                    "files": ["data.root"],
+                    "nevents": None,
+                    "eventtype": "data",
+                    "group": None,
+                    "meta": {},
+                }
+            }
+        }
+    )
+
+    ensure_build_layout(tmp_path)
+    write_compile_artifacts(plan=plan, graph=nx.DiGraph(), outdir=tmp_path)
+
+    entries = json.loads(
+        (tmp_path / "compile" / "dataset_entries.json").read_text(encoding="utf-8")
+    )
+    assert entries == {
+        "data": {
+            "eventtype": "data",
+            "files": ["data.root"],
+            "meta": {},
+            "name": "data",
+        }
+    }
