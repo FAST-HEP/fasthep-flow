@@ -135,7 +135,12 @@ def make_plan_file(
     ensure_build_layout(out_path)
     graph, plan = build_plan_from_normalized(normalized, chunk_size=chunk_size)
 
-    write_compile_artifacts(plan=plan, graph=graph, outdir=out_path)
+    write_compile_artifacts(
+        plan=plan,
+        graph=graph,
+        outdir=out_path,
+        normalized=normalized,
+    )
     write_graph_artifacts(graph, graph_dir(out_path))
     write_yaml(plan.to_dict(), str(plan_path(out_path)))
     return plan
