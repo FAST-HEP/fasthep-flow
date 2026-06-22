@@ -39,6 +39,11 @@ from hepflow.registry.defaults import (
 
 def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
     doc = _ensure_mapping(doc, "document")
+    if "sinks" in doc:
+        raise ValueError(
+            "Top-level 'sinks' is not supported. Attach a writer to an "
+            "analysis stage with 'analysis.stages[].write' instead."
+        )
     version = str(doc.get("version", "1.0"))
     data = normalize_data(doc.get("data") or {}, doc.get("datasets"))
 

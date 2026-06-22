@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 import hepflow.api as api
@@ -42,6 +43,25 @@ def test_normalize_preserves_generic_toy_source(toy_author: dict[str, Any]) -> N
 
     assert normalized["sources"]["events"]["kind"] == "toy.source"
     assert normalized["sources"]["events"]["stream_type"] == "event_stream"
+
+
+def test_top_level_sinks_errors_with_supported_syntax(
+    toy_author: dict[str, Any],
+) -> None:
+    author = dict(toy_author)
+    author["sinks"] = [
+        {
+            "kind": "toy.write",
+            "from": "stage.Scale",
+            "path": "output.json",
+        }
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match=r"Top-level 'sinks' is not supported.*analysis\.stages\[\]\.write",
+    ):
+        normalize_author(author)
 
 
 def test_include_handling_then_normalization(
