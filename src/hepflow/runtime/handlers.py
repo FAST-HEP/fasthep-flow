@@ -97,6 +97,8 @@ def _run_writer_like_sink(
     impl_params = _sink_impl_params(params)
     when = normalize_lifecycle_event(params.get("when") or "run_end")
     if "path" in impl_params:
+        meta = dict(meta or {})
+        meta.setdefault("writer_name", Path(str(impl_params["path"])).stem)
         impl_params = _resolve_writer_paths_for_context(
             impl_params,
             when=when,

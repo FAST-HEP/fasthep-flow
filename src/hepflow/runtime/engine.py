@@ -24,6 +24,7 @@ from hepflow.runtime.handlers import run_observer, run_sink, run_source, run_tra
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
 from hepflow.runtime.materialize import materialize_final_products
 from hepflow.runtime.stream_readers import read_stream
+from hepflow.runtime.writer_manifests import write_writer_manifests
 
 
 # TODO:
@@ -695,6 +696,11 @@ def execute_plan_locally(
             skip_roles=skip_roles,
             hook_manager=hook_manager,
         )
+        write_writer_manifests(
+            plan,
+            stores=[value_store],
+            outdir=str(base_ctx.get("outdir") or "."),
+        )
         hook_manager.run_end(plan=plan, ctx=base_ctx, summary={})
         if isinstance(ctx, dict):
             ctx["_hook_summary"] = base_ctx.get("_hook_summary")
@@ -761,6 +767,11 @@ def execute_plan_locally(
         registry_cfg=registry_cfg,
         skip_roles=skip_roles,
         hook_manager=hook_manager,
+    )
+    write_writer_manifests(
+        plan,
+        stores=results,
+        outdir=str(base_ctx.get("outdir") or "."),
     )
     hook_manager.run_end(plan=plan, ctx=base_ctx, summary={})
     if isinstance(ctx, dict):

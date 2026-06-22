@@ -228,6 +228,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
                 stage_nodes=stage_nodes,
                 current_outputs=stage_node.outputs,
             )
+            write_node.meta["input_node"] = upstream_node_id
             add_graph_edge(
                 graph,
                 upstream_node_id,

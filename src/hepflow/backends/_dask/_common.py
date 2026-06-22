@@ -19,6 +19,7 @@ from hepflow.runtime.engine import (
     merge_partition_value_stores_for_dataset,
 )
 from hepflow.runtime.hooks.manager import HookManager
+from hepflow.runtime.writer_manifests import write_writer_manifests
 
 
 class DaskBackend:
@@ -316,6 +317,11 @@ def build_dask_backend_result(
         ctx=final_ctx,
         registry_cfg=plan.registry,
         hook_manager=final_hook_manager,
+    )
+    write_writer_manifests(
+        plan,
+        stores=partition_stores,
+        outdir=str(final_ctx.get("outdir") or "."),
     )
     warnings.extend(final_warnings)
 
