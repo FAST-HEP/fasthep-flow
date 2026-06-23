@@ -21,16 +21,6 @@ class GraphNode:
     meta: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True, frozen=True)
-class EdgeBinding:
-    """
-    Describes how one node output is connected to an input port on another node.
-    """
-
-    output: str
-    input_name: str
-
-
 def new_graph() -> nx.DiGraph:
     """
     Create an empty directed graph for the lowered IR.
