@@ -14,6 +14,7 @@ class RuntimeComponentSpec:
     result: dict[str, Any] = field(default_factory=dict)
     dependencies: dict[str, Any] = field(default_factory=dict)
     requires: dict[str, Any] = field(default_factory=dict)
+    provides: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_obj(cls, obj: Any) -> RuntimeComponentSpec:
@@ -45,4 +46,5 @@ class RuntimeComponentSpec:
             result=dict(obj.get("result") or {}),
             dependencies=dict(obj.get("dependencies") or {}),
             requires=dict(obj.get("requires") or {}),
+            provides=dict(obj.get("provides") or {}),
         )

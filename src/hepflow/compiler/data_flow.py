@@ -210,11 +210,17 @@ def parse_component_data_dependencies(
             context_symbols=dep_ctx.context_symbols,
         )
 
+    declared_provides = _provided_symbols_from_spec(
+        component_spec,
+        params=params,
+    )
+    result.produces.update(declared_provides)
     result.consumes.update(
         _required_symbols_from_spec(
             component_spec,
             params=params,
             dep_ctx=dep_ctx,
+            produced=declared_provides,
         )
     )
     return result
@@ -248,6 +254,7 @@ def _required_symbols_from_spec(
     *,
     params: dict[str, Any],
     dep_ctx: DependencyContext,
+    produced: set[str],
 ) -> set[str]:
     rules = (spec.requires or {}).get("symbols") or []
     if not isinstance(rules, list):
@@ -261,7 +268,13 @@ def _required_symbols_from_spec(
             )
         kind = rule.get("kind")
         source = rule.get("from")
-        if kind not in {"expr", "expr_or_field", "field_list"}:
+        if kind not in {
+            "cutflow",
+            "expr",
+            "expr_or_field",
+            "field_list",
+            "field_prefix",
+        }:
             raise ValueError(
                 f"Unsupported requires.symbols kind for {spec.name!r}: {kind!r}"
             )
@@ -269,21 +282,42 @@ def _required_symbols_from_spec(
             raise ValueError(
                 f"requires.symbols[{index}].from for {spec.name!r} must reference params.*"
             )
-        values = _values_from_param_reference(params, source=source, spec_name=spec.name)
+        values = _values_from_param_reference(
+            params,
+            source=source,
+            spec=spec,
+        )
         for value in values:
             if value is None:
                 continue
             if kind == "field_list":
-                if not isinstance(value, list):
-                    raise TypeError(
-                        f"{source} for {spec.name!r} must be a list for kind 'field_list'"
+                symbols.update(_field_names(value, source=source, spec_name=spec.name))
+                continue
+            if kind == "field_prefix":
+                suffixes = rule.get("suffixes")
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(
+                        f"{source} for {spec.name!r} must be a non-empty string"
                     )
-                for field_index, field_name in enumerate(value):
-                    if not isinstance(field_name, str) or not field_name.strip():
-                        raise ValueError(
-                            f"{source}[{field_index}] for {spec.name!r} must be a non-empty string"
+                if not isinstance(suffixes, list) or not all(
+                    isinstance(item, str) and item for item in suffixes
+                ):
+                    raise ValueError(
+                        f"field_prefix rule for {spec.name!r} requires string suffixes"
+                    )
+                symbols.update(f"{value.strip()}_{suffix}" for suffix in suffixes)
+                continue
+            if kind == "cutflow":
+                for expression in _cutflow_expressions(value):
+                    symbols.update(
+                        data_symbols_in_expr(
+                            expression,
+                            known_functions=dep_ctx.known_functions,
+                            known_constants=dep_ctx.known_constants,
+                            context_symbols=dep_ctx.context_symbols,
+                            produced=produced,
                         )
-                    symbols.add(field_name.strip())
+                    )
                 continue
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(
@@ -296,6 +330,7 @@ def _required_symbols_from_spec(
                     known_functions=dep_ctx.known_functions,
                     known_constants=dep_ctx.known_constants,
                     context_symbols=dep_ctx.context_symbols,
+                    produced=produced,
                 )
             )
     return symbols
@@ -305,10 +340,10 @@ def _values_from_param_reference(
     params: dict[str, Any],
     *,
     source: str,
-    spec_name: str,
+    spec: RuntimeComponentSpec,
 ) -> list[Any]:
     values: list[Any] = [params]
-    for segment in source.split(".")[1:]:
+    for depth, segment in enumerate(source.split(".")[1:]):
         next_values: list[Any] = []
         for value in values:
             if value is None:
@@ -321,17 +356,88 @@ def _values_from_param_reference(
                     next_values.extend(value.values())
                     continue
                 raise TypeError(
-                    f"Wildcard in {source} for {spec_name!r} requires a list or mapping"
+                    f"Wildcard in {source} for {spec.name!r} requires a list or mapping"
                 )
             if not isinstance(value, dict):
                 raise TypeError(
-                    f"Cannot resolve {source} for {spec_name!r}: "
+                    f"Cannot resolve {source} for {spec.name!r}: "
                     f"{segment!r} is not inside a mapping"
                 )
             if segment in value:
                 next_values.append(value[segment])
+            elif depth == 0:
+                schema = spec.params.get(segment)
+                if isinstance(schema, dict) and "default" in schema:
+                    next_values.append(schema["default"])
         values = next_values
     return values
+
+
+def _provided_symbols_from_spec(
+    spec: RuntimeComponentSpec,
+    *,
+    params: dict[str, Any],
+) -> set[str]:
+    rules = (spec.provides or {}).get("symbols") or []
+    if not isinstance(rules, list):
+        raise TypeError(f"provides.symbols for {spec.name!r} must be a list")
+    symbols: set[str] = set()
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict) or rule.get("kind") != "field_list":
+            raise ValueError(
+                f"provides.symbols[{index}] for {spec.name!r} must use kind 'field_list'"
+            )
+        source = rule.get("from")
+        if not isinstance(source, str) or not source.startswith("params."):
+            raise ValueError(
+                f"provides.symbols[{index}].from for {spec.name!r} must reference params.*"
+            )
+        for value in _values_from_param_reference(params, source=source, spec=spec):
+            if value is not None:
+                symbols.update(_field_names(value, source=source, spec_name=spec.name))
+    return symbols
+
+
+def _field_names(value: Any, *, source: str, spec_name: str) -> set[str]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, list):
+        values = value
+    elif isinstance(value, dict):
+        values = list(value)
+    else:
+        raise TypeError(f"{source} for {spec_name!r} must contain field names")
+    if not all(isinstance(item, str) and item.strip() for item in values):
+        raise ValueError(f"{source} for {spec_name!r} contains an invalid field name")
+    return {item.strip() for item in values}
+
+
+def _cutflow_expressions(selection: Any) -> list[str]:
+    if not isinstance(selection, dict):
+        return []
+    expressions: list[str] = []
+    for raw_group in selection.values():
+        if isinstance(raw_group, list):
+            steps = raw_group
+        elif isinstance(raw_group, dict):
+            steps = raw_group.get("steps", raw_group.get("cuts", []))
+        else:
+            continue
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if isinstance(step, str) and step.strip():
+                expressions.append(step)
+            elif isinstance(step, dict):
+                expression = step.get("expr")
+                if isinstance(expression, str) and expression.strip():
+                    expressions.append(expression)
+                reduce_spec = step.get("reduce")
+                if isinstance(reduce_spec, dict):
+                    over = reduce_spec.get("over")
+                    if isinstance(over, str) and over.strip():
+                        expressions.append(over)
+    return expressions
 
 
 def _primary_stream_id(plan: ExecutionPlan) -> str:
