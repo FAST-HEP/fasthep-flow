@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,76 @@ def test_data_flow_infers_source_requirements_without_requiring_produced_data(
         "node": "stage.Scale",
     }
     assert "scaled_pt" not in plan.data_flow["required_sources"]["events"]["branches"]
+
+
+def test_data_flow_includes_sink_field_list_requirements(
+    toy_author: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    author = deepcopy(toy_author)
+    author["outputs"] = {
+        "small": {
+            "tree": "events",
+            "keep": ["eta", "scaled_pt"],
+        }
+    }
+    author["analysis"]["stages"][0]["write"] = [
+        {
+            "kind": "toy.write",
+            "path": "small.json",
+            "use": "small",
+        }
+    ]
+    author_path = tmp_path / "author.yaml"
+    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+
+    plan = compile_author_file(author_path, outdir=tmp_path / "build")
+
+    sink = plan.get_node("write.Scale.0")
+    assert sink.params["keep"] == ["eta", "scaled_pt"]
+    assert plan.data_flow["required_sources"]["events"]["branches"] == ["eta", "pt"]
+    assert plan.data_flow["consumers"]["eta"] == ["write.Scale.0"]
+    assert plan.data_flow["consumers"]["scaled_pt"] == ["write.Scale.0"]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        pytest.param({}, id="absent"),
+        pytest.param({"keep": None}, id="none"),
+        pytest.param({"keep": []}, id="empty"),
+    ],
+)
+def test_field_list_requirement_allows_no_values(params: dict[str, Any]) -> None:
+    spec = {
+        "name": "toy.write",
+        "kind": "sink",
+        "params": {"keep": {"required": False, "default": None}},
+        "requires": {
+            "symbols": [
+                {
+                    "from": "params.keep",
+                    "kind": "field_list",
+                }
+            ]
+        },
+    }
+
+    deps = parse_component_data_dependencies(
+        spec=spec,
+        params=params,
+        dep_ctx=type(
+            "DepCtx",
+            (),
+            {
+                "known_functions": set(),
+                "known_constants": set(),
+                "context_symbols": set(),
+            },
+        )(),
+    )
+
+    assert deps == DataDependencyResult()
 
 
 def test_hook_context_outputs_are_visible_to_data_flow(

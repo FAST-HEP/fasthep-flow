@@ -6,7 +6,7 @@ from typing import Any
 
 from hepflow.model.component_spec import RuntimeComponentSpec
 from hepflow.model.data_flow import DataDependencyResult
-from hepflow.model.plan import ExecutionPlan
+from hepflow.model.plan import ExecutionNode, ExecutionPlan
 from hepflow.registry.defaults import (
     default_expr_registry_config,
     default_runtime_registry_config,
@@ -101,10 +101,10 @@ def infer_data_flow(
             }
 
     for node in plan.nodes:
-        if node.role != "transform":
+        if node.role not in {"transform", "sink"}:
             continue
 
-        spec = _component_spec_for_node(node.impl, registry)
+        spec = _component_spec_for_node(node, registry)
         if spec is None:
             continue
         deps = parse_component_data_dependencies(
@@ -190,30 +190,43 @@ def parse_component_data_dependencies(
 ) -> DataDependencyResult:
     component_spec = RuntimeComponentSpec.from_obj(spec)
     parser_ref = (component_spec.dependencies or {}).get("parser")
-    if not parser_ref:
-        return DataDependencyResult()
-    if not isinstance(parser_ref, str):
-        raise TypeError(
-            f"Dependency parser reference for {component_spec.name!r} must be a string"
+    result = DataDependencyResult()
+    if parser_ref:
+        if not isinstance(parser_ref, str):
+            raise TypeError(
+                f"Dependency parser reference for {component_spec.name!r} must be a string"
+            )
+
+        parser = load_object(parser_ref)
+        if not callable(parser):
+            raise TypeError(
+                f"Dependency parser for {component_spec.name!r} is not callable"
+            )
+        result = parser(
+            params,
+            known_functions=dep_ctx.known_functions,
+            known_constants=dep_ctx.known_constants,
+            context_symbols=dep_ctx.context_symbols,
         )
 
-    parser = load_object(parser_ref)
-    if not callable(parser):
-        raise TypeError(f"Dependency parser for {component_spec.name!r} is not callable")
-    return parser(
-        params,
-        known_functions=dep_ctx.known_functions,
-        known_constants=dep_ctx.known_constants,
-        context_symbols=dep_ctx.context_symbols,
+    result.consumes.update(
+        _required_symbols_from_spec(component_spec, params=params)
     )
+    return result
 
 
 def _component_spec_for_node(
-    impl: str,
+    node: ExecutionNode,
     registry: dict[str, Any],
 ) -> RuntimeComponentSpec | None:
-    transforms = registry.get("transforms") or {}
-    entry = transforms.get(impl)
+    category = {
+        "transform": "transforms",
+        "sink": "sinks",
+    }.get(node.role)
+    if category is None:
+        return None
+    entries = registry.get(category) or {}
+    entry = entries.get(node.impl)
     if not isinstance(entry, dict):
         return None
 
@@ -223,6 +236,47 @@ def _component_spec_for_node(
 
     spec = load_object(spec_ref)
     return RuntimeComponentSpec.from_obj(spec)
+
+
+def _required_symbols_from_spec(
+    spec: RuntimeComponentSpec,
+    *,
+    params: dict[str, Any],
+) -> set[str]:
+    rules = (spec.requires or {}).get("symbols") or []
+    if not isinstance(rules, list):
+        raise TypeError(f"requires.symbols for {spec.name!r} must be a list")
+
+    symbols: set[str] = set()
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            raise TypeError(
+                f"requires.symbols[{index}] for {spec.name!r} must be a mapping"
+            )
+        kind = rule.get("kind")
+        source = rule.get("from")
+        if kind != "field_list":
+            raise ValueError(
+                f"Unsupported requires.symbols kind for {spec.name!r}: {kind!r}"
+            )
+        if not isinstance(source, str) or not source.startswith("params."):
+            raise ValueError(
+                f"requires.symbols[{index}].from for {spec.name!r} must reference params.*"
+            )
+        value = params.get(source.removeprefix("params."))
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            raise TypeError(
+                f"{source} for {spec.name!r} must be a list for kind 'field_list'"
+            )
+        for field_index, field_name in enumerate(value):
+            if not isinstance(field_name, str) or not field_name.strip():
+                raise ValueError(
+                    f"{source}[{field_index}] for {spec.name!r} must be a non-empty string"
+                )
+            symbols.add(field_name.strip())
+    return symbols
 
 
 def _primary_stream_id(plan: ExecutionPlan) -> str:

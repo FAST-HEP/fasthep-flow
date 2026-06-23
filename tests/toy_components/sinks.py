@@ -10,8 +10,17 @@ TOY_WRITE_SPEC = {
     "input": {"name": "target", "required": True},
     "params": {
         "path": {"required": True},
+        "keep": {"required": False, "default": None},
     },
     "result": {"artifact": "artifact"},
+    "requires": {
+        "symbols": [
+            {
+                "from": "params.keep",
+                "kind": "field_list",
+            }
+        ]
+    },
 }
 
 
