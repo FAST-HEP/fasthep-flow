@@ -125,6 +125,53 @@ def test_field_list_requirement_allows_no_values(params: dict[str, Any]) -> None
     assert deps == DataDependencyResult()
 
 
+def test_expression_requirements_support_wildcards_and_optional_params() -> None:
+    spec = {
+        "name": "toy.hist",
+        "kind": "transform",
+        "params": {
+            "axes": {"required": True},
+            "weight_expr": {"required": False},
+        },
+        "requires": {
+            "symbols": [
+                {
+                    "from": "params.axes.*.source",
+                    "kind": "expr_or_field",
+                },
+                {
+                    "from": "params.weight_expr",
+                    "kind": "expr",
+                },
+            ]
+        },
+    }
+
+    deps = parse_component_data_dependencies(
+        spec=spec,
+        params={
+            "axes": [
+                {"source": "Muon_Pz"},
+                {"source": "abs(Muon_Eta)"},
+            ],
+            "weight_expr": "EventWeight * luminosity",
+        },
+        dep_ctx=type(
+            "DepCtx",
+            (),
+            {
+                "known_functions": {"abs"},
+                "known_constants": set(),
+                "context_symbols": {"luminosity"},
+            },
+        )(),
+    )
+
+    assert deps == DataDependencyResult(
+        consumes={"Muon_Pz", "Muon_Eta", "EventWeight"}
+    )
+
+
 def test_hook_context_outputs_are_visible_to_data_flow(
     tmp_path: Path,
     toy_author: dict[str, Any],

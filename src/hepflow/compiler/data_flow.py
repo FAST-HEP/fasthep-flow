@@ -4,6 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
+from hepflow.compiler.expr_symbols import data_symbols_in_expr
 from hepflow.model.component_spec import RuntimeComponentSpec
 from hepflow.model.data_flow import DataDependencyResult
 from hepflow.model.plan import ExecutionNode, ExecutionPlan
@@ -210,7 +211,11 @@ def parse_component_data_dependencies(
         )
 
     result.consumes.update(
-        _required_symbols_from_spec(component_spec, params=params)
+        _required_symbols_from_spec(
+            component_spec,
+            params=params,
+            dep_ctx=dep_ctx,
+        )
     )
     return result
 
@@ -242,6 +247,7 @@ def _required_symbols_from_spec(
     spec: RuntimeComponentSpec,
     *,
     params: dict[str, Any],
+    dep_ctx: DependencyContext,
 ) -> set[str]:
     rules = (spec.requires or {}).get("symbols") or []
     if not isinstance(rules, list):
@@ -255,7 +261,7 @@ def _required_symbols_from_spec(
             )
         kind = rule.get("kind")
         source = rule.get("from")
-        if kind != "field_list":
+        if kind not in {"expr", "expr_or_field", "field_list"}:
             raise ValueError(
                 f"Unsupported requires.symbols kind for {spec.name!r}: {kind!r}"
             )
@@ -263,20 +269,69 @@ def _required_symbols_from_spec(
             raise ValueError(
                 f"requires.symbols[{index}].from for {spec.name!r} must reference params.*"
             )
-        value = params.get(source.removeprefix("params."))
-        if value is None:
-            continue
-        if not isinstance(value, list):
-            raise TypeError(
-                f"{source} for {spec.name!r} must be a list for kind 'field_list'"
-            )
-        for field_index, field_name in enumerate(value):
-            if not isinstance(field_name, str) or not field_name.strip():
+        values = _values_from_param_reference(params, source=source, spec_name=spec.name)
+        for value in values:
+            if value is None:
+                continue
+            if kind == "field_list":
+                if not isinstance(value, list):
+                    raise TypeError(
+                        f"{source} for {spec.name!r} must be a list for kind 'field_list'"
+                    )
+                for field_index, field_name in enumerate(value):
+                    if not isinstance(field_name, str) or not field_name.strip():
+                        raise ValueError(
+                            f"{source}[{field_index}] for {spec.name!r} must be a non-empty string"
+                        )
+                    symbols.add(field_name.strip())
+                continue
+            if not isinstance(value, str) or not value.strip():
                 raise ValueError(
-                    f"{source}[{field_index}] for {spec.name!r} must be a non-empty string"
+                    f"{source} for {spec.name!r} must be a non-empty string "
+                    f"for kind {kind!r}"
                 )
-            symbols.add(field_name.strip())
+            symbols.update(
+                data_symbols_in_expr(
+                    value,
+                    known_functions=dep_ctx.known_functions,
+                    known_constants=dep_ctx.known_constants,
+                    context_symbols=dep_ctx.context_symbols,
+                )
+            )
     return symbols
+
+
+def _values_from_param_reference(
+    params: dict[str, Any],
+    *,
+    source: str,
+    spec_name: str,
+) -> list[Any]:
+    values: list[Any] = [params]
+    for segment in source.split(".")[1:]:
+        next_values: list[Any] = []
+        for value in values:
+            if value is None:
+                continue
+            if segment == "*":
+                if isinstance(value, list):
+                    next_values.extend(value)
+                    continue
+                if isinstance(value, dict):
+                    next_values.extend(value.values())
+                    continue
+                raise TypeError(
+                    f"Wildcard in {source} for {spec_name!r} requires a list or mapping"
+                )
+            if not isinstance(value, dict):
+                raise TypeError(
+                    f"Cannot resolve {source} for {spec_name!r}: "
+                    f"{segment!r} is not inside a mapping"
+                )
+            if segment in value:
+                next_values.append(value[segment])
+        values = next_values
+    return values
 
 
 def _primary_stream_id(plan: ExecutionPlan) -> str:
