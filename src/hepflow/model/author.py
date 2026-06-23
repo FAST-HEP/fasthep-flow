@@ -281,6 +281,7 @@ class NormalizedAuthor:
     sources: dict[str, dict[str, Any]] = field(default_factory=dict)
     joins: dict[str, ZipJoinSpec] = field(default_factory=dict)
     styles: dict[str, dict[str, Any]] = field(default_factory=dict)
+    outputs: dict[str, dict[str, Any]] = field(default_factory=dict)
     fields: dict[str, FieldSpec] = field(default_factory=dict)
     observers: list[dict[str, Any]] = field(default_factory=list)
     analysis: dict[str, Any] = field(default_factory=dict)
@@ -303,6 +304,8 @@ class NormalizedAuthor:
 
         if not isinstance(self.styles, dict):
             raise ValueError("styles must be a mapping")
+        if not isinstance(self.outputs, dict):
+            raise ValueError("outputs must be a mapping")
         if not isinstance(self.observers, list):
             raise ValueError("observers must be a list")
         if not isinstance(self.use, dict):
@@ -319,6 +322,12 @@ class NormalizedAuthor:
                 raise ValueError("styles keys must be non-empty strings")
             if not isinstance(v, dict):
                 raise ValueError(f"styles.{k} must be a mapping")
+
+        for k, v in self.outputs.items():
+            if not isinstance(k, str) or not k.strip():
+                raise ValueError("outputs keys must be non-empty strings")
+            if not isinstance(v, dict):
+                raise ValueError(f"outputs.{k} must be a mapping")
 
         for idx, observer in enumerate(self.observers):
             if not isinstance(observer, dict):

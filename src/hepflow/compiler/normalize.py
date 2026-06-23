@@ -55,6 +55,7 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
     joins = normalize_joins(doc.get("joins"))
     fields = normalize_fields(doc.get("fields"))
     styles = normalize_styles(doc.get("styles"))
+    outputs = normalize_outputs(doc.get("outputs"))
     observers = normalize_top_level_observers(doc.get("observers"))
 
     analysis = doc.get("analysis") or {}
@@ -89,6 +90,7 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
         joins=joins,
         fields=fields,
         styles=styles,
+        outputs=outputs,
         observers=observers,
         analysis=analysis,
         primary_stream=primary_stream,
@@ -344,6 +346,32 @@ def normalize_styles(styles: Any) -> dict[str, dict[str, Any]]:
         spec = _ensure_mapping(spec_raw, f"styles.{name}")
         out[name] = dict(spec)
     return out
+
+
+def normalize_outputs(outputs: Any) -> dict[str, dict[str, Any]]:
+    if outputs is None:
+        return {}
+    outputs = _ensure_mapping(outputs, "outputs")
+    normalized: dict[str, dict[str, Any]] = {}
+    for name, spec_raw in outputs.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("outputs keys must be non-empty strings")
+        spec = _ensure_mapping(spec_raw, f"outputs.{name}")
+        tree = spec.get("tree")
+        if not isinstance(tree, str) or not tree.strip():
+            raise ValueError(f"outputs.{name}.tree must be a non-empty string")
+        keep = spec.get("keep")
+        if not isinstance(keep, list) or not keep:
+            raise ValueError(f"outputs.{name}.keep must be a non-empty list")
+        normalized_keep = _list_of_strings(
+            keep,
+            f"outputs.{name}.keep",
+        )
+        normalized[name] = {
+            "tree": tree.strip(),
+            "keep": normalized_keep,
+        }
+    return normalized
 
 
 def normalize_top_level_observers(observers_raw: Any) -> list[dict[str, Any]]:

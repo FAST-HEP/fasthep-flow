@@ -97,6 +97,8 @@ Common top-level sections include:
 | `use` | profiles, registries, presets |
 | `data` | datasets and their defaults |
 | `sources` | input stream definitions |
+| `fields` | reusable analysis-facing input names |
+| `outputs` | reusable output schemas for writers |
 | `styles` | reusable rendering definitions |
 | `analysis` | transforms and workflow stages |
 | `observers` | diagnostics and inspection |
@@ -109,6 +111,43 @@ For example:
 - simple workflows may omit `styles`
 - local workflows may omit `strategies`
 - workflows without rendering may omit render definitions entirely
+
+### Configuration concerns
+
+These sections describe distinct concerns and should not be combined:
+
+| Section | Question answered |
+|---|---|
+| `datasets` | Where does the data come from? |
+| `fields` | Which analysis-facing names map onto input quantities? |
+| `outputs` | Which schema should a writer produce? |
+| `styles` | How should rendered output look? |
+
+An output layout can be reused by one or more writers. Version 1 layouts define
+a ROOT tree name and selected branches:
+
+```yaml
+outputs:
+  dimuon_candidates:
+    tree: events
+    keep:
+      - Muon_Pt
+      - Muon_Iso
+
+analysis:
+  stages:
+    - id: SelectDimuonEvents
+      op: hep.selection.cutflow
+      write:
+        - kind: root_tree
+          path: dimuon_candidates.root
+          use: dimuon_candidates
+```
+
+The compiler resolves `use` into writer parameters. Keeping the layout in the
+normalized workflow also leaves a stable place for future dependency inference,
+so output branches can later be propagated upstream without changing this YAML
+syntax.
 
 ---
 

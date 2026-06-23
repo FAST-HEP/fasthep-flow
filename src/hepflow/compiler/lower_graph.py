@@ -43,6 +43,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
     defaults = dict(data_block.get("defaults", {}))
 
     style_defs = collect_styles(author)
+    output_defs = dict(author.get("outputs") or {})
 
     sources = dict(author.get("sources", {}))
     if not sources:
@@ -219,6 +220,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
                 node_id=f"write.{stage_id}.{idx}",
                 stage_id=stage_id,
                 write_cfg=write_cfg,
+                output_defs=output_defs,
             )
             add_graph_node(graph, write_node)
 
@@ -667,12 +669,36 @@ def _make_write_node(
     node_id: str,
     stage_id: str,
     write_cfg: dict[str, Any],
+    output_defs: dict[str, dict[str, Any]],
 ) -> GraphNode:
     write_cfg = deepcopy(write_cfg)
+
+    layout_name = write_cfg.pop("use", None)
+    if layout_name is not None:
+        if not isinstance(layout_name, str) or not layout_name.strip():
+            raise ValueError(
+                f"Writer on stage '{stage_id}' field 'use' must be a non-empty string"
+            )
+        if layout_name not in output_defs:
+            raise ValueError(
+                f"Writer on stage '{stage_id}' references unknown output layout "
+                f"{layout_name!r}"
+            )
+        write_cfg = {
+            **deepcopy(output_defs[layout_name]),
+            **write_cfg,
+        }
 
     kind = write_cfg.pop("kind")
     write_cfg.pop("from", None)
     write_cfg["when"] = normalize_lifecycle_event(write_cfg.get("when", "partition"))
+
+    meta: dict[str, Any] = {
+        "stage_id": stage_id,
+        "author_kind": kind,
+    }
+    if layout_name is not None:
+        meta["output_layout"] = layout_name
 
     return GraphNode(
         id=node_id,
@@ -680,10 +706,7 @@ def _make_write_node(
         impl=kind,
         params=write_cfg,
         outputs={"artifact": "artifact"},
-        meta={
-            "stage_id": stage_id,
-            "author_kind": kind,
-        },
+        meta=meta,
     )
 
 

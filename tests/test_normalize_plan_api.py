@@ -193,6 +193,69 @@ def test_lower_graph_normalizes_sink_when_alias(toy_author: dict[str, Any]) -> N
     assert sink.params["when"] == "run_end"
 
 
+def test_output_layout_is_normalized_and_resolved_for_writer(
+    toy_author: dict[str, Any],
+) -> None:
+    author = dict(toy_author)
+    author["outputs"] = {
+        "small": {
+            "tree": "events",
+            "keep": ["Muon_Pt"],
+        }
+    }
+    author["analysis"] = {
+        "stages": [
+            {
+                "id": "Scale",
+                "op": "toy.scale",
+                "params": {"factor": 2},
+                "write": {
+                    "kind": "toy.write",
+                    "path": "small.root",
+                    "use": "small",
+                },
+            }
+        ]
+    }
+
+    normalized = normalize_author(author)
+    graph = lower_author_to_graph(normalized)
+
+    assert normalized["outputs"]["small"] == {
+        "tree": "events",
+        "keep": ["Muon_Pt"],
+    }
+    sink = graph.nodes["write.Scale.0"]["payload"]
+    assert sink.params == {
+        "path": "small.root",
+        "tree": "events",
+        "keep": ["Muon_Pt"],
+        "when": "partition_end",
+    }
+    assert sink.meta["output_layout"] == "small"
+
+
+def test_writer_use_rejects_unknown_output_layout(toy_author: dict[str, Any]) -> None:
+    author = dict(toy_author)
+    author["analysis"] = {
+        "stages": [
+            {
+                "id": "Scale",
+                "op": "toy.scale",
+                "params": {"factor": 2},
+                "write": {
+                    "kind": "toy.write",
+                    "path": "small.root",
+                    "use": "missing",
+                },
+            }
+        ]
+    }
+
+    with pytest.raises(ValueError, match="unknown output layout 'missing'"):
+        lower_author_to_graph(normalize_author(author))
+
+
 def test_public_api_compile_and_run_roundtrip(
     toy_author_path: Path, tmp_path: Path
 ) -> None:
