@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from hepflow.model.ops import OpEntry, OpSpec
 from hepflow.model.products import ProductHandlerEntry
 from hepflow.model.render_types import RenderEntry, RenderTypeSpec
 from hepflow.registry.defaults import (
@@ -58,26 +57,8 @@ def runtime_registry_from_config(cfg: dict[str, Any] | None) -> RuntimeRegistry:
     if not cfg:
         return RuntimeRegistry()
 
-    ops_cfg = dict(cfg.get("ops") or {})
     renderers_cfg = dict(cfg.get("renderers") or {})
     product_handlers_cfg = dict(cfg.get("product_handlers") or {})
-
-    ops = {}
-    for name, entry_cfg in ops_cfg.items():
-        if not isinstance(entry_cfg, dict):
-            raise TypeError(
-                f"Op registry entry '{name}' must be a mapping with 'spec' and 'impl'"
-            )
-
-        spec_obj = load_object(entry_cfg["spec"])
-        impl_obj = load_object(entry_cfg["impl"])
-
-        if not isinstance(spec_obj, OpSpec):
-            raise TypeError(f"Op spec '{name}' did not resolve to OpSpec")
-        if not callable(impl_obj):
-            raise TypeError(f"Op impl '{name}' did not resolve to a callable")
-
-        ops[name] = OpEntry(spec=spec_obj, handler=impl_obj)
 
     renderers = {}
     for name, entry_cfg in renderers_cfg.items():
@@ -124,7 +105,6 @@ def runtime_registry_from_config(cfg: dict[str, Any] | None) -> RuntimeRegistry:
         )
 
     return RuntimeRegistry(
-        ops=ops,
         renderers=renderers,
         product_handlers=product_handlers,
     )
@@ -141,30 +121,6 @@ def resolve_runtime_registry(
         registry_cfg or {},
     )
     return runtime_registry_from_config(merged)
-
-
-def compile_op_registry_from_config(cfg: dict[str, Any] | None) -> dict[str, OpSpec]:
-    """
-    Load only op specs from symbolic registry config.
-    Used during compile for IR/deps validation.
-    """
-    if not cfg:
-        return {}
-
-    ops_cfg = dict(cfg.get("ops") or {})
-    out: dict[str, OpSpec] = {}
-
-    for name, entry_cfg in ops_cfg.items():
-        if not isinstance(entry_cfg, dict):
-            raise TypeError(
-                f"Op registry entry '{name}' must be a mapping with 'spec' and 'impl'"
-            )
-        spec_obj = load_object(entry_cfg["spec"])
-        if not isinstance(spec_obj, OpSpec):
-            raise TypeError(f"Op spec '{name}' did not resolve to OpSpec")
-        out[name] = spec_obj
-
-    return out
 
 
 def load_runtime_entry(
