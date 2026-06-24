@@ -66,50 +66,6 @@ def read_root_tree(
         return ak.zip(out, depth_limit=1)
 
 
-def _flatten_record_fields(
-    rec: Any, *, prefix: str = "", sep: str = "."
-) -> dict[str, Any]:
-    """
-    Flatten an awkward RecordArray (possibly nested) into a flat dict:
-      {"A.B": ..., "A.C": ...}
-    This normalizes uproot's nested representation for dotted branch names.
-    """
-    out: dict[str, Any] = {}
-
-    # RecordArray: has .fields and supports rec[field]
-    if hasattr(rec, "fields"):
-        for k in rec.fields:
-            key = f"{prefix}{sep}{k}" if prefix else str(k)
-            v = rec[k]
-            # If v itself is a record-like, recurse
-            if hasattr(v, "fields"):
-                out.update(_flatten_record_fields(v, prefix=key, sep=sep))
-            else:
-                out[key] = v
-        return out
-
-    # Not record-like; nothing to flatten
-    if prefix:
-        out[prefix] = rec
-    return out
-
-
-def flatten_record(rec: Any, *, sep: str = ".") -> Any:
-    """
-    Convert nested awkward records into a flat record with keys containing sep.
-    If rec is not record-like, returns it unchanged.
-    """
-    if not hasattr(rec, "fields"):
-        return rec
-    flat = _flatten_record_fields(rec, sep=sep)
-    return _awkward().zip(flat, depth_limit=1)
-
-
-def prefix_record(rec: Any, prefix: str):
-    # rec is a *flat* awkward record array / mapping
-    return _awkward().zip({f"{prefix}.{k}": rec[k] for k in rec.fields}, depth_limit=1)
-
-
 def _lift_join_aliases(plan: dict[str, Any], *, stream_id: str, merged: Any) -> Any:
     """
     For a zip_join stream (e.g. 'events'), lift aliases defined on its input streams

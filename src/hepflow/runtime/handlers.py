@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from hepflow.build_layout import BuildPaths
 from hepflow.model.io import OutputResult
@@ -13,37 +13,6 @@ from hepflow.registry.loaders import (
 )
 
 EXECUTION_ONLY_SINK_PARAMS = {"when"}
-
-
-class OpHandler(Protocol):
-    def __call__(
-        self,
-        inputs: dict[str, Any],
-        params: dict[str, Any],
-        ctx: dict[str, Any],
-    ) -> dict[str, Any]: ...
-
-
-OP_HANDLERS: dict[str, OpHandler] = {}
-
-
-def eval_expr(events: Any, expr: str, ctx: dict[str, Any] | None = None) -> Any:
-    from hepflow.runtime.engine import eval_expr as _eval_expr  # noqa: PLC0415
-
-    return _eval_expr(events, expr, ctx)
-
-
-def register_op(op_name: str, fn: OpHandler) -> None:
-    if not isinstance(op_name, str) or not op_name:
-        raise ValueError("op_name must be a non-empty string")
-    OP_HANDLERS[op_name] = fn
-
-
-def get_handler(op: str) -> OpHandler:
-    handler = OP_HANDLERS.get(op)
-    if handler is None:
-        raise KeyError(f"No handler registered for op '{op}'")
-    return handler
 
 
 def run_sink(

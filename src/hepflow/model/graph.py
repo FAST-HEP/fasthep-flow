@@ -67,18 +67,3 @@ def get_graph_node(graph: nx.DiGraph, node_id: str) -> GraphNode:
         return graph.nodes[node_id]["payload"]
     except KeyError as exc:
         raise KeyError(f"Unknown graph node id: {node_id}") from exc
-
-
-def upstream_binding(
-    graph: nx.DiGraph,
-    node_id: str,
-    input_name: str,
-) -> tuple[str, str] | None:
-    """
-    Return the upstream (node_id, output_port) feeding a given input_name,
-    or None if there is no such edge.
-    """
-    for upstream, _, edge_data in graph.in_edges(node_id, data=True):
-        if edge_data.get("input_name") == input_name:
-            return upstream, edge_data.get("output", "stream")
-    return None

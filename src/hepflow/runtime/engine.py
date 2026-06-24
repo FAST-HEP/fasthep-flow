@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import networkx as nx
-
-from hepflow.model.graph import get_graph_node, upstream_binding
 from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.model.plan import (
     ExecutionNode,
@@ -82,163 +79,6 @@ def eval_expr(
             f"{exc}. While evaluating expression {expr!r}. "
             f"Available symbols include: {shown}{suffix}"
         ) from exc
-
-
-def execute_graph_sink(
-    *,
-    graph,
-    sink_node_id: str,
-    value_store: dict[tuple[str, str], Any],
-    ctx: dict[str, Any] | None = None,
-    registry_cfg: dict[str, Any] | None = None,
-) -> Any:
-    node = get_graph_node(graph, sink_node_id)
-
-    if node.role != "sink":
-        raise ValueError(f"Node {sink_node_id!r} is not a sink")
-
-    inputs = _collect_graph_inputs(graph, sink_node_id, value_store)
-    if not inputs:
-        raise ValueError(f"Sink node {sink_node_id!r} has no input bindings")
-    target = _sink_target(inputs)
-
-    result = run_sink(
-        sink_name=node.impl,
-        target=target,
-        params=node.params,
-        ctx=dict(ctx or {}),
-        meta={**dict(node.meta or {}), "node_id": node.id},
-        registry_cfg=registry_cfg,
-    )
-
-    value_store[(sink_node_id, "artifact")] = result
-    return result
-
-
-def execute_graph_observer(
-    *,
-    graph,
-    observer_node_id: str,
-    value_store: dict[tuple[str, str], Any],
-    ctx: dict[str, Any] | None = None,
-    registry_cfg: dict[str, Any] | None = None,
-) -> Any:
-    node = get_graph_node(graph, observer_node_id)
-
-    if node.role != "observer":
-        raise ValueError(f"Node {observer_node_id!r} is not an observer node")
-
-    binding = upstream_binding(graph, observer_node_id, "target")
-    if binding is None:
-        raise ValueError(
-            f"Observer node {observer_node_id!r} does not have a bound 'target' input"
-        )
-
-    upstream_node_id, output_name = binding
-
-    try:
-        target = value_store[(upstream_node_id, output_name)]
-    except KeyError as exc:
-        raise KeyError(
-            "Missing upstream runtime value for observer target: "
-            f"{upstream_node_id}.{output_name}"
-        ) from exc
-
-    result = run_observer(
-        observer_name=node.impl,
-        target=target,
-        params=node.params,
-        registry_cfg=registry_cfg,
-        ctx=ctx,
-    )
-
-    output_port = next(iter(node.outputs.keys()), "report")
-    value_store[(observer_node_id, output_port)] = result
-    return result
-
-
-def execute_graph_source(
-    *,
-    graph: nx.DiGraph,
-    source_node_id: str,
-    value_store: dict[tuple[str, str], Any],
-    registry_cfg: dict[str, Any] | None = None,
-    ctx: dict[str, Any] | None = None,
-) -> Any:
-    """
-    Execute a single source node from the lowered graph.
-    """
-    node = get_graph_node(graph, source_node_id)
-
-    if node.role != "source":
-        raise ValueError(f"Node {source_node_id!r} is not a source node")
-
-    params = _resolve_source_params(node.params, plan=None, plan_ctx=ctx)
-
-    result = run_source(
-        source_name=node.impl,
-        params=params,
-        registry_cfg=registry_cfg,
-        ctx=ctx,
-    )
-
-    value_store[(source_node_id, "stream")] = result
-    return result
-
-
-def execute_graph_transform(
-    *,
-    graph: nx.DiGraph,
-    transform_node_id: str,
-    value_store: dict[tuple[str, str], Any],
-    registry_cfg: dict[str, Any] | None = None,
-) -> Any:
-    """
-    Execute a single transform node from the lowered graph.
-
-    Inputs are collected from incoming graph edges using each edge's
-    `input_name` and upstream `output` metadata.
-    """
-    node = get_graph_node(graph, transform_node_id)
-
-    if node.role != "transform":
-        raise ValueError(f"Node {transform_node_id!r} is not a transform node")
-
-    inputs: dict[str, Any] = {}
-
-    for upstream_node_id, _, edge_data in graph.in_edges(transform_node_id, data=True):
-        input_name = str(edge_data.get("input_name") or "stream")
-        output_name = str(edge_data.get("output") or "stream")
-
-        try:
-            value = value_store[(upstream_node_id, output_name)]
-        except KeyError as exc:
-            raise KeyError(
-                "Missing upstream runtime value for transform input: "
-                f"{upstream_node_id}.{output_name} -> {transform_node_id}.{input_name}"
-            ) from exc
-
-        if input_name in inputs:
-            raise ValueError(
-                f"Duplicate bound transform input {input_name!r} "
-                f"for node {transform_node_id!r}"
-            )
-
-        inputs[input_name] = value
-
-    result = run_transform(
-        transform_name=node.impl,
-        inputs=inputs,
-        params=node.params,
-        registry_cfg=registry_cfg,
-    )
-    _store_node_outputs(transform_node_id, node.outputs, result, value_store)
-    output_names = list(node.outputs.keys())
-    if len(output_names) == 1:
-        return _single_output_return_value(result, output_names[0])
-    if isinstance(result, dict) and set(result.keys()) == set(output_names):
-        return {name: value_store[(transform_node_id, name)] for name in output_names}
-    return result
 
 
 def execute_plan_partition(
@@ -932,27 +772,6 @@ def _node_meta(node: ExecutionNode) -> dict[str, Any]:
     return {**dict(node.meta or {}), "node_id": node.id}
 
 
-def _collect_graph_inputs(
-    graph: nx.DiGraph,
-    node_id: str,
-    value_store: dict[tuple[str, str], Any],
-) -> dict[str, Any]:
-    inputs: dict[str, Any] = {}
-    for upstream_node_id, _, edge_data in graph.in_edges(node_id, data=True):
-        input_name = str(edge_data.get("input_name") or "target")
-        output_name = str(edge_data.get("output") or "stream")
-        key = (upstream_node_id, output_name)
-        if key not in value_store:
-            raise KeyError(
-                "Missing upstream runtime value for sink input: "
-                f"{upstream_node_id}.{output_name} -> {node_id}.{input_name}"
-            )
-        if input_name in inputs:
-            raise ValueError(f"Duplicate bound sink input name: {input_name!r}")
-        inputs[input_name] = value_store[key]
-    return inputs
-
-
 def _sink_target(inputs: dict[str, Any]) -> Any:
     if len(inputs) > 1:
         return inputs
@@ -997,12 +816,3 @@ def _store_node_outputs(
         f"Node {node_id!r} returned a single value for multiple outputs {output_names}; "
         "return a mapping keyed by output port name instead"
     )
-
-
-def _single_output_return_value(result: Any, output_name: str) -> Any:
-    if isinstance(result, dict):
-        if output_name in result and len(result) == 1:
-            return result[output_name]
-        if len(result) == 1:
-            return next(iter(result.values()))
-    return result

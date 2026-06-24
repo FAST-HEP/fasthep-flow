@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-import json
 import re
 from pathlib import Path
 from typing import Any
@@ -80,18 +79,6 @@ def _accepts_keyword(func: Any, name: str) -> bool:
         if param.kind == inspect.Parameter.VAR_KEYWORD:
             return True
     return name in signature.parameters
-
-
-def write_product_manifest(
-    output_dir: Path,
-    key: str,
-    items: list[dict[str, str]],
-) -> None:
-    manifest = {key: sorted(items, key=lambda item: item["id"])}
-    (output_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
 
 
 def product_id(node: ExecutionNode) -> str:
