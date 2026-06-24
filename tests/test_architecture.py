@@ -25,3 +25,16 @@ def test_flow_package_and_tests_do_not_import_split_packages_or_legacy() -> None
                 offenders.append((str(path.relative_to(root)), needle))
 
     assert offenders == []
+
+
+def test_runtime_engine_has_no_array_library_specific_logic() -> None:
+    engine = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "hepflow"
+        / "runtime"
+        / "engine.py"
+    ).read_text(encoding="utf-8")
+
+    assert "awkward" not in engine
+    assert "uproot" not in engine

@@ -11,7 +11,11 @@ from hepflow.compiler.artifacts import write_compile_artifacts
 from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
 from hepflow.model.products import OperationResult, ProductHandlerEntry, ProductRef
 from hepflow.registry.runtime import RuntimeRegistry
-from hepflow.runtime.engine import _store_node_outputs, merge_partition_value_stores
+from hepflow.runtime.engine import (
+    _store_node_outputs,
+    merge_partition_value_stores,
+    merge_partition_value_stores_for_dataset,
+)
 from hepflow.runtime.materialize import materialize_final_products
 
 
@@ -159,6 +163,48 @@ def test_partition_product_merge_goes_through_handler() -> None:
 
     assert calls == [[{"part": 1}, {"part": 2}]]
     assert merged[("stage.NumberMuons", "hist")] == {
+        "merged": [{"part": 1}, {"part": 2}]
+    }
+
+
+def test_dataset_event_stream_merge_goes_through_handler() -> None:
+    plan = ExecutionPlan()
+    plan.add_node(
+        ExecutionNode(
+            id="stage.SelectedEvents",
+            graph_node_id="stage.SelectedEvents",
+            role="transform",
+            impl="test.transform",
+            outputs={"stream": "event_stream"},
+        )
+    )
+    calls: list[tuple[list[Any], str | None]] = []
+
+    def merge(
+        values: list[Any],
+        *,
+        dataset_name: str | None = None,
+        **_: Any,
+    ) -> Any:
+        calls.append((values, dataset_name))
+        return {"merged": values}
+
+    merged = merge_partition_value_stores_for_dataset(
+        plan,
+        [
+            {("stage.SelectedEvents", "stream"): {"part": 1}},
+            {("stage.SelectedEvents", "stream"): {"part": 2}},
+        ],
+        dataset_name="data",
+        runtime_registry=RuntimeRegistry(
+            product_handlers={"event_stream": ProductHandlerEntry(merge=merge)}
+        ),
+    )
+
+    assert calls == [
+        ([{"part": 1}, {"part": 2}], "data"),
+    ]
+    assert merged[("stage.SelectedEvents", "stream")] == {
         "merged": [{"part": 1}, {"part": 2}]
     }
 

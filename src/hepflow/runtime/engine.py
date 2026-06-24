@@ -22,15 +22,6 @@ from hepflow.runtime.materialize import materialize_final_products
 from hepflow.runtime.writer_manifests import write_writer_manifests
 
 
-# TODO:
-# Event-stream merging should become package-owned via merge strategies.
-# fasthep-flow should not contain awkward-specific logic long term.
-def _awkward():
-    import awkward as ak  # noqa: PLC0415
-
-    return ak
-
-
 def build_expr_scope(
     data: Any,
     ctx: dict[str, Any] | None = None,
@@ -459,10 +450,6 @@ def merge_partition_value_stores(
             merged[key] = list(values)
             continue
 
-        if output_kind == "event_stream":
-            merged[key] = values[0] if len(values) == 1 else list(values)
-            continue
-
         merged[key] = values[0] if len(values) == 1 else list(values)
 
     return merged
@@ -520,10 +507,6 @@ def merge_partition_value_stores_for_dataset(
             merged[key] = values[0] if len(values) == 1 else list(values)
             continue
 
-        if output_kind == "event_stream":
-            merged[key] = _merge_event_stream_values(values)
-            continue
-
         if output_kind == "report":
             merged[key] = list(values)
             continue
@@ -531,20 +514,6 @@ def merge_partition_value_stores_for_dataset(
         merged[key] = values[0] if len(values) == 1 else list(values)
 
     return merged
-
-
-def _merge_event_stream_values(values: list[Any]) -> Any:
-    if len(values) == 1:
-        return values[0]
-    if all(_is_awkward_array_like(value) for value in values):
-        ak = _awkward()
-        return ak.concatenate(values)
-    return list(values)
-
-
-def _is_awkward_array_like(value: Any) -> bool:
-    cls = type(value)
-    return cls.__module__.startswith("awkward.") and cls.__name__ == "Array"
 
 
 def execute_dataset_sinks(
