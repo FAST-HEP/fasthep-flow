@@ -1,227 +1,7 @@
-# hepflow/model/plan.py
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Any, Literal
-
-from hepflow.model.defaults import (
-    DEFAULT_RESULTS_DIR,
-    DEFAULT_WORK_DIR,
-)
-from hepflow.model.deps import RequiredInput
-from hepflow.model.ir import InputRef
-
-# ---- Core plan pieces ----
-
-
-@dataclass(frozen=True)
-class Paths:
-    work: str = DEFAULT_WORK_DIR
-    results: str = DEFAULT_RESULTS_DIR
-
-    def resolve(
-        self, *, base_dir: str | Path | None = None
-    ) -> tuple[Paths, dict[str, Any]]:
-        report: dict[str, Any] = {"changed": False, "notes": []}
-
-        def _abs(p: str, *, rel_to: str | Path | None) -> str:
-            path = Path(p)
-            if path.is_absolute():
-                return str(path.resolve())
-            root = Path(rel_to) if rel_to is not None else Path.cwd()
-            return str((root / path).resolve())
-
-        base = (Path(base_dir) if base_dir is not None else Path.cwd()).resolve()
-
-        # Resolve work relative to base
-        work_abs = _abs(self.work, rel_to=base)
-        if work_abs != self.work:
-            report["changed"] = True
-            report["notes"].append(
-                f"paths.work made absolute: {self.work} -> {work_abs}"
-            )
-
-        # Resolve results
-        results_path = Path(self.results)
-        if results_path.is_absolute():
-            results_abs = str(results_path.resolve())
-        else:
-            # Guard: if user already wrote results like "<work>/something", don't re-prefix with work again.
-            work_rel_norm = Path(self.work).as_posix()
-            results_rel_norm = results_path.as_posix()
-
-            looks_prefixed_by_work = (
-                work_rel_norm
-                and work_rel_norm not in (".", Path.cwd().anchor)
-                and (
-                    results_rel_norm == work_rel_norm
-                    or results_rel_norm.startswith(work_rel_norm + "/")
-                )
-            )
-
-            if looks_prefixed_by_work:
-                # interpret results relative to base, not relative-to-work
-                results_abs = _abs(self.results, rel_to=base)
-                report["changed"] = True
-                report["notes"].append(
-                    "paths.results looked already prefixed by work; "
-                    f"interpreting relative to base_dir instead of work: {self.results} -> {results_abs}"
-                )
-            else:
-                results_abs = _abs(self.results, rel_to=work_abs)
-                if results_abs != self.results:
-                    report["changed"] = True
-                    report["notes"].append(
-                        f"paths.results resolved relative to work: {self.results} -> {results_abs}"
-                    )
-
-        return Paths(work=work_abs, results=results_abs), report
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class DatasetEntry:
-    files: list[str]
-    nevents: int
-    eventtype: str = "mc"
-    group: str = ""
-    meta: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class Partition:
-    dataset: str
-    file: str
-    part: str
-    start: int
-    stop: int
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class ProductPlan:
-    id: str
-    kind: str  # "hist" | "cutflow" (v1)
-    ext: str  # "pkl" | "json"
-    ir_node: str
-    ir_port: str
-    map: dict[str, Any]
-    reduce: dict[str, Any]
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class RenderPlan:
-    id: str
-    when: str
-    input: dict[str, Any]
-    output: str
-    params: dict[str, Any] = field(default_factory=dict)
-    op: str = "hep.render.plot"
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class NodeDeps:
-    requires: tuple[str, ...] = ()
-    provides: tuple[str, ...] = ()
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"requires": list(self.requires), "provides": list(self.provides)}
-
-
-@dataclass(frozen=True)
-class PlanDeps:
-    context_symbols: tuple[str, ...] = ()
-    external_symbols: tuple[str, ...] = ()
-
-    # optional but often useful later:
-    unresolved_external_symbols: tuple[str, ...] = ()
-
-    def to_dict(self) -> dict[str, Any]:
-        d = {
-            "context_symbols": list(self.context_symbols),
-            "external_symbols": list(self.external_symbols),
-        }
-        if self.unresolved_external_symbols:
-            d["unresolved_external_symbols"] = list(self.unresolved_external_symbols)
-        return d
-
-
-@dataclass(frozen=True)
-class ExecNode:
-    id: str
-    op: str
-    in_: tuple[InputRef, ...] = ()
-    params: dict[str, Any] = field(default_factory=dict)
-    out: dict[str, str] = field(default_factory=dict)
-    deps: NodeDeps = field(default_factory=NodeDeps)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "op": self.op,
-            "in": [x.to_dict() for x in self.in_],
-            "params": self.params,
-            "out": self.out,
-            "deps": self.deps.to_dict(),
-        }
-
-
-@dataclass(frozen=True)
-class Plan:
-    version: str = "2.1"
-    paths: Paths = field(default_factory=Paths)
-
-    datasets: dict[str, DatasetEntry] = field(default_factory=dict)
-    partitions: list[Partition] = field(default_factory=list)
-
-    primary_stream: str = "events"
-    streams: dict[str, Any] = field(default_factory=dict)
-
-    # required_inputs comes from Deps (stream_id -> RequiredInput dict)
-    required_inputs: dict[str, RequiredInput] = field(default_factory=dict)
-
-    exec_graph: tuple[ExecNode, ...] = field(default_factory=tuple)
-    deps: PlanDeps = field(default_factory=PlanDeps)
-
-    products: list[ProductPlan] = field(default_factory=list)
-    renders: list[RenderPlan] = field(default_factory=list)
-
-    # Optional debug helpers (cheap, but helpful)
-    fieldmap: dict[str, Any] = field(default_factory=dict)
-
-    reports: dict[str, Any] = field(default_factory=dict)
-
-    globals: dict[str, Any] = field(default_factory=dict)
-
-    registry: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = asdict(self)
-
-        # Override pieces where asdict() loses our desired structure/types:
-        d["required_inputs"] = {
-            sid: {"kind": ri.kind, "tree": ri.tree, "branches": list(ri.branches)}
-            for sid, ri in self.required_inputs.items()
-        }
-        d["exec_graph"] = [n.to_dict() for n in self.exec_graph]
-        d["deps"] = self.deps.to_dict()
-
-        return d
-
 
 Scope = Literal["partition", "dataset", "global"]
 MaterializeMode = Literal["never", "if_requested", "always"]
@@ -264,9 +44,7 @@ class PartitionSpec:
 
 @dataclass(slots=True)
 class ExecutionNode:
-    """
-    Backend-neutral execution unit description.
-    """
+    """Backend-neutral execution unit description."""
 
     id: str
     graph_node_id: str
@@ -357,7 +135,10 @@ def resolve_plan_ref(ref: str, plan: ExecutionPlan) -> Any:
     current: Any = plan.context
     for part in parts[1:]:
         if not isinstance(current, dict):
-            raise KeyError(f"Plan ref {ref!r} cannot be resolved through non-mapping segment {part!r}")
+            raise KeyError(
+                f"Plan ref {ref!r} cannot be resolved through "
+                f"non-mapping segment {part!r}"
+            )
         try:
             current = current[part]
         except KeyError as exc:
