@@ -240,40 +240,35 @@ def test_component_spec_shaped_hook_loads_metadata(
     assert hook_spec_context_outputs(spec) == ["toy_context"]
 
 
-def test_legacy_hook_spec_still_loads_and_contributes_context_outputs(
-    tmp_path: Path,
+def test_old_top_level_hook_events_are_not_supported(
     toy_author: dict[str, Any],
 ) -> None:
-    author = dict(toy_author)
-    author["registry"] = {
-        **dict(author["registry"]),
-        "hooks": {
-            "toy.legacy_context": {
-                "spec": "tests.toy_components.hooks:TOY_LEGACY_HOOK_SPEC",
-                "impl": "tests.toy_components.hooks:ToyContextHook",
-            }
-        },
-    }
-    author["execution_hooks"] = [
+    plan = compile_author_file_from_dict(
         {
-            "kind": "toy.legacy_context",
-            "events": ["partition_start"],
+            **dict(toy_author),
+            "registry": {
+                **dict(toy_author["registry"]),
+                "hooks": {
+                    "toy.old_shape": {
+                        "spec": "tests.toy_components.hooks:TOY_OLD_SHAPE_HOOK_SPEC",
+                        "impl": "tests.toy_components.hooks:ToyContextHook",
+                    }
+                },
+            },
+            "execution_hooks": [
+                {
+                    "kind": "toy.old_shape",
+                    "events": ["partition_start"],
+                }
+            ],
         }
-    ]
-    author["analysis"]["stages"][0]["params"] = {
-        "source": "toy_context",
-        "output": "from_context",
-    }
+    )
 
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
-    plan = compile_author_file(author_path, outdir=tmp_path / "build")
-
-    assert plan.data_flow["required_sources"] == {}
-    assert plan.data_flow["origins"]["from_context"] == {
-        "kind": "produced",
-        "node": "stage.Scale",
-    }
+    with pytest.raises(
+        ValueError,
+        match="Hook toy.old_shape does not support event partition_start",
+    ):
+        HookManager.from_plan(plan)
 
 
 def test_hook_executes_lifecycle_event_and_records_summary(

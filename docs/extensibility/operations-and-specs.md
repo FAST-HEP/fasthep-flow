@@ -256,9 +256,13 @@ otherwise used by upstream transforms.
 
 ## Runtime hook example
 
-Runtime hooks use the same component-spec shape, with supported callback events
-declared under `lifecycle.events`. Existing hook implementations should continue
-to subclass `ExecutionHook`; this pass only unifies registration metadata.
+Runtime hooks are components that attach to lifecycle events rather than graph
+nodes. They use the same component-spec shape as other components, with
+supported callback events declared under `lifecycle.events`.
+
+Hook implementations may subclass `ExecutionHook` to inherit no-op callback
+methods, but `ExecutionHook` is only the runtime callback base class. It is not a
+spec model.
 
 ```python
 from hepflow.model import ExecutionHook
@@ -292,5 +296,4 @@ registry:
       impl: my_package.hooks.runtime_diagnostics:RuntimeDiagnosticsHook
 ```
 
-The older `HookSpec` class is still accepted for compatibility, but new hooks
-should use the shared `ComponentSpec`-shaped dictionary form.
+Hook specs must use the shared `ComponentSpec`-shaped dictionary form.

@@ -3,8 +3,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Any
 
-from hepflow.model.hooks import HookSpec
-
 TOY_CONTEXT_HOOK_SPEC = {
     "name": "toy.context",
     "kind": "hook",
@@ -27,12 +25,12 @@ TOY_ORDER_HOOK_SPEC = {
     "context_outputs": [],
 }
 
-TOY_LEGACY_HOOK_SPEC = HookSpec(
-    name="toy.legacy_context",
-    kind="hook",
-    events=["partition_start"],
-    context_outputs=["toy_context"],
-)
+TOY_OLD_SHAPE_HOOK_SPEC = {
+    "name": "toy.old_shape",
+    "kind": "hook",
+    "events": ["partition_start"],
+    "context_outputs": ["toy_context"],
+}
 
 
 class ToyContextHook:
