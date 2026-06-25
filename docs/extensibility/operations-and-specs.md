@@ -277,7 +277,9 @@ RUNTIME_DIAGNOSTICS_SPEC = {
     "lifecycle": {
         "events": ["before_node", "after_node", "on_node_error"],
     },
-    "context_outputs": ["diagnostics"],
+    "result": {
+        "context": ["diagnostics"],
+    },
 }
 
 
@@ -312,12 +314,12 @@ DATASET_METADATA_SPEC = {
     "lifecycle": {
         "when": "after_datasets",
     },
-    "inputs": [
-        "datasets",
-    ],
-    "outputs": [
-        "dataset_metadata",
-    ],
+    "input": {
+        "artifacts": ["datasets"],
+    },
+    "result": {
+        "artifacts": ["dataset_metadata"],
+    },
 }
 
 

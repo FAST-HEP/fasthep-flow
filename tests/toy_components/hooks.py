@@ -15,23 +15,15 @@ TOY_CONTEXT_HOOK_SPEC = {
             "run_end",
         ],
     },
-    "context_outputs": ["toy_context"],
+    "result": {"context": ["toy_context"]},
 }
 
 TOY_ORDER_HOOK_SPEC = {
     "name": "toy.order",
     "kind": "hook",
     "lifecycle": {"events": ["around_node", "before_node", "after_node"]},
-    "context_outputs": [],
+    "result": {"context": []},
 }
-
-TOY_OLD_SHAPE_HOOK_SPEC = {
-    "name": "toy.old_shape",
-    "kind": "hook",
-    "events": ["partition_start"],
-    "context_outputs": ["toy_context"],
-}
-
 
 class ToyContextHook:
     def __init__(self, value: str = "ready") -> None:

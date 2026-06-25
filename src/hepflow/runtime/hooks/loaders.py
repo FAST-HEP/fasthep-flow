@@ -34,8 +34,16 @@ def hook_spec_events(spec: RuntimeComponentSpec) -> list[str]:
     return list(events)
 
 
-def hook_spec_context_outputs(spec: RuntimeComponentSpec) -> list[str]:
-    return list(spec.context_outputs or [])
+def hook_spec_context_symbols(spec: RuntimeComponentSpec) -> list[str]:
+    result = dict(spec.result or {})
+    context = result.get("context") or []
+    if not isinstance(context, list) or not all(
+        isinstance(item, str) and item for item in context
+    ):
+        raise ValueError(
+            f"Hook spec {spec.name!r} result.context must be a list of strings"
+        )
+    return list(context)
 
 
 def load_hook_impl(

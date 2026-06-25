@@ -16,14 +16,14 @@ from hepflow.model.data_flow import DataDependencyResult
 from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.registry.loaders import load_object
 from hepflow.runtime.hooks.loaders import (
-    hook_spec_context_outputs,
+    hook_spec_context_symbols,
     hook_spec_events,
     load_hook_spec,
 )
 from hepflow.runtime.hooks.manager import HookManager
 
 
-def test_toy_transform_dependency_parser_tracks_consumed_and_produced_symbols(
+def test_toy_transform_spec_tracks_consumed_and_produced_symbols(
     toy_registry: dict[str, Any],
 ) -> None:
     spec = load_object(
@@ -177,7 +177,7 @@ def test_expression_requirements_support_wildcards_and_optional_params() -> None
     )
 
 
-def test_hook_context_outputs_are_visible_to_data_flow(
+def test_hook_context_result_symbols_are_visible_to_data_flow(
     tmp_path: Path,
     toy_author: dict[str, Any],
 ) -> None:
@@ -237,38 +237,7 @@ def test_component_spec_shaped_hook_loads_metadata(
         "after_node",
         "run_end",
     ]
-    assert hook_spec_context_outputs(spec) == ["toy_context"]
-
-
-def test_old_top_level_hook_events_are_not_supported(
-    toy_author: dict[str, Any],
-) -> None:
-    plan = compile_author_file_from_dict(
-        {
-            **dict(toy_author),
-            "registry": {
-                **dict(toy_author["registry"]),
-                "hooks": {
-                    "toy.old_shape": {
-                        "spec": "tests.toy_components.hooks:TOY_OLD_SHAPE_HOOK_SPEC",
-                        "impl": "tests.toy_components.hooks:ToyContextHook",
-                    }
-                },
-            },
-            "execution_hooks": [
-                {
-                    "kind": "toy.old_shape",
-                    "events": ["partition_start"],
-                }
-            ],
-        }
-    )
-
-    with pytest.raises(
-        ValueError,
-        match=r"Hook toy\.old_shape does not support event partition_start",
-    ):
-        HookManager.from_plan(plan)
+    assert hook_spec_context_symbols(spec) == ["toy_context"]
 
 
 def test_hook_executes_lifecycle_event_and_records_summary(

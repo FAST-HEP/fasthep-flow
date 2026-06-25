@@ -14,7 +14,7 @@ from hepflow.registry.defaults import (
     merge_registry_config,
 )
 from hepflow.registry.loaders import load_object
-from hepflow.runtime.hooks.loaders import hook_spec_context_outputs, load_hook_spec
+from hepflow.runtime.hooks.loaders import hook_spec_context_symbols, load_hook_spec
 
 
 @dataclass(slots=True, frozen=True)
@@ -57,7 +57,7 @@ def context_symbols_from_plan(
         if not kind:
             continue
         spec = load_hook_spec(registry, kind)
-        symbols.update(str(item) for item in hook_spec_context_outputs(spec))
+        symbols.update(str(item) for item in hook_spec_context_symbols(spec))
 
     return symbols
 
@@ -190,26 +190,7 @@ def parse_component_data_dependencies(
     dep_ctx: DependencyContext,
 ) -> DataDependencyResult:
     component_spec = RuntimeComponentSpec.from_obj(spec)
-    parser_ref = (component_spec.dependencies or {}).get("parser")
     result = DataDependencyResult()
-    if parser_ref:
-        if not isinstance(parser_ref, str):
-            raise TypeError(
-                f"Dependency parser reference for {component_spec.name!r} must be a string"
-            )
-
-        parser = load_object(parser_ref)
-        if not callable(parser):
-            raise TypeError(
-                f"Dependency parser for {component_spec.name!r} is not callable"
-            )
-        result = parser(
-            params,
-            known_functions=dep_ctx.known_functions,
-            known_constants=dep_ctx.known_constants,
-            context_symbols=dep_ctx.context_symbols,
-        )
-
     declared_provides = _provided_symbols_from_spec(
         component_spec,
         params=params,
