@@ -297,3 +297,60 @@ registry:
 ```
 
 Hook specs must use the shared `ComponentSpec`-shaped dictionary form.
+
+## Compile hook example
+
+Compile hooks are components that attach to compile lifecycle phases rather than
+runtime events or graph nodes. They use the same component-spec shape, with the
+compile phase declared under `lifecycle.when`.
+
+```python
+DATASET_METADATA_SPEC = {
+    "name": "curator.dataset_metadata",
+    "kind": "compile_hook",
+    "version": "1.0",
+    "lifecycle": {
+        "when": "after_datasets",
+    },
+    "inputs": [
+        "datasets",
+    ],
+    "outputs": [
+        "dataset_metadata",
+    ],
+}
+
+
+def run_dataset_metadata(ctx, **params):
+    ...
+    return {"dataset_metadata": {...}}
+```
+
+Registry entry:
+
+```yaml
+registry:
+  compile_hooks:
+    curator.dataset_metadata:
+      spec: my_package.compile_hooks.dataset_metadata:DATASET_METADATA_SPEC
+      impl: my_package.compile_hooks.dataset_metadata:run_dataset_metadata
+```
+
+`lifecycle.when` may be a string phase name or a list of phase names. Current
+compile hooks run during the phases explicitly invoked by Flow; for example,
+`after_datasets` runs after dataset entries have been collected and before the
+compile report is written.
+
+Runtime and compile hooks share the same principle:
+
+```yaml
+kind: hook
+lifecycle:
+  events:
+    - before_node
+    - after_node
+
+kind: compile_hook
+lifecycle:
+  when: after_datasets
+```

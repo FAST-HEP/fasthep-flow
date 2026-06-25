@@ -266,7 +266,7 @@ def test_old_top_level_hook_events_are_not_supported(
 
     with pytest.raises(
         ValueError,
-        match="Hook toy.old_shape does not support event partition_start",
+        match=r"Hook toy\.old_shape does not support event partition_start",
     ):
         HookManager.from_plan(plan)
 

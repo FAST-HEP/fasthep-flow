@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from hepflow.build_layout import BuildPaths
+from hepflow.model.component_spec import RuntimeComponentSpec
 from hepflow.model.plan import ExecutionPlan
 from hepflow.registry.loaders import load_object
 
@@ -34,7 +35,7 @@ def run_compile_hooks(
     )
 
     out: dict[str, Any] = {}
-    for name, entry in _compile_hook_entries(plan.registry, when=when):
+    for name, entry, _spec in _compile_hook_entries(plan.registry, when=when):
         impl_ref = str(entry["impl"])
         try:
             impl = load_object(impl_ref)
@@ -69,15 +70,37 @@ def _compile_hook_entries(
     registry: dict[str, Any] | None,
     *,
     when: str,
-) -> list[tuple[str, dict[str, Any]]]:
+) -> list[tuple[str, dict[str, Any], RuntimeComponentSpec]]:
     hooks = dict((registry or {}).get("compile_hooks") or {})
-    selected: list[tuple[str, dict[str, Any]]] = []
+    selected: list[tuple[str, dict[str, Any], RuntimeComponentSpec]] = []
     for name, entry in hooks.items():
         if not isinstance(entry, dict):
             raise TypeError(f"Compile hook registry entry {name!r} must be a mapping")
-        if entry.get("when") != when:
-            continue
         if not isinstance(entry.get("impl"), str) or not str(entry.get("impl")).strip():
             raise ValueError(f"Compile hook registry entry {name!r} requires 'impl'")
-        selected.append((str(name), dict(entry)))
+        spec_ref = entry.get("spec")
+        if not isinstance(spec_ref, str) or ":" not in spec_ref:
+            raise TypeError(
+                f"Compile hook registry entry {name!r} must define string 'spec' "
+                "as 'module:object'"
+            )
+        spec = RuntimeComponentSpec.from_obj(load_object(spec_ref))
+        if when not in _compile_hook_phases(spec):
+            continue
+        selected.append((str(name), dict(entry), spec))
     return selected
+
+
+def _compile_hook_phases(spec: RuntimeComponentSpec) -> set[str]:
+    lifecycle = dict(spec.lifecycle or {})
+    raw = lifecycle.get("when")
+    if raw is None:
+        return set()
+    if isinstance(raw, str):
+        return {raw}
+    if isinstance(raw, list) and all(isinstance(item, str) and item for item in raw):
+        return set(raw)
+    raise ValueError(
+        f"Compile hook spec {spec.name!r} lifecycle.when must be a string "
+        "or list of strings"
+    )

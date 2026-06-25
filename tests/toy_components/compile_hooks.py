@@ -2,6 +2,37 @@ from __future__ import annotations
 
 from typing import Any
 
+DATASET_METADATA_HOOK_SPEC = {
+    "name": "toy.dataset_metadata",
+    "kind": "compile_hook",
+    "version": "1.0",
+    "lifecycle": {"when": "after_datasets"},
+    "inputs": ["datasets"],
+    "outputs": ["dataset_metadata"],
+}
+
+IGNORED_HOOK_SPEC = {
+    "name": "toy.ignored",
+    "kind": "compile_hook",
+    "version": "1.0",
+    "lifecycle": {"when": "before_runtime"},
+    "outputs": ["ignored"],
+}
+
+FAILING_HOOK_SPEC = {
+    "name": "toy.fail",
+    "kind": "compile_hook",
+    "version": "1.0",
+    "lifecycle": {"when": "after_datasets"},
+}
+
+OLD_SHAPE_HOOK_SPEC = {
+    "name": "toy.old_shape",
+    "kind": "compile_hook",
+    "when": "after_datasets",
+    "outputs": ["dataset_metadata"],
+}
+
 
 def dataset_metadata_hook(ctx: Any, **params: Any) -> dict[str, Any]:
     del params

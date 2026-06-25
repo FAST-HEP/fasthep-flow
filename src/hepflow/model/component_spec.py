@@ -10,8 +10,10 @@ class RuntimeComponentSpec:
     kind: str
     version: str | None = None
     input: dict[str, Any] = field(default_factory=dict)
+    inputs: list[str] = field(default_factory=list)
     params: dict[str, Any] = field(default_factory=dict)
     result: dict[str, Any] = field(default_factory=dict)
+    outputs: list[str] = field(default_factory=list)
     dependencies: dict[str, Any] = field(default_factory=dict)
     requires: dict[str, Any] = field(default_factory=dict)
     provides: dict[str, Any] = field(default_factory=dict)
@@ -45,14 +47,30 @@ class RuntimeComponentSpec:
             raise ValueError(
                 "Runtime component spec 'context_outputs' must be a list of strings"
             )
+        inputs = obj.get("inputs") or []
+        if not isinstance(inputs, list) or not all(
+            isinstance(item, str) and item for item in inputs
+        ):
+            raise ValueError(
+                "Runtime component spec 'inputs' must be a list of strings"
+            )
+        outputs = obj.get("outputs") or []
+        if not isinstance(outputs, list) or not all(
+            isinstance(item, str) and item for item in outputs
+        ):
+            raise ValueError(
+                "Runtime component spec 'outputs' must be a list of strings"
+            )
 
         return cls(
             name=name,
             kind=kind,
             version=version,
             input=dict(obj.get("input") or {}),
+            inputs=list(inputs),
             params=dict(obj.get("params") or {}),
             result=dict(obj.get("result") or {}),
+            outputs=list(outputs),
             dependencies=dict(obj.get("dependencies") or {}),
             requires=dict(obj.get("requires") or {}),
             provides=dict(obj.get("provides") or {}),

@@ -1,8 +1,4 @@
-
-
-```text
-execution infrastructure
-```
+# Execution infrastructure
 
 The two headline capabilities naturally fit together:
 

@@ -59,7 +59,7 @@ def test_compile_hook_errors_include_name_phase_and_impl(tmp_path: Path) -> None
         registry={
             "compile_hooks": {
                 "toy.fail": {
-                    "when": "after_datasets",
+                    "spec": "tests.toy_components.compile_hooks:FAILING_HOOK_SPEC",
                     "impl": "tests.toy_components.compile_hooks:failing_compile_hook",
                 }
             }
@@ -120,6 +120,28 @@ def test_flow_compile_hook_logic_does_not_import_uproot() -> None:
     assert offenders == []
 
 
+def test_old_compile_hook_when_field_is_not_supported(tmp_path: Path) -> None:
+    plan = ExecutionPlan(
+        registry={
+            "compile_hooks": {
+                "toy.old_shape": {
+                    "spec": "tests.toy_components.compile_hooks:OLD_SHAPE_HOOK_SPEC",
+                    "impl": "tests.toy_components.compile_hooks:dataset_metadata_hook",
+                }
+            }
+        }
+    )
+
+    artifacts = run_compile_hooks(
+        plan=plan,
+        normalized={},
+        build_paths=BuildPaths(root=tmp_path),
+        when="after_datasets",
+    )
+
+    assert artifacts == {}
+
+
 def _plan_with_compile_hooks() -> ExecutionPlan:
     return ExecutionPlan(
         context={
@@ -137,11 +159,11 @@ def _plan_with_compile_hooks() -> ExecutionPlan:
         registry={
             "compile_hooks": {
                 "toy.dataset_metadata": {
-                    "when": "after_datasets",
+                    "spec": "tests.toy_components.compile_hooks:DATASET_METADATA_HOOK_SPEC",
                     "impl": "tests.toy_components.compile_hooks:dataset_metadata_hook",
                 },
                 "toy.ignored": {
-                    "when": "before_runtime",
+                    "spec": "tests.toy_components.compile_hooks:IGNORED_HOOK_SPEC",
                     "impl": "tests.toy_components.compile_hooks:ignored_hook",
                 },
             }
