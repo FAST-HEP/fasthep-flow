@@ -3,25 +3,36 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Any
 
+from hepflow.model.hooks import HookSpec
+
 TOY_CONTEXT_HOOK_SPEC = {
     "name": "toy.context",
     "kind": "hook",
-    "events": [
-        "partition_start",
-        "around_node",
-        "before_node",
-        "after_node",
-        "run_end",
-    ],
+    "lifecycle": {
+        "events": [
+            "partition_start",
+            "around_node",
+            "before_node",
+            "after_node",
+            "run_end",
+        ],
+    },
     "context_outputs": ["toy_context"],
 }
 
 TOY_ORDER_HOOK_SPEC = {
     "name": "toy.order",
     "kind": "hook",
-    "events": ["around_node", "before_node", "after_node"],
+    "lifecycle": {"events": ["around_node", "before_node", "after_node"]},
     "context_outputs": [],
 }
+
+TOY_LEGACY_HOOK_SPEC = HookSpec(
+    name="toy.legacy_context",
+    kind="hook",
+    events=["partition_start"],
+    context_outputs=["toy_context"],
+)
 
 
 class ToyContextHook:

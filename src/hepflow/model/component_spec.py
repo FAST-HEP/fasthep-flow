@@ -15,6 +15,8 @@ class RuntimeComponentSpec:
     dependencies: dict[str, Any] = field(default_factory=dict)
     requires: dict[str, Any] = field(default_factory=dict)
     provides: dict[str, Any] = field(default_factory=dict)
+    lifecycle: dict[str, Any] = field(default_factory=dict)
+    context_outputs: list[str] = field(default_factory=list)
 
     @classmethod
     def from_obj(cls, obj: Any) -> RuntimeComponentSpec:
@@ -36,6 +38,13 @@ class RuntimeComponentSpec:
         version = obj.get("version")
         if version is not None:
             version = str(version)
+        context_outputs = obj.get("context_outputs") or []
+        if not isinstance(context_outputs, list) or not all(
+            isinstance(item, str) and item for item in context_outputs
+        ):
+            raise ValueError(
+                "Runtime component spec 'context_outputs' must be a list of strings"
+            )
 
         return cls(
             name=name,
@@ -47,4 +56,6 @@ class RuntimeComponentSpec:
             dependencies=dict(obj.get("dependencies") or {}),
             requires=dict(obj.get("requires") or {}),
             provides=dict(obj.get("provides") or {}),
+            lifecycle=dict(obj.get("lifecycle") or {}),
+            context_outputs=list(context_outputs),
         )

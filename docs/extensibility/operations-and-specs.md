@@ -253,3 +253,44 @@ Regardless of the runtime behaviour, any fields listed in `keep` participate in
 dependency discovery. This allows a sink to request fields that are not
 otherwise used by upstream transforms.
 :::
+
+## Runtime hook example
+
+Runtime hooks use the same component-spec shape, with supported callback events
+declared under `lifecycle.events`. Existing hook implementations should continue
+to subclass `ExecutionHook`; this pass only unifies registration metadata.
+
+```python
+from hepflow.model import ExecutionHook
+
+RUNTIME_DIAGNOSTICS_SPEC = {
+    "name": "curator.runtime_diagnostics",
+    "kind": "hook",
+    "version": "1.0",
+    "params": {
+        "out": {"type": "string", "default": "diagnostics"},
+    },
+    "lifecycle": {
+        "events": ["before_node", "after_node", "on_node_error"],
+    },
+    "context_outputs": ["diagnostics"],
+}
+
+
+class RuntimeDiagnosticsHook(ExecutionHook):
+    def before_node(self, *, node, inputs, ctx):
+        ...
+```
+
+Registry entry:
+
+```yaml
+registry:
+  hooks:
+    curator.runtime_diagnostics:
+      spec: my_package.hooks.runtime_diagnostics:RUNTIME_DIAGNOSTICS_SPEC
+      impl: my_package.hooks.runtime_diagnostics:RuntimeDiagnosticsHook
+```
+
+The older `HookSpec` class is still accepted for compatibility, but new hooks
+should use the shared `ComponentSpec`-shaped dictionary form.

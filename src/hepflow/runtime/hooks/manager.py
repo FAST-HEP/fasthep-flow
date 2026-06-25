@@ -9,7 +9,11 @@ from hepflow.registry.defaults import (
     merge_registry_config,
 )
 from hepflow.registry.loaders import load_object, load_runtime_entry
-from hepflow.runtime.hooks.loaders import load_hook_impl, load_hook_spec
+from hepflow.runtime.hooks.loaders import (
+    hook_spec_events,
+    load_hook_impl,
+    load_hook_spec,
+)
 
 
 class HookDispatchError(RuntimeError):
@@ -96,7 +100,7 @@ class HookManager:
             }
             supported_events = {
                 _normalize_hook_event(event)
-                for event in list(hook_spec.events or [])
+                for event in hook_spec_events(hook_spec)
             }
             if not configured_events:
                 configured_events = supported_events

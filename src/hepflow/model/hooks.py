@@ -7,6 +7,15 @@ from typing import Any
 
 @dataclass(slots=True)
 class HookSpec:
+    """
+    Compatibility hook spec.
+
+    New hook components should use the shared ComponentSpec/RuntimeComponentSpec
+    shape with lifecycle.events and context_outputs. This class remains accepted
+    so existing ExecutionHook subclasses and registry specs keep loading during
+    the migration.
+    """
+
     name: str
     kind: str = "hook"
     version: str | None = None

@@ -14,7 +14,7 @@ from hepflow.registry.defaults import (
     merge_registry_config,
 )
 from hepflow.registry.loaders import load_object
-from hepflow.runtime.hooks.loaders import load_hook_spec
+from hepflow.runtime.hooks.loaders import hook_spec_context_outputs, load_hook_spec
 
 
 @dataclass(slots=True, frozen=True)
@@ -57,7 +57,7 @@ def context_symbols_from_plan(
         if not kind:
             continue
         spec = load_hook_spec(registry, kind)
-        symbols.update(str(item) for item in spec.context_outputs)
+        symbols.update(str(item) for item in hook_spec_context_outputs(spec))
 
     return symbols
 

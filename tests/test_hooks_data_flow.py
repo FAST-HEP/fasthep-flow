@@ -15,6 +15,11 @@ from hepflow.compiler.plan import build_execution_plan
 from hepflow.model.data_flow import DataDependencyResult
 from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.registry.loaders import load_object
+from hepflow.runtime.hooks.loaders import (
+    hook_spec_context_outputs,
+    hook_spec_events,
+    load_hook_spec,
+)
 from hepflow.runtime.hooks.manager import HookManager
 
 
@@ -206,6 +211,69 @@ def test_hook_context_outputs_are_visible_to_data_flow(
         "toy_context" in plan.data_flow["origins"]
         or "from_context" in plan.data_flow["origins"]
     )
+
+
+def test_component_spec_shaped_hook_loads_metadata(
+    toy_author: dict[str, Any],
+) -> None:
+    registry = {
+        **dict(toy_author["registry"]),
+        "hooks": {
+            "toy.context": {
+                "spec": "tests.toy_components.hooks:TOY_CONTEXT_HOOK_SPEC",
+                "impl": "tests.toy_components.hooks:ToyContextHook",
+            }
+        },
+    }
+
+    spec = load_hook_spec(registry, "toy.context")
+
+    assert spec.name == "toy.context"
+    assert spec.kind == "hook"
+    assert hook_spec_events(spec) == [
+        "partition_start",
+        "around_node",
+        "before_node",
+        "after_node",
+        "run_end",
+    ]
+    assert hook_spec_context_outputs(spec) == ["toy_context"]
+
+
+def test_legacy_hook_spec_still_loads_and_contributes_context_outputs(
+    tmp_path: Path,
+    toy_author: dict[str, Any],
+) -> None:
+    author = dict(toy_author)
+    author["registry"] = {
+        **dict(author["registry"]),
+        "hooks": {
+            "toy.legacy_context": {
+                "spec": "tests.toy_components.hooks:TOY_LEGACY_HOOK_SPEC",
+                "impl": "tests.toy_components.hooks:ToyContextHook",
+            }
+        },
+    }
+    author["execution_hooks"] = [
+        {
+            "kind": "toy.legacy_context",
+            "events": ["partition_start"],
+        }
+    ]
+    author["analysis"]["stages"][0]["params"] = {
+        "source": "toy_context",
+        "output": "from_context",
+    }
+
+    author_path = tmp_path / "author.yaml"
+    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    plan = compile_author_file(author_path, outdir=tmp_path / "build")
+
+    assert plan.data_flow["required_sources"] == {}
+    assert plan.data_flow["origins"]["from_context"] == {
+        "kind": "produced",
+        "node": "stage.Scale",
+    }
 
 
 def test_hook_executes_lifecycle_event_and_records_summary(
