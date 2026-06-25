@@ -32,15 +32,34 @@ modifiers, and compile hooks. Role-specific behavior should be represented as
 fields on the shared spec and by the registry section where the component is
 registered.
 
+A component spec describes two independent things:
+
+- **Execution contract**: what flows into and out of the component during execution.
+- **Dependency contract**: what information the component needs and what information it makes available.
+
+`input` and `result` describe the execution contract:
+
+- `input`: what the component consumes (for example, an `event_stream`)
+- `result`: what the component produces (for example, an event stream or an artifact)
+
+`requires` and `provides` describe the dependency contract:
+
+- `requires`: the information needed before the component can run
+- `provides`: the information available after the component has run
+
+These are intentionally independent. For example, a component may consume an entire event stream while requiring only the fields `Muon_Px` and `Muon_Py`. Likewise, it may produce an event stream while adding a single derived field such as `Muon_Pt`.
+
 ```python
 from hepflow.model import ComponentSpec
 
 EXAMPLE_TRANSFORM_SPEC = {
     "name": "example.define",
     "kind": "transform",
+    "input": {"name": "stream", "kind": "event_stream", "required": True},
     "params": {
         "variables": {"type": "list", "required": True},
     },
+    "result": {"kind": "event_stream"},
     "requires": {
         "symbols": [
             {"from": "params.variables.*.expr", "kind": "expr"},
@@ -69,9 +88,9 @@ registry:
 
 ## Declaring requirements and provided symbols
 
-Flow discovers data dependencies from declarative `requires.symbols` entries.
-The `from` value is a path into the normalized component parameters; the `kind`
-selects how values are interpreted.
+Flow discovers dependency-contract information from declarative
+`requires.symbols` entries. The `from` value is a path into the normalized
+component parameters; the `kind` selects how values are interpreted.
 
 ```yaml
 requires:
@@ -87,8 +106,8 @@ Currently used parser kinds are:
 - `expr_or_field`: an expression or simple field name
 - `cutflow`: nested cutflow selection expressions
 
-Use `provides.symbols` when a transform creates stream fields that downstream
-components may consume:
+Use `provides.symbols` when a component makes stream fields available to
+downstream components:
 
 ```yaml
 provides:
@@ -106,9 +125,11 @@ add a separate `optional` flag to `requires`.
 DEFINE_PT_SPEC = {
     "name": "example.pt_ratio",
     "kind": "transform",
+    "input": {"name": "stream", "kind": "event_stream", "required": True},
     "params": {
         "variables": {"type": "list", "required": True},
     },
+    "result": {"kind": "event_stream"},
     "requires": {
         "symbols": [
             {"from": "params.variables.*.expr", "kind": "expr"},
@@ -168,18 +189,21 @@ expression. The provided symbol comes from reading `params.variables.*.name`.
 
 ## Sink example
 
-Sinks and writers should also declare the stream symbols they consume, especially
-when the sink selects output columns that are not otherwise referenced by a
-transform.
+Sinks and writers should also declare the stream symbols they require,
+especially when the sink selects columns that are not otherwise referenced by a
+transform. The sink may consume a whole event-stream object as its execution
+input while requiring only selected fields for dependency resolution.
 
 ```python
 WRITE_TABLE_SPEC = {
     "name": "example.write_table",
     "kind": "sink",
+    "input": {"name": "target", "kind": "event_stream", "required": True},
     "params": {
         "path": {"type": "string", "required": True},
         "keep": {"type": "list", "default": None},
     },
+    "result": {"kind": "artifact"},
     "requires": {
         "symbols": [
             {"from": "params.keep", "kind": "field_list"},

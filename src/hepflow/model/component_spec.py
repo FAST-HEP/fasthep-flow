@@ -6,6 +6,39 @@ from typing import Any
 
 @dataclass(slots=True)
 class RuntimeComponentSpec:
+    """
+    Declarative description of a Flow component.
+
+    A component spec describes two independent things:
+
+    - **Execution contract** — what flows into and out of the component during
+      execution.
+    - **Dependency contract** — what information the component needs and what
+      information it makes available.
+
+    Execution contract
+
+    ``input``
+        What the component consumes (for example, an ``event_stream``).
+
+    ``result``
+        What the component produces (for example, an event stream or an
+        artifact).
+
+    Dependency contract
+
+    ``requires``
+        The information needed before the component can run.
+
+    ``provides``
+        The information available after the component has run.
+
+    These contracts are intentionally independent. For example, a component may
+    consume an entire event stream while requiring only the fields
+    ``Muon_Px`` and ``Muon_Py``. Likewise, it may produce an event stream while
+    adding a single derived field such as ``Muon_Pt``.
+    """
+
     name: str
     kind: str
     version: str | None = None
