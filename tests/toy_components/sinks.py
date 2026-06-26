@@ -58,5 +58,5 @@ def run_toy_capture_registry(
     return {
         "target": target,
         "plan_has_registry": "registry" in plan,
-        "renderers": sorted(getattr(runtime_registry, "renderers", {})),
+        "product_handlers": sorted(getattr(runtime_registry, "product_handlers", {})),
     }

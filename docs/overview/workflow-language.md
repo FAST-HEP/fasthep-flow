@@ -362,7 +362,7 @@ Common operation categories include:
 | sources | introduce streams |
 | transforms | derive or modify data |
 | sinks | persist or aggregate outputs |
-| renderers | generate plots and reports |
+| rendering sinks | generate plots and reports through ordinary sink components |
 | hooks | react to runtime lifecycle events |
 | observers | inspect workflow state |
 

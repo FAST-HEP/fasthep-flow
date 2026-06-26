@@ -4,7 +4,6 @@ import importlib
 from typing import Any
 
 from hepflow.model.products import ProductHandlerEntry
-from hepflow.model.render_types import RenderEntry, RenderTypeSpec
 from hepflow.registry.defaults import (
     default_expr_registry_config,
     default_runtime_registry_config,
@@ -57,25 +56,7 @@ def runtime_registry_from_config(cfg: dict[str, Any] | None) -> RuntimeRegistry:
     if not cfg:
         return RuntimeRegistry()
 
-    renderers_cfg = dict(cfg.get("renderers") or {})
     product_handlers_cfg = dict(cfg.get("product_handlers") or {})
-
-    renderers = {}
-    for name, entry_cfg in renderers_cfg.items():
-        if not isinstance(entry_cfg, dict):
-            raise TypeError(
-                f"Renderer registry entry '{name}' must be a mapping with 'spec' and 'impl'"
-            )
-
-        spec_obj = load_object(entry_cfg["spec"])
-        impl_obj = load_object(entry_cfg["impl"])
-
-        if not isinstance(spec_obj, RenderTypeSpec):
-            raise TypeError(f"Renderer spec '{name}' did not resolve to RenderTypeSpec")
-        if not callable(impl_obj):
-            raise TypeError(f"Renderer impl '{name}' did not resolve to a callable")
-
-        renderers[name] = RenderEntry(spec=spec_obj, handler=impl_obj)
 
     product_handlers = {}
     for name, entry_cfg in product_handlers_cfg.items():
@@ -105,7 +86,6 @@ def runtime_registry_from_config(cfg: dict[str, Any] | None) -> RuntimeRegistry:
         )
 
     return RuntimeRegistry(
-        renderers=renderers,
         product_handlers=product_handlers,
     )
 

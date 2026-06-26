@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from hepflow.model.render import RenderAttempt
-
 
 @dataclass(frozen=True)
 class ReportMessage:
@@ -56,13 +54,14 @@ class RenderExecutionReport:
     failed: int
 
     # “audit”: planned renders + their outcomes
-    attempts: tuple[RenderAttempt, ...] = ()
+    attempts: tuple[dict[str, Any], ...] = ()
 
     # renderable products that had NO render block (helps the “why no png?” UX)
     missing_renders: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
 
 @dataclass(frozen=True)
 class RenderReport:

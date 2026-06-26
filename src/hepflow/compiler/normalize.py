@@ -536,7 +536,6 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
 
     functions = _ensure_mapping(raw.get("functions") or {}, "registry.functions")
     constants = _ensure_mapping(raw.get("constants") or {}, "registry.constants")
-    renderers = _ensure_mapping(raw.get("renderers") or {}, "registry.renderers")
     sinks = _ensure_mapping(raw.get("sinks") or {}, "registry.sinks")
     sources = _ensure_mapping(raw.get("sources") or {}, "registry.sources")
     transforms = _ensure_mapping(raw.get("transforms") or {}, "registry.transforms")
@@ -555,7 +554,6 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
                 raise ValueError(f"{group_name}[{name!r}] must be 'module:object'")
 
     for group_name, group in [
-        ("registry.renderers", renderers),
         ("registry.sinks", sinks),
         ("registry.sources", sources),
         ("registry.transforms", transforms),
@@ -605,7 +603,6 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "functions": dict(functions),
         "constants": dict(constants),
-        "renderers": {k: dict(v) for k, v in renderers.items()},
         "sinks": {k: dict(v) for k, v in sinks.items()},
         "sources": {k: dict(v) for k, v in sources.items()},
         "transforms": {k: dict(v) for k, v in transforms.items()},

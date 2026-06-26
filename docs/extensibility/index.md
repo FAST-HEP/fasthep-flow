@@ -19,7 +19,7 @@ This system enables users and packages to contribute:
 - (data) {doc}`sources <../custom-operations/sources>`
 - {doc}`transforms <../custom-operations/transforms>`
 - {doc}`sinks <../custom-operations/sinks>`
-- {doc}`renderers <../custom-operations/renderers>`
+- {doc}`rendering sinks <../custom-operations/renderers>`
 - {doc}`hooks <../custom-operations/hooks>`
 - execution strategies
 - backend integrations

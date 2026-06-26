@@ -25,6 +25,11 @@ Do not treat backend classes, Dask helpers, lowered graph nodes, execution-plan
 internals, or render Data Transfer Objects (DTOs) as component-author API. Those are compiler/runtime,
 backend, or package-specific implementation details.
 
+Rendering follows the same rule as every other sink. Flow invokes render
+components through `registry.sinks` and passes render params through unchanged.
+Plot-specific schema and result DTOs belong to render packages such as
+`fasthep-render`, not to Flow.
+
 ## Component spec shape
 
 Use one component-spec shape for sources, transforms, sinks, observers,

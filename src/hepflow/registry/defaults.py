@@ -9,7 +9,6 @@ from hepflow.registry.expr import ExprRegistry
 REGISTRY_SECTIONS: tuple[str, ...] = (
     "functions",
     "constants",
-    "renderers",
     "sinks",
     "sources",
     "observers",
@@ -68,7 +67,6 @@ def merge_registry_config(
 
 def default_runtime_registry_config() -> dict[str, Any]:
     return {
-        "renderers": {},
         "sinks": {},
         "sources": {},
         "observers": {},
