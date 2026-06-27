@@ -8,6 +8,7 @@ import networkx as nx
 
 from hepflow.build_layout import ensure_build_layout
 from hepflow.compiler.artifacts import write_compile_artifacts
+from hepflow.model.io import OutputResult
 from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
 from hepflow.model.products import OperationResult, ProductHandlerEntry, ProductRef
 from hepflow.registry.runtime import RuntimeRegistry
@@ -17,6 +18,7 @@ from hepflow.runtime.engine import (
     merge_partition_value_stores_for_dataset,
 )
 from hepflow.runtime.materialize import materialize_final_products
+from hepflow.runtime.writer_manifests import write_writer_manifests
 
 
 def test_product_ref_model_records_operation_product_contract() -> None:
@@ -130,6 +132,103 @@ def test_final_product_materialization_goes_through_handler(tmp_path: Path) -> N
     assert (tmp_path / "artifacts" / "histograms" / "NumberMuons.pkl").read_text(
         encoding="utf-8"
     ) == "handled"
+
+
+def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> None:
+    ensure_build_layout(tmp_path)
+    plan = ExecutionPlan(provenance={"run_id": "run-123"})
+    plan.add_node(
+        ExecutionNode(
+            id="write.SelectedEvents.0",
+            graph_node_id="write.SelectedEvents.0",
+            role="sink",
+            impl="root_tree",
+            inputs=[
+                PlanInputRef(
+                    node_id="stage.SelectedEvents",
+                    output_name="stream",
+                    input_name="target",
+                )
+            ],
+            outputs={"artifact": "artifact"},
+        )
+    )
+    store = {
+        ("write.SelectedEvents.0", "artifact"): OutputResult(
+            kind="artifact",
+            path=str(
+                tmp_path
+                / "artifacts"
+                / "files"
+                / "selected"
+                / "data"
+                / "0_0.root"
+            ),
+            format="root",
+            metadata={
+                "writer_manifest": {
+                    "kind": "root_tree",
+                    "name": "selected",
+                    "node_id": "write.SelectedEvents.0",
+                    "input_node": "stage.SelectedEvents",
+                    "tree": "events",
+                    "path": "artifacts/files/selected/data/0_0.root",
+                    "path_type": "relative_to_outdir",
+                    "dataset": "data",
+                    "partition": 0,
+                    "attempt": 0,
+                    "entries": 12,
+                    "size_bytes": 345,
+                }
+            },
+        )
+    }
+
+    write_writer_manifests(plan, stores=[store], outdir=tmp_path)
+
+    writer_manifest = json.loads(
+        (
+            tmp_path / "artifacts" / "files" / "selected" / "manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert writer_manifest["total_entries"] == 12
+    assert writer_manifest["datasets"]["data"]["files"][0]["path_type"] == (
+        "relative_to_outdir"
+    )
+
+    provenance_manifest = json.loads(
+        (tmp_path / "artifacts" / "provenance" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert provenance_manifest["version"] == "1.0"
+    assert provenance_manifest["run_id"] == "run-123"
+    assert provenance_manifest["records"] == [
+        {
+            "artifact": "artifacts/files/selected/data/0_0.root",
+            "kind": "root_tree",
+            "node_id": "write.SelectedEvents.0",
+            "record": provenance_manifest["records"][0]["record"],
+        }
+    ]
+
+    record_path = tmp_path / provenance_manifest["records"][0]["record"]
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert record["artifact"] == {
+        "path": "artifacts/files/selected/data/0_0.root",
+        "path_type": "relative_to_outdir",
+        "kind": "root_tree",
+    }
+    assert record["node_id"] == "write.SelectedEvents.0"
+    assert record["input_node"] == "stage.SelectedEvents"
+    assert record["dataset"] == "data"
+    assert record["partition"] == 0
+    assert record["workflow"] == {
+        "normalized": "compile/normalized.yaml",
+        "graph": "graph/graph.json",
+        "plan": "compile/plan.yaml",
+    }
+    assert "python_version" in record["execution"]
 
 
 def test_partition_product_merge_goes_through_handler() -> None:

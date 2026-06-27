@@ -7,6 +7,7 @@ from typing import Any
 from hepflow.build_layout import BuildPaths
 from hepflow.model.io import OutputResult
 from hepflow.model.plan import ExecutionPlan
+from hepflow.runtime.provenance import write_artifact_provenance_records
 
 
 def write_writer_manifests(
@@ -16,6 +17,7 @@ def write_writer_manifests(
     outdir: str | Path,
 ) -> None:
     """Aggregate successful partition-writer results into one manifest per writer."""
+    all_records: list[dict[str, Any]] = []
     for node in plan.nodes:
         if node.role != "sink":
             continue
@@ -26,6 +28,7 @@ def write_writer_manifests(
         ]
         if not records:
             continue
+        all_records.extend(records)
         manifest = _build_manifest(records)
         manifest_dir = BuildPaths(root=Path(outdir)).artifact_dir("files") / str(
             manifest["name"]
@@ -35,6 +38,11 @@ def write_writer_manifests(
             json.dumps(manifest, indent=2) + "\n",
             encoding="utf-8",
         )
+    write_artifact_provenance_records(
+        plan=plan,
+        writer_records=all_records,
+        outdir=outdir,
+    )
 
 
 def _writer_records(value: Any) -> list[dict[str, Any]]:

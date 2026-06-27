@@ -52,6 +52,15 @@ class BuildPaths:
     def artifact(self, kind: str, filename: str | Path) -> Path:
         return self.artifact_dir(kind) / filename
 
+    def provenance_dir(self) -> Path:
+        return self.artifact_dir("provenance")
+
+    def provenance_records_dir(self) -> Path:
+        return self.provenance_dir() / "records"
+
+    def provenance_manifest(self) -> Path:
+        return self.provenance_dir() / "manifest.json"
+
     def report_dir(self, kind: str | None = None) -> Path:
         path = self.root / "reports"
         if self.variation:
@@ -205,6 +214,7 @@ def ensure_build_layout(root: str | Path, *, variation: str | None = None) -> No
         paths.artifact_dir("cutflows"),
         paths.artifact_dir("tables"),
         paths.artifact_dir("files"),
+        paths.provenance_records_dir(),
         paths.compile_dir(),
         paths.graph_dir(),
         paths.render_specs_dir(),

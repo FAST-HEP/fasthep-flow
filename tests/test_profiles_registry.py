@@ -7,7 +7,6 @@ import pytest
 import yaml
 
 from hepflow.api import normalise_author_file
-from hepflow.compiler.normalize import normalize_registry
 from hepflow.compiler.profiles import load_profile_registry_layer
 from hepflow.registry.loaders import (
     load_runtime_spec_and_impl,
