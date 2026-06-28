@@ -21,7 +21,7 @@ def write_artifact_provenance_records(
     plan: ExecutionPlan,
     writer_records: list[dict[str, Any]],
     outdir: str | Path,
-) -> None:
+) -> dict[str, dict[str, str]]:
     """
     Write generic artifact provenance records and a provenance manifest.
 
@@ -30,7 +30,7 @@ def write_artifact_provenance_records(
     file sizes without reopening output files.
     """
     if not writer_records:
-        return
+        return {}
 
     paths = BuildPaths(root=Path(outdir))
     manifest_path = paths.provenance_manifest()
@@ -43,13 +43,14 @@ def write_artifact_provenance_records(
     execution = _execution_context()
 
     manifest_records: list[dict[str, str]] = []
+    provenance_by_record_id: dict[str, dict[str, str]] = {}
     seen_records: set[str] = set()
     for writer_record in sorted(writer_records, key=_record_sort_key):
         record_id = _record_id(writer_record)
+        record_rel = f"artifacts/provenance/records/{record_id}.json"
         if record_id in seen_records:
             continue
         seen_records.add(record_id)
-        record_rel = f"artifacts/provenance/records/{record_id}.json"
         artifact_path = str(writer_record["path"])
         record_doc = {
             "version": PROVENANCE_VERSION,
@@ -70,13 +71,21 @@ def write_artifact_provenance_records(
             "software": software,
             "execution": execution,
         }
-        _write_json(records_dir / f"{record_id}.json", _drop_none(record_doc))
+        record_doc = _drop_none(record_doc)
+        record_hash = _content_hash(record_doc)
+        _write_json(records_dir / f"{record_id}.json", record_doc)
+        provenance_link = {
+            "record": record_rel,
+            "record_hash": record_hash,
+        }
+        provenance_by_record_id[record_id] = provenance_link
         manifest_records.append(
             {
                 "artifact": artifact_path,
                 "kind": str(writer_record.get("kind") or "artifact"),
                 "node_id": str(writer_record.get("node_id") or ""),
                 "record": record_rel,
+                "record_hash": record_hash,
             }
         )
 
@@ -86,6 +95,12 @@ def write_artifact_provenance_records(
         "records": manifest_records,
     }
     _write_json(manifest_path, manifest)
+    links: dict[str, dict[str, str]] = {}
+    for writer_record in writer_records:
+        record_id = _record_id(writer_record)
+        if record_id in provenance_by_record_id:
+            links[record_id] = dict(provenance_by_record_id[record_id])
+    return links
 
 
 def _record_sort_key(record: dict[str, Any]) -> tuple[str, str, int, int, str]:
@@ -109,6 +124,11 @@ def _record_id(record: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     digest = hashlib.sha256(encoded).hexdigest()[:24]
     return f"artifact-{digest}"
+
+
+def _content_hash(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def _existing_run_id(path: Path) -> str | None:

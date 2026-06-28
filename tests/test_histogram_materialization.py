@@ -153,36 +153,35 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
             outputs={"artifact": "artifact"},
         )
     )
-    store = {
-        ("write.SelectedEvents.0", "artifact"): OutputResult(
-            kind="artifact",
-            path=str(
-                tmp_path
-                / "artifacts"
-                / "files"
-                / "selected"
-                / "data"
-                / "0_0.root"
-            ),
-            format="root",
-            metadata={
-                "writer_manifest": {
-                    "kind": "root_tree",
-                    "name": "selected",
-                    "node_id": "write.SelectedEvents.0",
-                    "input_node": "stage.SelectedEvents",
-                    "tree": "events",
-                    "path": "artifacts/files/selected/data/0_0.root",
-                    "path_type": "relative_to_outdir",
-                    "dataset": "data",
-                    "partition": 0,
-                    "attempt": 0,
-                    "entries": 12,
-                    "size_bytes": 345,
-                }
-            },
-        )
-    }
+    output = OutputResult(
+        kind="artifact",
+        path=str(
+            tmp_path
+            / "artifacts"
+            / "files"
+            / "selected"
+            / "data"
+            / "0_0.root"
+        ),
+        format="root",
+        metadata={
+            "writer_manifest": {
+                "kind": "root_tree",
+                "name": "selected",
+                "node_id": "write.SelectedEvents.0",
+                "input_node": "stage.SelectedEvents",
+                "tree": "events",
+                "path": "artifacts/files/selected/data/0_0.root",
+                "path_type": "relative_to_outdir",
+                "dataset": "data",
+                "partition": 0,
+                "attempt": 0,
+                "entries": 12,
+                "size_bytes": 345,
+            }
+        },
+    )
+    store = {("write.SelectedEvents.0", "artifact"): output}
 
     write_writer_manifests(plan, stores=[store], outdir=tmp_path)
 
@@ -192,9 +191,8 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
         ).read_text(encoding="utf-8")
     )
     assert writer_manifest["total_entries"] == 12
-    assert writer_manifest["datasets"]["data"]["files"][0]["path_type"] == (
-        "relative_to_outdir"
-    )
+    writer_file = writer_manifest["datasets"]["data"]["files"][0]
+    assert writer_file["path_type"] == "relative_to_outdir"
 
     provenance_manifest = json.loads(
         (tmp_path / "artifacts" / "provenance" / "manifest.json").read_text(
@@ -209,8 +207,17 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
             "kind": "root_tree",
             "node_id": "write.SelectedEvents.0",
             "record": provenance_manifest["records"][0]["record"],
+            "record_hash": provenance_manifest["records"][0]["record_hash"],
         }
     ]
+    assert provenance_manifest["records"][0]["record_hash"].startswith("sha256:")
+    assert writer_file["provenance"] == {
+        "record": provenance_manifest["records"][0]["record"],
+        "record_hash": provenance_manifest["records"][0]["record_hash"],
+    }
+    assert output.provenance == writer_file["provenance"]
+    assert output.metadata["provenance"] == writer_file["provenance"]
+    assert output.metadata["writer_manifest"]["provenance"] == writer_file["provenance"]
 
     record_path = tmp_path / provenance_manifest["records"][0]["record"]
     record = json.loads(record_path.read_text(encoding="utf-8"))
@@ -229,6 +236,65 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
         "plan": "compile/plan.yaml",
     }
     assert "python_version" in record["execution"]
+
+
+def test_generic_output_result_gets_provenance_record(tmp_path: Path) -> None:
+    ensure_build_layout(tmp_path)
+    plan = ExecutionPlan(provenance={"run_id": "run-456"})
+    plan.add_node(
+        ExecutionNode(
+            id="render.SelectedEvents.0",
+            graph_node_id="render.SelectedEvents.0",
+            role="sink",
+            impl="hep.render.hist1d",
+            inputs=[
+                PlanInputRef(
+                    node_id="stage.SelectedEvents",
+                    output_name="hist",
+                    input_name="target",
+                )
+            ],
+            outputs={"artifact": "artifact"},
+        )
+    )
+    output = OutputResult(
+        kind="artifact",
+        path="artifacts/plots/selected.png",
+        format="png",
+    )
+    store = {("render.SelectedEvents.0", "artifact"): output}
+
+    write_writer_manifests(plan, stores=[store], outdir=tmp_path)
+
+    provenance_manifest = json.loads(
+        (tmp_path / "artifacts" / "provenance" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert provenance_manifest["records"] == [
+        {
+            "artifact": "artifacts/plots/selected.png",
+            "kind": "png",
+            "node_id": "render.SelectedEvents.0",
+            "record": provenance_manifest["records"][0]["record"],
+            "record_hash": provenance_manifest["records"][0]["record_hash"],
+        }
+    ]
+    assert output.provenance == {
+        "record": provenance_manifest["records"][0]["record"],
+        "record_hash": provenance_manifest["records"][0]["record_hash"],
+    }
+    record = json.loads(
+        (tmp_path / provenance_manifest["records"][0]["record"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert record["artifact"] == {
+        "path": "artifacts/plots/selected.png",
+        "path_type": "relative_to_outdir",
+        "kind": "png",
+    }
+    assert record["input_node"] == "stage.SelectedEvents"
 
 
 def test_partition_product_merge_goes_through_handler() -> None:

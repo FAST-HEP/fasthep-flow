@@ -11,6 +11,7 @@ class OutputResult:
     path: str
     format: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
 
     @property
     def name(self) -> str:
