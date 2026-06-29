@@ -38,7 +38,7 @@ def write_artifact_provenance_records(
     records_dir.mkdir(parents=True, exist_ok=True)
 
     run_id = _existing_run_id(manifest_path) or _plan_run_id(plan) or str(uuid.uuid4())
-    workflow = _workflow_references(paths)
+    workflow_refs = _workflow_references(paths)
     software = _software_versions()
     execution = _execution_context()
 
@@ -62,10 +62,8 @@ def write_artifact_provenance_records(
                 ),
                 "kind": str(writer_record.get("kind") or "artifact"),
             },
-            "node_id": str(writer_record.get("node_id") or ""),
-            "input_node": _optional_str(writer_record.get("input_node")),
+            "workflow": _record_workflow(writer_record, workflow_refs),
             "data": _record_data(writer_record),
-            "workflow": workflow,
             "software": software,
             "execution": execution,
         }
@@ -150,6 +148,19 @@ def _record_inputs(record: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(item, dict)
         ]
     return []
+
+
+def _record_workflow(
+    record: dict[str, Any],
+    workflow_refs: dict[str, str],
+) -> dict[str, str]:
+    return _drop_none(
+        {
+            "node_id": str(record.get("node_id") or ""),
+            "input_node": _optional_str(record.get("input_node")),
+            **workflow_refs,
+        }
+    )
 
 
 def _content_hash(payload: dict[str, Any]) -> str:

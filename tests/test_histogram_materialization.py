@@ -241,8 +241,15 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
         "path_type": "relative_to_outdir",
         "kind": "root_tree",
     }
-    assert record["node_id"] == "write.SelectedEvents.0"
-    assert record["input_node"] == "stage.SelectedEvents"
+    assert "node_id" not in record
+    assert "input_node" not in record
+    assert record["workflow"] == {
+        "node_id": "write.SelectedEvents.0",
+        "input_node": "stage.SelectedEvents",
+        "normalized": "compile/normalized.yaml",
+        "graph": "graph/graph.json",
+        "plan": "compile/plan.yaml",
+    }
     assert record["data"] == {
         "dataset": "data",
         "partition": 0,
@@ -258,11 +265,6 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
                 "stop": None,
             }
         ],
-    }
-    assert record["workflow"] == {
-        "normalized": "compile/normalized.yaml",
-        "graph": "graph/graph.json",
-        "plan": "compile/plan.yaml",
     }
     assert "python_version" in record["execution"]
 
@@ -323,7 +325,14 @@ def test_generic_output_result_gets_provenance_record(tmp_path: Path) -> None:
         "path_type": "relative_to_outdir",
         "kind": "png",
     }
-    assert record["input_node"] == "stage.SelectedEvents"
+    assert "input_node" not in record
+    assert record["workflow"] == {
+        "node_id": "render.SelectedEvents.0",
+        "input_node": "stage.SelectedEvents",
+        "normalized": "compile/normalized.yaml",
+        "graph": "graph/graph.json",
+        "plan": "compile/plan.yaml",
+    }
     assert record["data"]["inputs"] == []
 
 
@@ -377,6 +386,8 @@ def test_provenance_record_supports_multiple_input_partitions(tmp_path: Path) ->
     record = json.loads(
         (tmp_path / manifest["records"][0]["record"]).read_text(encoding="utf-8")
     )
+    assert record["workflow"]["node_id"] == "merge.SelectedEvents.0"
+    assert record["workflow"]["input_node"] == "write.SelectedEvents.0"
     assert record["data"]["inputs"] == inputs
 
 
