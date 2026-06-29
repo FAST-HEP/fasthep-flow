@@ -9,7 +9,12 @@ import networkx as nx
 from hepflow.build_layout import ensure_build_layout
 from hepflow.compiler.artifacts import write_compile_artifacts
 from hepflow.model.io import OutputResult
-from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
+from hepflow.model.plan import (
+    ExecutionNode,
+    ExecutionPartition,
+    ExecutionPlan,
+    PlanInputRef,
+)
 from hepflow.model.products import OperationResult, ProductHandlerEntry, ProductRef
 from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.engine import (
@@ -18,6 +23,7 @@ from hepflow.runtime.engine import (
     merge_partition_value_stores_for_dataset,
 )
 from hepflow.runtime.materialize import materialize_final_products
+from hepflow.runtime.provenance import write_artifact_provenance_records
 from hepflow.runtime.writer_manifests import write_writer_manifests
 
 
@@ -182,8 +188,17 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
         },
     )
     store = {("write.SelectedEvents.0", "artifact"): output}
+    partition = ExecutionPartition(
+        id="events__data__0",
+        dataset="data",
+        source="events",
+        file="data/CMS/Zmumu/data.root",
+        part="0_0",
+    )
 
-    write_writer_manifests(plan, stores=[store], outdir=tmp_path)
+    write_writer_manifests(
+        plan, stores=[store], partitions=[partition], outdir=tmp_path
+    )
 
     writer_manifest = json.loads(
         (
@@ -228,8 +243,22 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
     }
     assert record["node_id"] == "write.SelectedEvents.0"
     assert record["input_node"] == "stage.SelectedEvents"
-    assert record["dataset"] == "data"
-    assert record["partition"] == 0
+    assert record["data"] == {
+        "dataset": "data",
+        "partition": 0,
+        "attempt": 0,
+        "inputs": [
+            {
+                "id": "events__data__0",
+                "dataset": "data",
+                "source": "events",
+                "file": "data/CMS/Zmumu/data.root",
+                "part": "0_0",
+                "start": None,
+                "stop": None,
+            }
+        ],
+    }
     assert record["workflow"] == {
         "normalized": "compile/normalized.yaml",
         "graph": "graph/graph.json",
@@ -295,6 +324,60 @@ def test_generic_output_result_gets_provenance_record(tmp_path: Path) -> None:
         "kind": "png",
     }
     assert record["input_node"] == "stage.SelectedEvents"
+    assert record["data"]["inputs"] == []
+
+
+def test_provenance_record_supports_multiple_input_partitions(tmp_path: Path) -> None:
+    ensure_build_layout(tmp_path)
+    plan = ExecutionPlan(provenance={"run_id": "run-merged"})
+    inputs = [
+        {
+            "id": "events__data__0",
+            "dataset": "data",
+            "source": "events",
+            "file": "data/a.root",
+            "part": "0_0",
+            "start": 0,
+            "stop": 10,
+        },
+        {
+            "id": "events__data__1",
+            "dataset": "data",
+            "source": "events",
+            "file": "data/b.root",
+            "part": "1_0",
+            "start": 10,
+            "stop": 20,
+        },
+    ]
+
+    write_artifact_provenance_records(
+        plan=plan,
+        writer_records=[
+            {
+                "kind": "root_tree",
+                "node_id": "merge.SelectedEvents.0",
+                "input_node": "write.SelectedEvents.0",
+                "path": "artifacts/files/merged/data.root",
+                "path_type": "relative_to_outdir",
+                "dataset": "data",
+                "partition": 0,
+                "attempt": 0,
+                "inputs": inputs,
+            }
+        ],
+        outdir=tmp_path,
+    )
+
+    manifest = json.loads(
+        (tmp_path / "artifacts" / "provenance" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    record = json.loads(
+        (tmp_path / manifest["records"][0]["record"]).read_text(encoding="utf-8")
+    )
+    assert record["data"]["inputs"] == inputs
 
 
 def test_partition_product_merge_goes_through_handler() -> None:

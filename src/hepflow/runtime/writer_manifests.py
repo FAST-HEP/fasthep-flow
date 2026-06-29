@@ -7,7 +7,7 @@ from typing import Any
 
 from hepflow.build_layout import BuildPaths
 from hepflow.model.io import OutputResult
-from hepflow.model.plan import ExecutionPlan
+from hepflow.model.plan import ExecutionPartition, ExecutionPlan
 from hepflow.runtime.provenance import write_artifact_provenance_records
 
 
@@ -15,27 +15,36 @@ def write_writer_manifests(
     plan: ExecutionPlan,
     *,
     stores: list[dict[tuple[str, str], Any]],
+    partitions: list[ExecutionPartition] | None = None,
     outdir: str | Path,
 ) -> None:
     """Aggregate successful partition-writer results into one manifest per writer."""
     records_by_node: dict[str, list[dict[str, Any]]] = {}
     result_records: list[tuple[OutputResult, dict[str, Any]]] = []
     root = Path(outdir)
+    partition_by_store = {
+        id(store): partition
+        for store, partition in zip(stores, partitions or [], strict=False)
+    }
     for node in plan.nodes:
         if node.role != "sink":
             continue
-        outputs = [
-            output
-            for store in stores
-            for output in _writer_outputs(store.get((node.id, "artifact")))
-        ]
         records = []
-        for output in outputs:
-            has_writer_manifest = isinstance(output.metadata.get("writer_manifest"), dict)
-            copied_record = _artifact_record_from_output(output, node=node, outdir=root)
-            result_records.append((output, copied_record))
-            if has_writer_manifest:
-                records.append(copied_record)
+        for store in stores:
+            partition = partition_by_store.get(id(store))
+            for output in _writer_outputs(store.get((node.id, "artifact"))):
+                has_writer_manifest = isinstance(
+                    output.metadata.get("writer_manifest"), dict
+                )
+                copied_record = _artifact_record_from_output(
+                    output,
+                    node=node,
+                    outdir=root,
+                    partition=partition,
+                )
+                result_records.append((output, copied_record))
+                if has_writer_manifest:
+                    records.append(copied_record)
         if not records:
             continue
         records_by_node[node.id] = records
@@ -84,12 +93,16 @@ def _artifact_record_from_output(
     *,
     node: Any,
     outdir: Path,
+    partition: ExecutionPartition | None = None,
 ) -> dict[str, Any]:
     writer_manifest = output.metadata.get("writer_manifest")
     if isinstance(writer_manifest, dict):
-        return dict(writer_manifest)
+        record = dict(writer_manifest)
+        if partition is not None and "inputs" not in record:
+            record["inputs"] = [_partition_input(partition)]
+        return record
     path, path_type = _artifact_path(output.path, outdir)
-    return {
+    record = {
         "kind": str(
             output.metadata.get("artifact_kind")
             or output.metadata.get("kind")
@@ -104,6 +117,9 @@ def _artifact_record_from_output(
         "partition": output.metadata.get("partition"),
         "attempt": output.metadata.get("attempt", 0),
     }
+    if partition is not None:
+        record["inputs"] = [_partition_input(partition)]
+    return record
 
 
 def _artifact_path(path: str | Path, outdir: Path) -> tuple[str, str]:
@@ -123,6 +139,10 @@ def _input_node(node: Any) -> str:
     if not inputs:
         return ""
     return str(getattr(inputs[0], "node_id", ""))
+
+
+def _partition_input(partition: ExecutionPartition) -> dict[str, Any]:
+    return partition.to_context()
 
 
 def _record_id(record: dict[str, Any]) -> str:

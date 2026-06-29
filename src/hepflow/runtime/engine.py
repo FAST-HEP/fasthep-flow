@@ -345,6 +345,7 @@ def execute_plan_locally(
     write_writer_manifests(
         plan,
         stores=results,
+        partitions=partitions,
         outdir=str(base_ctx.get("outdir") or "."),
     )
     hook_manager.run_end(plan=plan, ctx=base_ctx, summary={})

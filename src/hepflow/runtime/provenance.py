@@ -26,7 +26,7 @@ def write_artifact_provenance_records(
     Write generic artifact provenance records and a provenance manifest.
 
     Writer records are the first integration point because they already know
-    produced artifact paths, node identity, dataset/partition identity, and
+    produced artifact paths, node identity, data lineage, and
     file sizes without reopening output files.
     """
     if not writer_records:
@@ -64,9 +64,7 @@ def write_artifact_provenance_records(
             },
             "node_id": str(writer_record.get("node_id") or ""),
             "input_node": _optional_str(writer_record.get("input_node")),
-            "dataset": _optional_str(writer_record.get("dataset")),
-            "partition": writer_record.get("partition"),
-            "attempt": writer_record.get("attempt"),
+            "data": _record_data(writer_record),
             "workflow": workflow,
             "software": software,
             "execution": execution,
@@ -124,6 +122,34 @@ def _record_id(record: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     digest = hashlib.sha256(encoded).hexdigest()[:24]
     return f"artifact-{digest}"
+
+
+def _record_data(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "dataset": _optional_str(record.get("dataset")),
+        "partition": record.get("partition"),
+        "attempt": record.get("attempt"),
+        "inputs": _record_inputs(record),
+    }
+
+
+def _record_inputs(record: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_inputs = record.get("inputs")
+    if isinstance(raw_inputs, list):
+        return [
+            {
+                "id": item.get("id"),
+                "dataset": item.get("dataset"),
+                "source": item.get("source"),
+                "file": item.get("file"),
+                "part": item.get("part"),
+                "start": item.get("start"),
+                "stop": item.get("stop"),
+            }
+            for item in raw_inputs
+            if isinstance(item, dict)
+        ]
+    return []
 
 
 def _content_hash(payload: dict[str, Any]) -> str:

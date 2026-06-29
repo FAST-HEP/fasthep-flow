@@ -321,6 +321,7 @@ def build_dask_backend_result(
     write_writer_manifests(
         plan,
         stores=partition_stores,
+        partitions=plan.partitions,
         outdir=str(final_ctx.get("outdir") or "."),
     )
     warnings.extend(final_warnings)
