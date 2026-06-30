@@ -24,6 +24,10 @@ from hepflow.runtime.engine import (
 )
 from hepflow.runtime.materialize import materialize_final_products
 from hepflow.runtime.provenance import write_artifact_provenance_records
+from hepflow.runtime.provenance_inspect import (
+    format_provenance_artifact,
+    format_provenance_summary,
+)
 from hepflow.runtime.writer_manifests import write_writer_manifests
 
 
@@ -280,6 +284,21 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
         "execution_id": "write.SelectedEvents.0::events__data__0",
     }
     assert record["inputs"] == [{"partition_id": "events__data__0"}]
+
+    summary_text = format_provenance_summary(tmp_path)
+    assert "Run ID: run-123" in summary_text
+    assert "Records: 1" in summary_text
+    assert "Artifact kinds: root_tree=1" in summary_text
+    assert "Datasets: data" in summary_text
+
+    artifact_text = format_provenance_artifact(
+        tmp_path / "artifacts" / "files" / "selected" / "data" / "0_0.root"
+    )
+    assert "Artifact: artifacts/files/selected/data/0_0.root" in artifact_text
+    assert "node: write.SelectedEvents.0" in artifact_text
+    assert "events__data__0 dataset=data source=events" in artifact_text
+    assert "file=data/CMS/Zmumu/data.root" in artifact_text
+    assert "graph: graph/graph.json" in artifact_text
 
 
 def test_generic_output_result_gets_provenance_record(tmp_path: Path) -> None:

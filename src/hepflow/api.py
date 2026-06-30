@@ -46,6 +46,10 @@ from hepflow.runtime.config import (
     _runtime_execution_with_overrides,
     default_run_outdir_for_plan,
 )
+from hepflow.runtime.provenance_inspect import (
+    format_provenance_artifact,
+    format_provenance_summary,
+)
 from hepflow.utils import read_yaml, write_yaml
 
 __all__ = [
@@ -58,6 +62,8 @@ __all__ = [
     "make_plan_file",
     "normalise_author_file",
     "normalize_author_file",
+    "provenance_artifact_text",
+    "provenance_summary_text",
     "run_author_file",
     "run_plan_file",
 ]
@@ -322,3 +328,13 @@ def diff_plan_files(
         load_plan_yaml(new_plan),
     )
     return format_plan_diff(report), report.equal
+
+
+def provenance_summary_text(outdir: str | Path) -> str:
+    """Return a text summary of provenance artifacts under ``outdir``."""
+    return format_provenance_summary(outdir)
+
+
+def provenance_artifact_text(artifact_path: str | Path) -> str:
+    """Return text provenance details for one produced artifact."""
+    return format_provenance_artifact(artifact_path)
