@@ -34,13 +34,20 @@ def write_artifact_provenance_records(
 
     paths = BuildPaths(root=Path(outdir))
     manifest_path = paths.provenance_manifest()
+    execution_path = paths.provenance_execution()
     records_dir = paths.provenance_records_dir()
     records_dir.mkdir(parents=True, exist_ok=True)
 
     run_id = _existing_run_id(manifest_path) or _plan_run_id(plan) or str(uuid.uuid4())
-    workflow_refs = _workflow_references(paths)
-    software = _software_versions()
-    execution = _execution_context()
+    _write_json(
+        execution_path,
+        _execution_index(
+            plan=plan,
+            run_id=run_id,
+            paths=paths,
+            writer_records=writer_records,
+        ),
+    )
 
     manifest_records: list[dict[str, str]] = []
     provenance_by_record_id: dict[str, dict[str, str]] = {}
@@ -62,10 +69,8 @@ def write_artifact_provenance_records(
                 ),
                 "kind": str(writer_record.get("kind") or "artifact"),
             },
-            "workflow": _record_workflow(writer_record, workflow_refs),
-            "data": _record_data(writer_record),
-            "software": software,
-            "execution": execution,
+            "producer": _record_producer(writer_record),
+            "inputs": _record_inputs(writer_record),
         }
         record_doc = _drop_none(record_doc)
         record_hash = _content_hash(record_doc)
@@ -88,6 +93,7 @@ def write_artifact_provenance_records(
     manifest = {
         "version": PROVENANCE_VERSION,
         "run_id": run_id,
+        "execution": _path_ref(paths, execution_path),
         "records": manifest_records,
     }
     _write_json(manifest_path, manifest)
@@ -122,66 +128,111 @@ def _record_id(record: dict[str, Any]) -> str:
     return f"artifact-{digest}"
 
 
-def _record_data(record: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "dataset": _optional_str(record.get("dataset")),
-        "partition": record.get("partition"),
-        "attempt": record.get("attempt"),
-        "inputs": _record_inputs(record),
-    }
-
-
 def _record_inputs(record: dict[str, Any]) -> list[dict[str, Any]]:
     raw_inputs = record.get("inputs")
     if isinstance(raw_inputs, list):
         return [
-            {
-                "id": item.get("id"),
-                "dataset": item.get("dataset"),
-                "source": item.get("source"),
-                "file": item.get("file"),
-                "part": item.get("part"),
-                "start": item.get("start"),
-                "stop": item.get("stop"),
-            }
+            {"partition_id": item.get("id")}
             for item in raw_inputs
-            if isinstance(item, dict)
+            if isinstance(item, dict) and item.get("id")
         ]
     return []
 
 
-def _record_workflow(
-    record: dict[str, Any],
-    workflow_refs: dict[str, str],
-) -> dict[str, str]:
+def _record_producer(record: dict[str, Any]) -> dict[str, str]:
+    node_id = str(record.get("node_id") or "")
+    partition_id = _producer_partition_id(record)
     return _drop_none(
         {
-            "node_id": str(record.get("node_id") or ""),
-            "input_node": _optional_str(record.get("input_node")),
-            **workflow_refs,
+            "node_id": node_id,
+            "partition_id": partition_id,
+            "execution_id": _node_execution_id(node_id, partition_id),
         }
     )
 
 
-def _content_hash(payload: dict[str, Any]) -> str:
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+def _producer_partition_id(record: dict[str, Any]) -> str | None:
+    inputs = _record_inputs(record)
+    if inputs:
+        partition_id = inputs[0].get("partition_id")
+        return str(partition_id) if partition_id else None
+    return None
 
 
-def _existing_run_id(path: Path) -> str | None:
-    if not path.is_file():
-        return None
-    try:
-        doc = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    run_id = doc.get("run_id") if isinstance(doc, dict) else None
-    return run_id if isinstance(run_id, str) and run_id else None
+def _node_execution_id(node_id: str, partition_id: str | None) -> str:
+    if partition_id:
+        return f"{node_id}::{partition_id}"
+    return node_id
 
 
-def _plan_run_id(plan: ExecutionPlan) -> str | None:
-    run_id = plan.provenance.get("run_id")
-    return run_id if isinstance(run_id, str) and run_id else None
+def _execution_index(
+    *,
+    plan: ExecutionPlan,
+    run_id: str,
+    paths: BuildPaths,
+    writer_records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "version": PROVENANCE_VERSION,
+        "run_id": run_id,
+        "workflow": _workflow_references(paths),
+        "software": _software_versions(),
+        "execution": _execution_context(),
+        "partitions": _partition_index(plan, writer_records),
+        "node_executions": _node_execution_index(writer_records),
+    }
+
+
+def _partition_index(
+    plan: ExecutionPlan,
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    partitions: dict[str, dict[str, Any]] = {}
+    for partition in plan.partitions:
+        item = partition.to_context()
+        partitions[str(item["id"])] = item
+    for record in records:
+        raw_inputs = record.get("inputs")
+        if not isinstance(raw_inputs, list):
+            continue
+        for item in raw_inputs:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            partitions.setdefault(str(item["id"]), _partition_entry(item))
+    return list(partitions.values())
+
+
+def _partition_entry(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": item.get("id"),
+        "dataset": item.get("dataset"),
+        "file": item.get("file"),
+        "source": item.get("source"),
+        "part": item.get("part"),
+        "start": item.get("start"),
+        "stop": item.get("stop"),
+    }
+
+
+def _node_execution_index(records: list[dict[str, Any]]) -> list[dict[str, str]]:
+    node_executions: dict[str, dict[str, str]] = {}
+    for record in sorted(records, key=_record_sort_key):
+        node_id = str(record.get("node_id") or "")
+        if not node_id:
+            continue
+        partition_id = _producer_partition_id(record)
+        execution_id = _node_execution_id(node_id, partition_id)
+        node_executions.setdefault(
+            execution_id,
+            _drop_none(
+                {
+                    "id": execution_id,
+                    "node_id": node_id,
+                    "partition_id": partition_id,
+                }
+            ),
+        )
+    return list(node_executions.values())
 
 
 def _workflow_references(paths: BuildPaths) -> dict[str, str]:
@@ -227,11 +278,25 @@ def _execution_context() -> dict[str, str]:
     }
 
 
-def _optional_str(value: Any) -> str | None:
-    if value is None:
+def _content_hash(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _existing_run_id(path: Path) -> str | None:
+    if not path.is_file():
         return None
-    text = str(value)
-    return text if text else None
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    run_id = doc.get("run_id") if isinstance(doc, dict) else None
+    return run_id if isinstance(run_id, str) and run_id else None
+
+
+def _plan_run_id(plan: ExecutionPlan) -> str | None:
+    run_id = plan.provenance.get("run_id")
+    return run_id if isinstance(run_id, str) and run_id else None
 
 
 def _safe_int(value: Any) -> int:

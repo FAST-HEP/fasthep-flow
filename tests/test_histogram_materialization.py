@@ -216,6 +216,7 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
     )
     assert provenance_manifest["version"] == "1.0"
     assert provenance_manifest["run_id"] == "run-123"
+    assert provenance_manifest["execution"] == "artifacts/provenance/execution.json"
     assert provenance_manifest["records"] == [
         {
             "artifact": "artifacts/files/selected/data/0_0.root",
@@ -234,6 +235,34 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
     assert output.metadata["provenance"] == writer_file["provenance"]
     assert output.metadata["writer_manifest"]["provenance"] == writer_file["provenance"]
 
+    execution = json.loads((tmp_path / provenance_manifest["execution"]).read_text())
+    assert execution["version"] == "1.0"
+    assert execution["run_id"] == "run-123"
+    assert execution["workflow"] == {
+        "normalized": "compile/normalized.yaml",
+        "graph": "graph/graph.json",
+        "plan": "compile/plan.yaml",
+    }
+    assert "python_version" in execution["execution"]
+    assert execution["partitions"] == [
+        {
+            "id": "events__data__0",
+            "dataset": "data",
+            "file": "data/CMS/Zmumu/data.root",
+            "source": "events",
+            "part": "0_0",
+            "start": None,
+            "stop": None,
+        }
+    ]
+    assert execution["node_executions"] == [
+        {
+            "id": "write.SelectedEvents.0::events__data__0",
+            "node_id": "write.SelectedEvents.0",
+            "partition_id": "events__data__0",
+        }
+    ]
+
     record_path = tmp_path / provenance_manifest["records"][0]["record"]
     record = json.loads(record_path.read_text(encoding="utf-8"))
     assert record["artifact"] == {
@@ -241,32 +270,16 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
         "path_type": "relative_to_outdir",
         "kind": "root_tree",
     }
-    assert "node_id" not in record
-    assert "input_node" not in record
-    assert record["workflow"] == {
+    assert "workflow" not in record
+    assert "software" not in record
+    assert "execution" not in record
+    assert "data" not in record
+    assert record["producer"] == {
         "node_id": "write.SelectedEvents.0",
-        "input_node": "stage.SelectedEvents",
-        "normalized": "compile/normalized.yaml",
-        "graph": "graph/graph.json",
-        "plan": "compile/plan.yaml",
+        "partition_id": "events__data__0",
+        "execution_id": "write.SelectedEvents.0::events__data__0",
     }
-    assert record["data"] == {
-        "dataset": "data",
-        "partition": 0,
-        "attempt": 0,
-        "inputs": [
-            {
-                "id": "events__data__0",
-                "dataset": "data",
-                "source": "events",
-                "file": "data/CMS/Zmumu/data.root",
-                "part": "0_0",
-                "start": None,
-                "stop": None,
-            }
-        ],
-    }
-    assert "python_version" in record["execution"]
+    assert record["inputs"] == [{"partition_id": "events__data__0"}]
 
 
 def test_generic_output_result_gets_provenance_record(tmp_path: Path) -> None:
@@ -315,6 +328,13 @@ def test_generic_output_result_gets_provenance_record(tmp_path: Path) -> None:
         "record": provenance_manifest["records"][0]["record"],
         "record_hash": provenance_manifest["records"][0]["record_hash"],
     }
+    execution = json.loads((tmp_path / provenance_manifest["execution"]).read_text())
+    assert execution["node_executions"] == [
+        {
+            "id": "render.SelectedEvents.0",
+            "node_id": "render.SelectedEvents.0",
+        }
+    ]
     record = json.loads(
         (tmp_path / provenance_manifest["records"][0]["record"]).read_text(
             encoding="utf-8"
@@ -325,15 +345,15 @@ def test_generic_output_result_gets_provenance_record(tmp_path: Path) -> None:
         "path_type": "relative_to_outdir",
         "kind": "png",
     }
-    assert "input_node" not in record
-    assert record["workflow"] == {
+    assert "workflow" not in record
+    assert "software" not in record
+    assert "execution" not in record
+    assert "data" not in record
+    assert record["producer"] == {
         "node_id": "render.SelectedEvents.0",
-        "input_node": "stage.SelectedEvents",
-        "normalized": "compile/normalized.yaml",
-        "graph": "graph/graph.json",
-        "plan": "compile/plan.yaml",
+        "execution_id": "render.SelectedEvents.0",
     }
-    assert record["data"]["inputs"] == []
+    assert record["inputs"] == []
 
 
 def test_provenance_record_supports_multiple_input_partitions(tmp_path: Path) -> None:
@@ -386,9 +406,15 @@ def test_provenance_record_supports_multiple_input_partitions(tmp_path: Path) ->
     record = json.loads(
         (tmp_path / manifest["records"][0]["record"]).read_text(encoding="utf-8")
     )
-    assert record["workflow"]["node_id"] == "merge.SelectedEvents.0"
-    assert record["workflow"]["input_node"] == "write.SelectedEvents.0"
-    assert record["data"]["inputs"] == inputs
+    assert record["producer"] == {
+        "node_id": "merge.SelectedEvents.0",
+        "partition_id": "events__data__0",
+        "execution_id": "merge.SelectedEvents.0::events__data__0",
+    }
+    assert record["inputs"] == [
+        {"partition_id": "events__data__0"},
+        {"partition_id": "events__data__1"},
+    ]
 
 
 def test_partition_product_merge_goes_through_handler() -> None:

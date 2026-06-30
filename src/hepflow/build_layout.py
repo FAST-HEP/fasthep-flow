@@ -61,6 +61,9 @@ class BuildPaths:
     def provenance_manifest(self) -> Path:
         return self.provenance_dir() / "manifest.json"
 
+    def provenance_execution(self) -> Path:
+        return self.provenance_dir() / "execution.json"
+
     def report_dir(self, kind: str | None = None) -> Path:
         path = self.root / "reports"
         if self.variation:

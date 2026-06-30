@@ -23,6 +23,18 @@ def test_build_paths_artifact_with_variation() -> None:
     )
 
 
+def test_build_paths_provenance_execution() -> None:
+    paths = BuildPaths(root=Path("build"))
+    varied = BuildPaths(root=Path("build"), variation="nominal")
+
+    assert paths.provenance_execution() == Path(
+        "build/artifacts/provenance/execution.json"
+    )
+    assert varied.provenance_execution() == Path(
+        "build/artifacts/nominal/provenance/execution.json"
+    )
+
+
 def test_build_paths_report_without_variation() -> None:
     paths = BuildPaths(root=Path("build"))
 
