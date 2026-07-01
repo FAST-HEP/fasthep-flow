@@ -399,14 +399,14 @@ def _cutflow_expressions(selection: Any) -> list[str]:
     expressions: list[str] = []
     for raw_group in selection.values():
         if isinstance(raw_group, list):
-            steps = raw_group
+            raw_steps: Any = raw_group
         elif isinstance(raw_group, dict):
-            steps = raw_group.get("steps", raw_group.get("cuts", []))
+            raw_steps = raw_group.get("steps", raw_group.get("cuts", []))
         else:
             continue
-        if not isinstance(steps, list):
+        if not isinstance(raw_steps, list):
             continue
-        for step in steps:
+        for step in raw_steps:
             if isinstance(step, str) and step.strip():
                 expressions.append(step)
             elif isinstance(step, dict):
