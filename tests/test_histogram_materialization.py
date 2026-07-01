@@ -26,6 +26,7 @@ from hepflow.runtime.materialize import materialize_final_products
 from hepflow.runtime.provenance import write_artifact_provenance_records
 from hepflow.runtime.provenance_inspect import (
     format_provenance_artifact,
+    format_provenance_graph,
     format_provenance_summary,
 )
 from hepflow.runtime.writer_manifests import write_writer_manifests
@@ -299,6 +300,82 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
     assert "events__data__0 dataset=data source=events" in artifact_text
     assert "file=data/CMS/Zmumu/data.root" in artifact_text
     assert "graph: graph/graph.json" in artifact_text
+
+    graph_dir = tmp_path / "graph"
+    graph_dir.mkdir(parents=True, exist_ok=True)
+    (graph_dir / "graph.json").write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {
+                        "id": "read.events",
+                        "payload": (
+                            "GraphNode(id='read.events', role='source', "
+                            "impl='root_tree', meta={'source_name': 'events'})"
+                        ),
+                    },
+                    {
+                        "id": "stage.SelectedEvents",
+                        "payload": (
+                            "GraphNode(id='stage.SelectedEvents', "
+                            "role='transform', impl='hep.selection')"
+                        ),
+                    },
+                    {
+                        "id": "write.SelectedEvents.0",
+                        "payload": (
+                            "GraphNode(id='write.SelectedEvents.0', "
+                            "role='sink', impl='root_tree')"
+                        ),
+                    },
+                    {
+                        "id": "observe.schema.0",
+                        "payload": (
+                            "GraphNode(id='observe.schema.0', "
+                            "role='observer', impl='hep.schema_snapshot')"
+                        ),
+                    },
+                ],
+                "edges": [
+                    {"source": "read.events", "target": "stage.SelectedEvents"},
+                    {
+                        "source": "stage.SelectedEvents",
+                        "target": "write.SelectedEvents.0",
+                    },
+                    {"source": "stage.SelectedEvents", "target": "observe.schema.0"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    mermaid = format_provenance_graph(
+        tmp_path / "artifacts" / "files" / "selected" / "data" / "0_0.root"
+    )
+    assert "flowchart TD" in mermaid
+    assert "read_events" in mermaid
+    assert "stage_SelectedEvents" in mermaid
+    assert "write_SelectedEvents_0" in mermaid
+    assert "producer" in mermaid
+    assert "produces: root_tree" in mermaid
+    assert "inputs: data" in mermaid
+    assert "observe_schema_0" not in mermaid
+
+    graph_json = json.loads(
+        format_provenance_graph(
+            tmp_path / "artifacts" / "files" / "selected" / "data" / "0_0.root",
+            output_format="json",
+        )
+    )
+    assert [node["id"] for node in graph_json["nodes"]] == [
+        "read.events",
+        "stage.SelectedEvents",
+        "write.SelectedEvents.0",
+    ]
+    assert graph_json["producer"]["node_id"] == "write.SelectedEvents.0"
+    assert graph_json["inputs"] == [{"partition_id": "events__data__0"}]
+    assert graph_json["related_records"][0]["artifact"] == (
+        "artifacts/files/selected/data/0_0.root"
+    )
 
 
 def test_generic_output_result_gets_provenance_record(tmp_path: Path) -> None:

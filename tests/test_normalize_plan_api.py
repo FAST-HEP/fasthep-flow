@@ -31,6 +31,9 @@ def test_public_api_exports_stable_facade_symbols() -> None:
         "make_plan_file",
         "normalise_author_file",
         "normalize_author_file",
+        "provenance_artifact_text",
+        "provenance_graph_text",
+        "provenance_summary_text",
         "run_author_file",
         "run_plan_file",
     ]

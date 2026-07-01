@@ -48,6 +48,7 @@ from hepflow.runtime.config import (
 )
 from hepflow.runtime.provenance_inspect import (
     format_provenance_artifact,
+    format_provenance_graph,
     format_provenance_summary,
 )
 from hepflow.utils import read_yaml, write_yaml
@@ -63,6 +64,7 @@ __all__ = [
     "normalise_author_file",
     "normalize_author_file",
     "provenance_artifact_text",
+    "provenance_graph_text",
     "provenance_summary_text",
     "run_author_file",
     "run_plan_file",
@@ -338,3 +340,12 @@ def provenance_summary_text(outdir: str | Path) -> str:
 def provenance_artifact_text(artifact_path: str | Path) -> str:
     """Return text provenance details for one produced artifact."""
     return format_provenance_artifact(artifact_path)
+
+
+def provenance_graph_text(
+    artifact_path: str | Path,
+    *,
+    output_format: str = "mermaid",
+) -> str:
+    """Return an ancestor provenance graph for one produced artifact."""
+    return format_provenance_graph(artifact_path, output_format=output_format)
