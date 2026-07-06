@@ -1,0 +1,3 @@
+includes:
+  - hep
+  - fasthep_curator:runtime_diagnostics

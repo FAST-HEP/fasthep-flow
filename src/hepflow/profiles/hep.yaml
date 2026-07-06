@@ -1,0 +1,6 @@
+includes:
+  - basic
+  - fasthep_carpenter:registry
+  - fasthep_curator:registry
+  - fasthep_curator:default_context
+  - fasthep_render:registry

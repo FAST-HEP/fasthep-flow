@@ -51,6 +51,23 @@ def normalize_profile_names(raw: Any) -> list[str]:
     return names
 
 
+def expand_profile_names(
+    names: list[str],
+    *,
+    project_root: Path,
+) -> list[str]:
+    """Expand profile includes while preserving explicit profile order."""
+    expanded: list[str] = []
+    for name in names:
+        _expand_profile_name(
+            name,
+            project_root=project_root,
+            stack=[],
+            expanded=expanded,
+        )
+    return expanded
+
+
 def load_profile_config(
     name: str,
     *,
@@ -199,3 +216,48 @@ def _looks_like_path(name: str) -> bool:
         or name.startswith(".")
         or name.endswith((".yaml", ".yml"))
     )
+
+
+def _expand_profile_name(
+    name: str,
+    *,
+    project_root: Path,
+    stack: list[str],
+    expanded: list[str],
+) -> None:
+    if name in stack:
+        cycle = " -> ".join([*stack, name])
+        raise ValueError(f"profile include cycle detected: {cycle}")
+
+    config, _provenance = _load_profile_with_provenance(
+        name,
+        project_root=project_root,
+    )
+    includes = _profile_includes(config, name)
+    if not includes:
+        expanded.append(name)
+        return
+
+    for included_name in includes:
+        _expand_profile_name(
+            included_name,
+            project_root=project_root,
+            stack=[*stack, name],
+            expanded=expanded,
+        )
+
+
+def _profile_includes(config: dict[str, Any], name: str) -> list[str]:
+    raw = config.get("includes", [])
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"Profile {name!r} includes must be a list of strings")
+    includes: list[str] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(
+                f"Profile {name!r} includes[{index}] must be a non-empty string"
+            )
+        includes.append(item.strip())
+    return includes

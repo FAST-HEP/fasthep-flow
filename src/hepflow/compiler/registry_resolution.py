@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from hepflow.compiler.profiles import (
+    expand_profile_names,
     load_profile_registry_layer,
     normalize_profile_names,
 )
@@ -28,7 +29,10 @@ def resolve_author_registry(
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
 
-    profile_names = normalize_profile_names(use_block.get("profiles"))
+    profile_names = expand_profile_names(
+        normalize_profile_names(use_block.get("profiles")),
+        project_root=project_root,
+    )
     builtin_registry = {
         **default_expr_registry_config(),
         **default_runtime_registry_config(),

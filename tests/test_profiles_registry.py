@@ -7,7 +7,7 @@ import pytest
 import yaml
 
 from hepflow.api import normalise_author_file
-from hepflow.compiler.profiles import load_profile_registry_layer
+from hepflow.compiler.profiles import expand_profile_names, load_profile_registry_layer
 from hepflow.registry.loaders import (
     load_runtime_spec_and_impl,
 )
@@ -86,3 +86,71 @@ def test_profile_registry_is_copied_into_normalized_author(tmp_path: Path) -> No
     assert normalized["use"]["profiles"] == ["tests.toy_components:registry"]
     assert "toy.write" in normalized["registry"]["sinks"]
     assert "registry_layers" in normalized["provenance"]
+
+
+def test_hep_debug_profile_expands_to_hep_stack_with_diagnostics(
+    tmp_path: Path,
+) -> None:
+    author = {
+        "version": "1.0",
+        "use": {"profiles": ["hep_debug"]},
+        "data": {
+            "defaults": {"tree_primary": "events"},
+            "datasets": [
+                {"name": "data", "files": ["data.root"]},
+            ],
+        },
+        "sources": {"events": {"kind": "root_tree", "tree": "events"}},
+        "analysis": {"stages": []},
+    }
+    author_path = tmp_path / "author.yaml"
+    author_path.write_text(yaml.safe_dump(author), encoding="utf-8")
+
+    normalized = normalise_author_file(author_path, outdir=tmp_path / "build")
+
+    registry = normalized["registry"]
+    assert "root_tree" in registry["sources"]
+    assert "hep.schema_snapshot" in registry["observers"]
+    assert "hep.render.hist1d" in registry["sinks"]
+    hook_kinds = {
+        hook["kind"] for hook in normalized["execution_hooks"]
+    }
+    assert "hep.dataset_context" in hook_kinds
+    assert "hep.error_report" in hook_kinds
+    assert "hep.warning_capture" in hook_kinds
+
+
+def test_hep_profile_excludes_runtime_diagnostics(tmp_path: Path) -> None:
+    author = {
+        "version": "1.0",
+        "use": {"profiles": ["hep"]},
+        "data": {
+            "defaults": {"tree_primary": "events"},
+            "datasets": [
+                {"name": "data", "files": ["data.root"]},
+            ],
+        },
+        "sources": {"events": {"kind": "root_tree", "tree": "events"}},
+        "analysis": {"stages": []},
+    }
+    author_path = tmp_path / "author.yaml"
+    author_path.write_text(yaml.safe_dump(author), encoding="utf-8")
+
+    normalized = normalise_author_file(author_path, outdir=tmp_path / "build")
+
+    hook_kinds = {
+        hook["kind"] for hook in normalized["execution_hooks"]
+    }
+    assert "hep.dataset_context" in hook_kinds
+    assert "hep.error_report" not in hook_kinds
+    assert "hep.warning_capture" not in hook_kinds
+
+
+def test_profile_include_cycles_error(tmp_path: Path) -> None:
+    profiles = tmp_path / ".hepflow" / "profiles"
+    profiles.mkdir(parents=True)
+    (profiles / "a.yaml").write_text("includes: [b]\n", encoding="utf-8")
+    (profiles / "b.yaml").write_text("includes: [a]\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="profile include cycle detected: a -> b -> a"):
+        expand_profile_names(["a"], project_root=tmp_path)

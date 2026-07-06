@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from hepflow.compiler.profiles import (
+    expand_profile_names,
     load_profile_config_with_provenance,
     normalize_profile_names,
 )
@@ -211,7 +212,10 @@ def resolve_author_execution(
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
 
-    profile_names = normalize_profile_names(use_block.get("profiles"))
+    profile_names = expand_profile_names(
+        normalize_profile_names(use_block.get("profiles")),
+        project_root=project_root,
+    )
     layers: list[dict[str, Any]] = [
         {
             "name": "builtin",
@@ -268,7 +272,10 @@ def resolve_author_execution_hooks(
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
 
-    profile_names = normalize_profile_names(use_block.get("profiles"))
+    profile_names = expand_profile_names(
+        normalize_profile_names(use_block.get("profiles")),
+        project_root=project_root,
+    )
     layers: list[dict[str, Any]] = [
         {
             "name": "builtin",
