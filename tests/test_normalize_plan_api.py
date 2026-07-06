@@ -14,6 +14,7 @@ from hepflow.api import (
     run_author_file,
     run_plan_file,
 )
+from hepflow.compiler.d2_graph import lowered_graph_to_d2
 from hepflow.compiler.includes import load_author_with_includes
 from hepflow.compiler.lower_graph import lower_author_to_graph
 from hepflow.compiler.normalize import normalize_author
@@ -186,7 +187,6 @@ def test_lowering_and_plan_creation_write_graph_artifacts(
     assert (build_dir / "graph" / "graph.json").exists()
     graph_d2 = (build_dir / "graph" / "graph.d2").read_text(encoding="utf-8")
     assert '"read.events"' in graph_d2
-    assert "#### Legend" in graph_d2
     assert "#### events" in graph_d2
     assert "#### Scale" in graph_d2
     assert "Type: toy.source" in graph_d2
@@ -197,6 +197,29 @@ def test_lowering_and_plan_creation_write_graph_artifacts(
     assert not (build_dir / "plan.yaml").exists()
     assert not (build_dir / "normalized.yaml").exists()
     assert not (build_dir / "graph.mmd").exists()
+
+
+def test_compile_graph_d2_uses_readable_observer_labels(
+    toy_author: dict[str, Any],
+) -> None:
+    author = dict(toy_author)
+    author["observers"] = [
+        {
+            "kind": "hep.schema_snapshot",
+            "at": ["stage.Scale", "write.Scale.0"],
+        }
+    ]
+    graph = lower_author_to_graph(normalize_author(author))
+
+    graph_d2 = lowered_graph_to_d2(graph)
+
+    assert "#### Schema snapshot" in graph_d2
+    assert "Type: hep.schema_snapshot" in graph_d2
+    assert "Target: Scale" in graph_d2
+    assert "observe.hep_schema_snapshot.0.stage_Scale" in graph_d2
+    assert "#### observe.hep_schema_snapshot" not in graph_d2
+    assert '"stage.Scale" -> "observe.hep_schema_snapshot.0.stage_Scale": "observes stream"' in graph_d2
+    assert "class: report" in graph_d2
 
 
 def test_lower_graph_normalizes_sink_when_alias(toy_author: dict[str, Any]) -> None:

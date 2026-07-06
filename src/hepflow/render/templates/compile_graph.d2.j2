@@ -11,8 +11,6 @@ classes: {
   }
   transform: {
     shape: step
-    width: 300
-    height: 200
     style: {
       fill: "#fff9db"
       stroke: "#f08c00"
@@ -28,7 +26,7 @@ classes: {
     }
   }
   observer: {
-    shape: circle
+    shape: rectangle
     style: {
       fill: "#f3f0ff"
       stroke: "#7048e8"
@@ -88,24 +86,32 @@ d2-legend: {
   }
   a -> b:{
   label: artifact
-  class: artifact_edge
+  class: artifact
+  }
+  a -> b:{
+  label: report
+  class: report
   }
 }
 }
 
 {% for node in nodes -%}
 {{ node.id | d2_string }}: {
-  label: |`
+  label: |md
 #### {{ node.title }}
-(`{{ node.type }}`)
 
-`|
+Type: {{ node.type }}
+{% for label, value in (node.meta.display or {}).items() %}
+
+{{ label }}: {{ value }}
+{% endfor %}
+|
   class: {{ node.role }}
 }
 
 {% endfor -%}
 {% for edge in edges -%}
 {{ edge.source | d2_string }} -> {{ edge.target | d2_string }}: {{ edge.label | d2_string }} {
-  class: {{ edge.label }}
+  class: {{ edge.kind }}
 }
 {% endfor %}
