@@ -6,6 +6,8 @@ from typing import Any
 
 import networkx as nx
 
+from hepflow.compiler.d2_graph import lowered_graph_to_d2
+
 
 def write_graph_artifacts(
     graph: nx.DiGraph,
@@ -30,20 +32,20 @@ def write_graph_artifacts(
     dot_path = out_path / "graph.dot"
     dot_path.write_text(_lowered_graph_to_dot(graph), encoding="utf-8")
 
+    d2_path = out_path / "graph.d2"
+    d2_path.write_text(lowered_graph_to_d2(graph), encoding="utf-8")
+
     json_path = out_path / "graph.json"
     json_path.write_text(
         json.dumps(_lowered_graph_to_json(graph), indent=2, sort_keys=True),
         encoding="utf-8",
     )
 
-    png_path = out_path / "graph.png"
-    _write_graph_png_if_available(graph, png_path)
-
     return {
         "graph_mermaid": str(mermaid_path),
         "graph_dot": str(dot_path),
+        "graph_d2": str(d2_path),
         "graph_json": str(json_path),
-        "graph_png": str(png_path),
     }
 
 
@@ -135,15 +137,6 @@ def _lowered_graph_to_dot(graph: nx.DiGraph) -> str:
 
     lines.append("}")
     return "\n".join(lines) + "\n"
-
-
-def _write_graph_png_if_available(graph: nx.DiGraph, path: Path) -> None:
-    try:
-        from networkx.drawing.nx_pydot import to_pydot  # noqa: PLC0415
-
-        to_pydot(graph).write_png(str(path))
-    except Exception:
-        return
 
 
 def _mermaid_id(node_id: str) -> str:

@@ -1,0 +1,1 @@
+"""Packaged graph rendering templates."""

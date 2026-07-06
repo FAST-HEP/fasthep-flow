@@ -542,6 +542,11 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
     observers = _ensure_mapping(raw.get("observers") or {}, "registry.observers")
     backends = _ensure_mapping(raw.get("backends") or {}, "registry.backends")
     hooks = _ensure_mapping(raw.get("hooks") or {}, "registry.hooks")
+    compile_hooks = _ensure_mapping(
+        raw.get("compile_hooks") or {},
+        "registry.compile_hooks",
+    )
+    render = _ensure_mapping(raw.get("render") or {}, "registry.render")
 
     for group_name, group in [
         ("registry.functions", functions),
@@ -558,6 +563,8 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
         ("registry.sources", sources),
         ("registry.transforms", transforms),
         ("registry.observers", observers),
+        ("registry.compile_hooks", compile_hooks),
+        ("registry.render", render),
     ]:
         for name, entry in group.items():
             if not isinstance(name, str) or not name.strip():
@@ -609,4 +616,6 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
         "observers": {k: dict(v) for k, v in observers.items()},
         "backends": {k: dict(v) for k, v in backends.items()},
         "hooks": {k: dict(v) for k, v in hooks.items()},
+        "compile_hooks": {k: dict(v) for k, v in compile_hooks.items()},
+        "render": {k: dict(v) for k, v in render.items()},
     }

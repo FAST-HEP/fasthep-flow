@@ -17,7 +17,10 @@ from hepflow.build_layout import (
     resolve_plan_path,
     write_run_summary,
 )
-from hepflow.compiler.artifacts import write_compile_artifacts
+from hepflow.compiler.artifacts import (
+    write_compile_artifacts,
+    write_compile_hook_artifacts,
+)
 from hepflow.compiler.execution import (
     resolve_author_execution,
     resolve_author_execution_hooks,
@@ -149,8 +152,19 @@ def make_plan_file(
         outdir=out_path,
         normalized=normalized,
     )
-    write_graph_artifacts(graph, graph_dir(out_path))
-    write_yaml(plan.to_dict(), str(plan_path(out_path)))
+    graph_artifacts = write_graph_artifacts(graph, graph_dir(out_path))
+    plan_file = plan_path(out_path)
+    write_yaml(plan.to_dict(), str(plan_file))
+    write_compile_hook_artifacts(
+        plan=plan,
+        normalized=normalized,
+        build_paths=BuildPaths(root=out_path),
+        artifacts={
+            **graph_artifacts,
+            "plan": str(plan_file),
+        },
+        when="after_compile",
+    )
     return plan
 
 

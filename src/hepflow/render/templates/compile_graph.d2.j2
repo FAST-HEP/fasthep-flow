@@ -1,0 +1,111 @@
+direction: down
+
+classes: {
+  source: {
+    shape: cylinder
+    style: {
+      fill: "#e7f5ff"
+      stroke: "#1c7ed6"
+      stroke-width: 2
+    }
+  }
+  transform: {
+    shape: step
+    width: 300
+    height: 200
+    style: {
+      fill: "#fff9db"
+      stroke: "#f08c00"
+      stroke-width: 2
+    }
+  }
+  sink: {
+    shape: parallelogram
+    style: {
+      fill: "#ebfbee"
+      stroke: "#2f9e44"
+      stroke-width: 2
+    }
+  }
+  observer: {
+    shape: circle
+    style: {
+      fill: "#f3f0ff"
+      stroke: "#7048e8"
+      stroke-width: 2
+    }
+  }
+  stream: {
+    style: {
+      stroke: "#1c7ed6"
+    }
+  }
+  artifact: {
+    style: {
+      stroke: "#2f9e44"
+    }
+  }
+  report: {
+    style: {
+      stroke: "#7048e8"
+      stroke-dash: 4
+    }
+  }
+  product: {
+    style: {
+      stroke: "#f08c00"
+    }
+  }
+  unknown: {
+    style: {
+      stroke: "#868e96"
+      stroke-dash: 3
+    }
+  }
+}
+
+vars: {
+d2-legend: {
+  a: {
+    label: Source
+    class: source
+  }
+  b: {
+  label: Transform
+  class: transform
+  }
+  c: {
+  label: Sink
+  class: sink
+  }
+  observer: {
+  label: Observer
+  class: observer
+  }
+  a -> b:{
+  label: stream
+  class: stream
+  }
+  a -> b:{
+  label: artifact
+  class: artifact_edge
+  }
+}
+}
+
+{% for node in nodes -%}
+{{ node.id | d2_string }}: {
+  label: |`
+#### {{ node.title }}
+(`{{ node.type }}`)
+
+`|
+  class: {{ node.role }}
+}
+
+{% endfor -%}
+{% for edge in edges -%}
+{{ edge.source | d2_string }} -> {{ edge.target | d2_string }}: {{ edge.label | d2_string }} {
+  class: {{ edge.label }}
+}
+{% endfor %}

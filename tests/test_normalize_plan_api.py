@@ -182,7 +182,18 @@ def test_lowering_and_plan_creation_write_graph_artifacts(
     assert (build_dir / "compile" / "plan.yaml").exists()
     assert (build_dir / "graph" / "graph.mmd").exists()
     assert (build_dir / "graph" / "graph.dot").exists()
+    assert (build_dir / "graph" / "graph.d2").exists()
     assert (build_dir / "graph" / "graph.json").exists()
+    graph_d2 = (build_dir / "graph" / "graph.d2").read_text(encoding="utf-8")
+    assert '"read.events"' in graph_d2
+    assert "#### Legend" in graph_d2
+    assert "#### events" in graph_d2
+    assert "#### Scale" in graph_d2
+    assert "Type: toy.source" in graph_d2
+    assert "Type: toy.scale" in graph_d2
+    assert "class: source" in graph_d2
+    assert "class: transform" in graph_d2
+    assert "\\n" not in graph_d2
     assert not (build_dir / "plan.yaml").exists()
     assert not (build_dir / "normalized.yaml").exists()
     assert not (build_dir / "graph.mmd").exists()
