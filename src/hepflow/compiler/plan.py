@@ -24,6 +24,7 @@ from hepflow.model.plan import (
     PlanInputRef,
     Scope,
 )
+from hepflow.model.plan_applicability import validate_plan_applicability
 
 
 def build_execution_plan(
@@ -104,6 +105,7 @@ def build_execution_plan(
         datasets_by_name=context_datasets_by_name,
         globals_block=dict(graph.graph.get("analysis_globals") or {}),
     )
+    validate_plan_applicability(plan)
     plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
     apply_data_flow_to_sources(plan)
     plan.partitions = build_execution_partitions(plan, chunk_size=chunk_size)

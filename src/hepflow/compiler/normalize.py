@@ -10,6 +10,7 @@ from hepflow.compiler.execution import (
     validate_stage_execution_resource_references,
 )
 from hepflow.compiler.profiles import normalize_profile_names
+from hepflow.model.applicability import normalize_node_applicability
 from hepflow.model.author import (
     DataBlock,
     DatasetSpec,
@@ -425,6 +426,15 @@ def _normalize_analysis_execution(analysis: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(stage_raw, dict):
             raise ValueError(f"analysis.stages[{idx}] must be a mapping")
         stage = dict(stage_raw)
+        if "applies_to" in stage:
+            applicability = normalize_node_applicability(
+                stage.get("applies_to"),
+                where=f"analysis.stages[{idx}]",
+            )
+            if applicability is not None:
+                stage["applies_to"] = applicability
+            else:
+                stage.pop("applies_to", None)
         if "execution" in stage:
             stage_execution = normalize_stage_execution(stage.get("execution"))
             if stage_execution is not None:

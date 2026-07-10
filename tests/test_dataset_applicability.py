@@ -1,0 +1,218 @@
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any
+
+import pytest
+
+from hepflow.compiler.lower_graph import lower_author_to_graph
+from hepflow.compiler.normalize import normalize_author
+from hepflow.compiler.plan import build_plan_from_normalized
+from hepflow.model.plan_applicability import active_plan_nodes_for_dataset
+from hepflow.runtime.engine import build_partition_context, execute_plan_partition
+
+
+def test_stage_applies_to_eventtype_mc_normalizes(toy_author: dict[str, Any]) -> None:
+    author = deepcopy(toy_author)
+    author["analysis"]["stages"][0]["applies_to"] = {"eventtype": "mc"}
+
+    normalized = normalize_author(author)
+
+    assert normalized["analysis"]["stages"][0]["applies_to"] == {"eventtype": "mc"}
+
+
+@pytest.mark.parametrize(
+    ("applies_to", "match"),
+    [
+        ({"eventtype": "data"}, "only supports 'mc'"),
+        ({"eventtypes": ["mc"]}, "only supports eventtype"),
+        ("mc", "must be a mapping"),
+    ],
+)
+def test_stage_applies_to_rejects_unsupported_shapes(
+    toy_author: dict[str, Any],
+    applies_to: Any,
+    match: str,
+) -> None:
+    author = deepcopy(toy_author)
+    author["analysis"]["stages"][0]["applies_to"] = applies_to
+
+    with pytest.raises(ValueError, match=match):
+        normalize_author(author)
+
+
+def test_active_plan_nodes_omit_mc_only_nodes_for_data(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _applicability_author(toy_author)
+    _graph, plan = build_plan_from_normalized(normalize_author(author))
+
+    data_nodes = [
+        node.id
+        for node in active_plan_nodes_for_dataset(
+            plan,
+            dataset={"name": "data", "eventtype": "data"},
+        )
+    ]
+    mc_nodes = [
+        node.id
+        for node in active_plan_nodes_for_dataset(
+            plan,
+            dataset={"name": "ttbar", "eventtype": "mc"},
+        )
+    ]
+
+    assert data_nodes == ["read.events", "stage.Common", "stage.Final"]
+    assert mc_nodes == [
+        "read.events",
+        "stage.Common",
+        "stage.MCOnly",
+        "stage.Final",
+    ]
+
+
+def test_runtime_skips_mc_only_linear_stage_for_data(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _applicability_author(toy_author)
+    _graph, plan = build_plan_from_normalized(normalize_author(author))
+    data_partition = next(
+        partition for partition in plan.partitions if partition.dataset == "data"
+    )
+    mc_partition = next(
+        partition for partition in plan.partitions if partition.dataset == "ttbar"
+    )
+
+    data_store = execute_plan_partition(
+        plan,
+        ctx=build_partition_context(
+            plan,
+            base_ctx=plan.context,
+            partition=data_partition,
+        ),
+    )
+    mc_store = execute_plan_partition(
+        plan,
+        ctx=build_partition_context(
+            plan,
+            base_ctx=plan.context,
+            partition=mc_partition,
+        ),
+    )
+
+    assert ("stage.MCOnly", "stream") not in data_store
+    assert ("stage.MCOnly", "stream") in mc_store
+    assert data_store[("stage.Final", "stream")]["final_pt"] == [24, 36, 42, 56]
+    assert mc_store[("stage.Final", "stream")]["final_pt"] == [24, 36, 42, 56]
+
+
+def test_data_flow_routes_mc_only_branches_only_to_mc_datasets(
+    toy_author: dict[str, Any],
+) -> None:
+    author = deepcopy(toy_author)
+    author["data"] = {
+        "datasets": [
+            {"name": "data", "eventtype": "data", "files": ["data.root"]},
+            {"name": "ttbar", "eventtype": "mc", "files": ["ttbar.root"]},
+        ]
+    }
+    author["analysis"]["stages"] = [
+        {
+            "id": "MuonPt",
+            "op": "toy.scale",
+            "params": {"source": "Muon_Px", "output": "Muon_Pt"},
+        },
+        {
+            "id": "MCLeptonPt",
+            "op": "toy.scale",
+            "params": {"source": "MCLepton_Px", "output": "MCLepton_Pt"},
+            "applies_to": {"eventtype": "mc"},
+        },
+    ]
+
+    _graph, plan = build_plan_from_normalized(normalize_author(author))
+    source = plan.get_node("read.events")
+
+    assert source.params["branches_by_dataset"] == {
+        "data": ["Muon_Px"],
+        "ttbar": ["MCLepton_Px", "Muon_Px"],
+    }
+    assert "branches" not in source.params
+
+
+def test_unsupported_applicability_bypass_raises_clear_error(
+    toy_author: dict[str, Any],
+) -> None:
+    author = deepcopy(toy_author)
+    author["data"] = {
+        "datasets": [
+            {"name": "data", "eventtype": "data", "files": ["data.root"]},
+            {"name": "ttbar", "eventtype": "mc", "files": ["ttbar.root"]},
+        ]
+    }
+    author["analysis"]["stages"] = [
+        {
+            "id": "MCOnlyHist",
+            "op": "hep.hist",
+            "params": {
+                "name": "mc_only",
+                "axes": [
+                    {
+                        "name": "x",
+                        "source": "pt",
+                        "bins": {"n": 10, "low": 0, "high": 100},
+                    }
+                ],
+            },
+            "applies_to": {"eventtype": "mc"},
+        },
+        {
+            "id": "Render",
+            "op": "hep.render.histogram",
+            "from": [{"node": "MCOnlyHist", "port": "hist"}],
+            "params": {"style": {"op": "hep.render.histogram"}},
+        },
+    ]
+
+    with pytest.raises(ValueError, match="output is not an event_stream"):
+        build_plan_from_normalized(normalize_author(author))
+
+
+def test_lowered_graph_records_applicability_metadata(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _applicability_author(toy_author)
+    graph = lower_author_to_graph(normalize_author(author))
+
+    payload = graph.nodes["stage.MCOnly"]["payload"]
+
+    assert payload.meta["applies_to"] == {"eventtype": "mc"}
+
+
+def _applicability_author(toy_author: dict[str, Any]) -> dict[str, Any]:
+    author = deepcopy(toy_author)
+    author["data"] = {
+        "datasets": [
+            {"name": "data", "eventtype": "data", "files": ["data.root"]},
+            {"name": "ttbar", "eventtype": "mc", "files": ["ttbar.root"]},
+        ]
+    }
+    author["analysis"]["stages"] = [
+        {
+            "id": "Common",
+            "op": "toy.scale",
+            "params": {"source": "pt", "output": "scaled_pt", "factor": 2},
+        },
+        {
+            "id": "MCOnly",
+            "op": "toy.scale",
+            "params": {"source": "scaled_pt", "output": "mc_scaled", "factor": 3},
+            "applies_to": {"eventtype": "mc"},
+        },
+        {
+            "id": "Final",
+            "op": "toy.scale",
+            "params": {"source": "scaled_pt", "output": "final_pt", "factor": 1},
+        },
+    ]
+    return author

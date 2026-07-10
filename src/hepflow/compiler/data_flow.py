@@ -8,6 +8,7 @@ from hepflow.compiler.expr_symbols import data_symbols_in_expr
 from hepflow.model.component_spec import RuntimeComponentSpec
 from hepflow.model.data_flow import DataDependencyResult
 from hepflow.model.plan import ExecutionNode, ExecutionPlan
+from hepflow.model.plan_applicability import active_plan_nodes_for_dataset
 from hepflow.registry.defaults import (
     default_expr_registry_config,
     default_runtime_registry_config,
@@ -87,10 +88,6 @@ def infer_data_flow(
     primary_stream = _primary_stream_id(plan)
     aliases_by_stream = _aliases_by_stream(plan)
 
-    produced_data: set[str] = set()
-    source_required_data: dict[str, set[str]] = defaultdict(set)
-    source_required_branches: dict[str, set[str]] = defaultdict(set)
-    consumers: dict[str, list[str]] = defaultdict(list)
     origins: dict[str, dict[str, Any]] = {}
 
     for stream_id, aliases in aliases_by_stream.items():
@@ -101,7 +98,70 @@ def infer_data_flow(
                 "branch": branch,
             }
 
-    for node in plan.nodes:
+    common = _infer_data_flow_for_nodes(
+        plan=plan,
+        nodes=plan.nodes,
+        registry=registry,
+        dep_ctx=dep_ctx,
+        primary_stream=primary_stream,
+        aliases_by_stream=aliases_by_stream,
+        origins=origins,
+    )
+
+    has_dataset_applicability = any(
+        isinstance(node.meta.get("applies_to"), dict) for node in plan.nodes
+    )
+    datasets = dict(plan.context.get("datasets") or {}) if has_dataset_applicability else {}
+    required_by_dataset: dict[str, dict[str, Any]] = {}
+    for dataset_name, dataset in sorted(datasets.items()):
+        dataset_origins = dict(origins)
+        dataset_flow = _infer_data_flow_for_nodes(
+            plan=plan,
+            nodes=active_plan_nodes_for_dataset(
+                plan,
+                dataset=dict(dataset or {}),
+            ),
+            registry=registry,
+            dep_ctx=dep_ctx,
+            primary_stream=primary_stream,
+            aliases_by_stream=aliases_by_stream,
+            origins=dataset_origins,
+        )
+        required_by_dataset[str(dataset_name)] = dataset_flow["required_sources"]
+
+    notes = [
+        "Data flow is inferred for the primary event stream first; joined source branch decomposition is TODO.",
+    ]
+    if required_by_dataset:
+        notes.append(
+            "required_sources_by_dataset applies node dataset applicability before branch pruning."
+        )
+
+    return {
+        "required_sources": common["required_sources"],
+        "required_sources_by_dataset": required_by_dataset,
+        "consumers": common["consumers"],
+        "origins": {key: origins[key] for key in sorted(origins)},
+        "notes": notes,
+    }
+
+
+def _infer_data_flow_for_nodes(
+    *,
+    plan: ExecutionPlan,
+    nodes: list[ExecutionNode],
+    registry: dict[str, Any],
+    dep_ctx: DependencyContext,
+    primary_stream: str,
+    aliases_by_stream: dict[str, dict[str, str]],
+    origins: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    produced_data: set[str] = set()
+    source_required_data: dict[str, set[str]] = defaultdict(set)
+    source_required_branches: dict[str, set[str]] = defaultdict(set)
+    consumers: dict[str, list[str]] = defaultdict(list)
+
+    for node in nodes:
         if node.role not in {"transform", "sink"}:
             continue
 
@@ -161,19 +221,36 @@ def infer_data_flow(
         "required_sources": required_sources,
         "consumers": dict(sorted(consumers.items())),
         "origins": {key: origins[key] for key in sorted(origins)},
-        "notes": [
-            "Data flow is inferred for the primary event stream first; joined source branch decomposition is TODO.",
-        ],
     }
 
 
 def apply_data_flow_to_sources(plan: ExecutionPlan) -> None:
     required_sources = (plan.data_flow or {}).get("required_sources") or {}
+    required_by_dataset = (plan.data_flow or {}).get("required_sources_by_dataset") or {}
 
     for node in plan.nodes:
         if node.role != "source":
             continue
         source_name = str(node.meta.get("source_name") or node.id.removeprefix("read."))
+
+        if required_by_dataset:
+            branches_by_dataset: dict[str, list[str]] = {}
+            for dataset_name, dataset_sources in dict(required_by_dataset).items():
+                if not isinstance(dataset_sources, dict):
+                    continue
+                dataset_required = dataset_sources.get(source_name) or {}
+                dataset_branches = {
+                    str(branch)
+                    for branch in list(
+                        dict(dataset_required).get("branches") or []
+                    )
+                }
+                if dataset_branches:
+                    branches_by_dataset[str(dataset_name)] = sorted(dataset_branches)
+            if branches_by_dataset:
+                node.params["branches_by_dataset"] = branches_by_dataset
+            continue
+
         required = required_sources.get(source_name) or {}
         branches = {str(branch) for branch in (required.get("branches") or [])}
         if not branches:

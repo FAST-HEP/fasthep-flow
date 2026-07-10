@@ -204,6 +204,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
                 parent_name=stage_id,
                 inspect_cfg=inspect_cfg,
             )
+            _inherit_applicability(inspect_node, stage_node)
             add_graph_node(graph, inspect_node)
 
             output_name = _default_attachment_output(stage_node.outputs)
@@ -222,6 +223,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
                 write_cfg=write_cfg,
                 output_defs=output_defs,
             )
+            _inherit_applicability(write_node, stage_node)
             add_graph_node(graph, write_node)
 
             upstream_node_id, output_name = _resolve_attachment_source(
@@ -248,6 +250,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
                 attached_stage_impl=stage_node.impl,
                 attached_stage_params=stage_node.params,
             )
+            _inherit_applicability(render_node, stage_node)
             add_graph_node(graph, render_node)
 
             upstream_node_id, output_name = _resolve_attachment_source(
@@ -322,6 +325,8 @@ def _make_stage_node(stage: dict[str, Any]) -> GraphNode:
     execution = normalize_stage_execution(stage.get("execution"))
     if execution is not None:
         meta["execution"] = execution
+    if "applies_to" in stage:
+        meta["applies_to"] = deepcopy(stage["applies_to"])
 
     return GraphNode(
         id=f"stage.{stage_id}",
@@ -412,6 +417,8 @@ def _make_render_stage_node(
     execution = normalize_stage_execution(stage.get("execution"))
     if execution is not None:
         meta["execution"] = execution
+    if "applies_to" in stage:
+        meta["applies_to"] = deepcopy(stage["applies_to"])
 
     return GraphNode(
         id=node_id,
@@ -421,6 +428,12 @@ def _make_render_stage_node(
         outputs={"artifact": "artifact"},
         meta=meta,
     )
+
+
+def _inherit_applicability(node: GraphNode, parent: GraphNode) -> None:
+    applicability = parent.meta.get("applies_to")
+    if applicability is not None and "applies_to" not in node.meta:
+        node.meta["applies_to"] = deepcopy(applicability)
 
 
 def _expand_hist_dataset_axis(params: dict[str, Any]) -> dict[str, Any]:

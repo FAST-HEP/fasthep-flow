@@ -9,6 +9,10 @@ from hepflow.model.plan import (
     ExecutionPlan,
     resolve_plan_ref,
 )
+from hepflow.model.plan_applicability import (
+    active_plan_nodes_for_context,
+    resolve_active_input_ref,
+)
 from hepflow.model.products import OperationResult
 from hepflow.registry.defaults import default_expr_registry
 from hepflow.registry.loaders import (
@@ -97,7 +101,7 @@ def execute_plan_partition(
     partition = ctx.get("partition")
     hook_manager.partition_start(partition=partition, ctx=ctx)
 
-    for node in plan.nodes:
+    for node in active_plan_nodes_for_context(plan, ctx=ctx):
         if node.role in skip_roles:
             continue
         inputs: dict[str, Any] = {}
@@ -108,7 +112,7 @@ def execute_plan_partition(
                     params = _resolve_source_params(
                         node.params, plan=plan, plan_ctx=ctx
                     )
-                    if _source_should_read_metadata_only(plan, node):
+                    if _source_should_read_metadata_only(plan, node, ctx=ctx):
                         params["metadata_only"] = True
                     result = run_source(
                         source_name=node.impl,
@@ -125,7 +129,7 @@ def execute_plan_partition(
                     )
                 continue
 
-            inputs = _collect_inputs(node.inputs, value_store)
+            inputs = _collect_inputs(node.inputs, value_store, plan=plan, ctx=ctx)
 
             if node.role == "transform":
                 with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
@@ -530,7 +534,7 @@ def execute_dataset_sinks(
     skip_roles = set(skip_roles or set())
     hook_manager = hook_manager or HookManager.from_plan(plan)
 
-    for node in plan.nodes:
+    for node in active_plan_nodes_for_context(plan, ctx=ctx):
         if node.role in skip_roles or node.role != "sink":
             continue
 
@@ -542,7 +546,12 @@ def execute_dataset_sinks(
                 f"Unsupported sink execution timing for node {node.id!r}: {when!r}"
             )
 
-        inputs = _collect_inputs(node.inputs, dataset_value_store)
+        inputs = _collect_inputs(
+            node.inputs,
+            dataset_value_store,
+            plan=plan,
+            ctx=ctx,
+        )
         target = _sink_target(inputs)
         try:
             with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
@@ -592,7 +601,7 @@ def execute_final_nodes(
     skip_roles = set(skip_roles or set())
     hook_manager = hook_manager or HookManager.from_plan(plan)
 
-    for node in plan.nodes:
+    for node in active_plan_nodes_for_context(plan, ctx=ctx):
         if node.role in skip_roles or node.role != "sink":
             continue
 
@@ -604,7 +613,7 @@ def execute_final_nodes(
                 f"Unsupported sink execution timing for node {node.id!r}: {when!r}"
             )
 
-        inputs = _collect_inputs(node.inputs, value_store)
+        inputs = _collect_inputs(node.inputs, value_store, plan=plan, ctx=ctx)
         target = _sink_target(inputs)
         try:
             with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
@@ -646,7 +655,21 @@ def _resolve_source_params(
     plan_ctx: dict[str, Any] | None,
 ) -> dict[str, Any]:
     resolved = dict(params)
+    branches_by_dataset = resolved.pop("branches_by_dataset", None)
     ref = resolved.pop("datasets_ref", None)
+    if isinstance(branches_by_dataset, dict):
+        dataset_name = None
+        if isinstance(plan_ctx, dict):
+            dataset_name = plan_ctx.get("dataset_name")
+        if dataset_name is not None:
+            dataset_branches = branches_by_dataset.get(str(dataset_name))
+            if dataset_branches is not None:
+                existing = {
+                    str(branch) for branch in list(resolved.get("branches") or [])
+                }
+                resolved["branches"] = sorted(
+                    existing | {str(branch) for branch in list(dataset_branches)}
+                )
     if ref is None:
         return resolved
 
@@ -666,13 +689,20 @@ def _resolve_source_params(
 def _source_should_read_metadata_only(
     plan: ExecutionPlan,
     node: ExecutionNode,
+    *,
+    ctx: dict[str, Any] | None = None,
 ) -> bool:
     if node.role != "source" or node.impl != "root_tree":
         return False
 
     output_names = set(node.outputs)
     direct_consumers: list[ExecutionNode] = []
-    for candidate in plan.nodes:
+    candidates = (
+        active_plan_nodes_for_context(plan, ctx=dict(ctx or {}))
+        if ctx is not None
+        else plan.nodes
+    )
+    for candidate in candidates:
         for ref in candidate.inputs:
             if ref.node_id == node.id and ref.output_name in output_names:
                 direct_consumers.append(candidate)
@@ -681,15 +711,22 @@ def _source_should_read_metadata_only(
     if not direct_consumers:
         return False
 
-    downstream = _downstream_consumers(plan, direct_consumers)
+    downstream = _downstream_consumers(plan, direct_consumers, ctx=ctx)
     return bool(downstream) and all(_is_schema_snapshot_observer(n) for n in downstream)
 
 
 def _downstream_consumers(
     plan: ExecutionPlan,
     initial: list[ExecutionNode],
+    *,
+    ctx: dict[str, Any] | None = None,
 ) -> list[ExecutionNode]:
     by_id = {node.id: node for node in plan.nodes}
+    candidates = (
+        active_plan_nodes_for_context(plan, ctx=dict(ctx or {}))
+        if ctx is not None
+        else plan.nodes
+    )
     seen: set[str] = set()
     out: list[ExecutionNode] = []
     queue = list(initial)
@@ -701,7 +738,7 @@ def _downstream_consumers(
         out.append(current)
 
         current_outputs = set(current.outputs)
-        for candidate in plan.nodes:
+        for candidate in candidates:
             if candidate.id in seen:
                 continue
             if any(
@@ -719,13 +756,28 @@ def _is_schema_snapshot_observer(node: ExecutionNode) -> bool:
 def _collect_inputs(
     input_refs,
     value_store: dict[tuple[str, str], Any],
+    *,
+    plan: ExecutionPlan | None = None,
+    ctx: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     inputs: dict[str, Any] = {}
     for ref in input_refs:
-        key = (ref.node_id, ref.output_name)
+        active_ref = ref
+        if (
+            (ref.node_id, ref.output_name) not in value_store
+            and plan is not None
+            and ctx is not None
+        ):
+            dataset = ctx.get("dataset")
+            active_ref = resolve_active_input_ref(
+                plan,
+                ref,
+                dataset=dataset if isinstance(dataset, dict) else None,
+            )
+        key = (active_ref.node_id, active_ref.output_name)
         if key not in value_store:
             raise KeyError(
-                f"Missing planned input value: {ref.node_id}.{ref.output_name}"
+                f"Missing planned input value: {active_ref.node_id}.{active_ref.output_name}"
             )
         if ref.input_name in inputs:
             raise ValueError(f"Duplicate bound input name: {ref.input_name!r}")
