@@ -12,19 +12,23 @@ from hepflow.model.plan_applicability import active_plan_nodes_for_dataset
 from hepflow.runtime.engine import build_partition_context, execute_plan_partition
 
 
-def test_stage_applies_to_eventtype_mc_normalizes(toy_author: dict[str, Any]) -> None:
+@pytest.mark.parametrize("eventtype", ["data", "mc"])
+def test_stage_applies_to_eventtype_normalizes(
+    toy_author: dict[str, Any],
+    eventtype: str,
+) -> None:
     author = deepcopy(toy_author)
-    author["analysis"]["stages"][0]["applies_to"] = {"eventtype": "mc"}
+    author["analysis"]["stages"][0]["applies_to"] = {"eventtype": eventtype}
 
     normalized = normalize_author(author)
 
-    assert normalized["analysis"]["stages"][0]["applies_to"] == {"eventtype": "mc"}
+    assert normalized["analysis"]["stages"][0]["applies_to"] == {"eventtype": eventtype}
 
 
 @pytest.mark.parametrize(
     ("applies_to", "match"),
     [
-        ({"eventtype": "data"}, "only supports 'mc'"),
+        ({"eventtype": "signal"}, "only supports"),
         ({"eventtypes": ["mc"]}, "only supports eventtype"),
         ("mc", "must be a mapping"),
     ],
@@ -104,6 +108,36 @@ def test_runtime_skips_mc_only_linear_stage_for_data(
     assert ("stage.MCOnly", "stream") in mc_store
     assert data_store[("stage.Final", "stream")]["final_pt"] == [24, 36, 42, 56]
     assert mc_store[("stage.Final", "stream")]["final_pt"] == [24, 36, 42, 56]
+
+
+def test_active_plan_nodes_omit_data_only_nodes_for_mc(
+    toy_author: dict[str, Any],
+) -> None:
+    author = _data_only_author(toy_author)
+    _graph, plan = build_plan_from_normalized(normalize_author(author))
+
+    data_nodes = [
+        node.id
+        for node in active_plan_nodes_for_dataset(
+            plan,
+            dataset={"name": "data", "eventtype": "data"},
+        )
+    ]
+    mc_nodes = [
+        node.id
+        for node in active_plan_nodes_for_dataset(
+            plan,
+            dataset={"name": "ttbar", "eventtype": "mc"},
+        )
+    ]
+
+    assert data_nodes == [
+        "read.events",
+        "stage.Common",
+        "stage.DataOnly",
+        "stage.Final",
+    ]
+    assert mc_nodes == ["read.events", "stage.Common", "stage.Final"]
 
 
 def test_data_flow_routes_mc_only_branches_only_to_mc_datasets(
@@ -208,6 +242,35 @@ def _applicability_author(toy_author: dict[str, Any]) -> dict[str, Any]:
             "op": "toy.scale",
             "params": {"source": "scaled_pt", "output": "mc_scaled", "factor": 3},
             "applies_to": {"eventtype": "mc"},
+        },
+        {
+            "id": "Final",
+            "op": "toy.scale",
+            "params": {"source": "scaled_pt", "output": "final_pt", "factor": 1},
+        },
+    ]
+    return author
+
+
+def _data_only_author(toy_author: dict[str, Any]) -> dict[str, Any]:
+    author = deepcopy(toy_author)
+    author["data"] = {
+        "datasets": [
+            {"name": "data", "eventtype": "data", "files": ["data.root"]},
+            {"name": "ttbar", "eventtype": "mc", "files": ["ttbar.root"]},
+        ]
+    }
+    author["analysis"]["stages"] = [
+        {
+            "id": "Common",
+            "op": "toy.scale",
+            "params": {"source": "pt", "output": "scaled_pt", "factor": 2},
+        },
+        {
+            "id": "DataOnly",
+            "op": "toy.scale",
+            "params": {"source": "scaled_pt", "output": "data_scaled", "factor": 3},
+            "applies_to": {"eventtype": "data"},
         },
         {
             "id": "Final",

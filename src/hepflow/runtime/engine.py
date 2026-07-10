@@ -7,6 +7,7 @@ from hepflow.model.plan import (
     ExecutionNode,
     ExecutionPartition,
     ExecutionPlan,
+    PlanInputRef,
     resolve_plan_ref,
 )
 from hepflow.model.plan_applicability import (
@@ -702,9 +703,15 @@ def _source_should_read_metadata_only(
         if ctx is not None
         else plan.nodes
     )
+    dataset = _ctx_dataset(ctx)
     for candidate in candidates:
         for ref in candidate.inputs:
-            if ref.node_id == node.id and ref.output_name in output_names:
+            active_ref = (
+                resolve_active_input_ref(plan, ref, dataset=dataset)
+                if ctx is not None
+                else ref
+            )
+            if active_ref.node_id == node.id and active_ref.output_name in output_names:
                 direct_consumers.append(candidate)
                 break
 
@@ -727,6 +734,7 @@ def _downstream_consumers(
         if ctx is not None
         else plan.nodes
     )
+    dataset = _ctx_dataset(ctx)
     seen: set[str] = set()
     out: list[ExecutionNode] = []
     queue = list(initial)
@@ -741,12 +749,57 @@ def _downstream_consumers(
         for candidate in candidates:
             if candidate.id in seen:
                 continue
-            if any(
-                ref.node_id == current.id and ref.output_name in current_outputs
-                for ref in candidate.inputs
+            if _node_consumes_active_output(
+                plan,
+                candidate,
+                current_node_id=current.id,
+                current_outputs=current_outputs,
+                dataset=dataset,
+                has_context=ctx is not None,
             ):
                 queue.append(by_id[candidate.id])
     return out
+
+
+def _ctx_dataset(ctx: dict[str, Any] | None) -> dict[str, Any] | None:
+    dataset = ctx.get("dataset") if isinstance(ctx, dict) else None
+    return dataset if isinstance(dataset, dict) else None
+
+
+def _active_ref_for_metadata_walk(
+    plan: ExecutionPlan,
+    ref: PlanInputRef,
+    *,
+    dataset: dict[str, Any] | None,
+    has_context: bool,
+) -> PlanInputRef:
+    if not has_context:
+        return ref
+    return resolve_active_input_ref(plan, ref, dataset=dataset)
+
+
+def _node_consumes_active_output(
+    plan: ExecutionPlan,
+    candidate: ExecutionNode,
+    *,
+    current_node_id: str,
+    current_outputs: set[str],
+    dataset: dict[str, Any] | None,
+    has_context: bool,
+) -> bool:
+    for ref in candidate.inputs:
+        active_ref = _active_ref_for_metadata_walk(
+            plan,
+            ref,
+            dataset=dataset,
+            has_context=has_context,
+        )
+        if (
+            active_ref.node_id == current_node_id
+            and active_ref.output_name in current_outputs
+        ):
+            return True
+    return False
 
 
 def _is_schema_snapshot_observer(node: ExecutionNode) -> bool:

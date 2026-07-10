@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-SUPPORTED_EVENTTYPE = "mc"
+SUPPORTED_EVENTTYPES = frozenset({"data", "mc"})
 
 
 def normalize_node_applicability(raw: Any, *, where: str) -> dict[str, str] | None:
@@ -21,12 +21,13 @@ def normalize_node_applicability(raw: Any, *, where: str) -> dict[str, str] | No
             f"unsupported keys: {unknown}"
         )
 
-    eventtype = raw.get("eventtype")
-    if eventtype != SUPPORTED_EVENTTYPE:
+    eventtype = str(raw.get("eventtype") or "").lower()
+    if eventtype not in SUPPORTED_EVENTTYPES:
         raise ValueError(
-            f"{where}.applies_to.eventtype only supports 'mc' in this release"
+            f"{where}.applies_to.eventtype only supports "
+            f"{sorted(SUPPORTED_EVENTTYPES)!r} in this release"
         )
-    return {"eventtype": SUPPORTED_EVENTTYPE}
+    return {"eventtype": eventtype}
 
 
 def node_applies_to_dataset(
@@ -41,11 +42,13 @@ def node_applies_to_dataset(
     eventtype = applicability.get("eventtype")
     if eventtype is None:
         return True
-    if eventtype != SUPPORTED_EVENTTYPE:
+    eventtype = str(eventtype or "").lower()
+    if eventtype not in SUPPORTED_EVENTTYPES:
         raise ValueError(
-            "node applicability metadata only supports eventtype='mc' in this release"
+            "node applicability metadata only supports "
+            f"eventtype in {sorted(SUPPORTED_EVENTTYPES)!r} in this release"
         )
-    return str((dataset or {}).get("eventtype") or "").lower() == SUPPORTED_EVENTTYPE
+    return str((dataset or {}).get("eventtype") or "").lower() == eventtype
 
 
 def node_applies_to_context(applicability: Any, *, ctx: dict[str, Any]) -> bool:
