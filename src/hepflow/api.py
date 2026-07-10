@@ -269,6 +269,7 @@ def run_plan_file(
     run_ctx: dict[str, Any] = {
         "outdir": str(build_paths.root.resolve()),
         "build_paths": build_paths,
+        "execution": runtime_execution,
     }
     result = backend_impl.run(plan, ctx=run_ctx)
 
