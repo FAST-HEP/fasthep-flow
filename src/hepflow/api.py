@@ -49,7 +49,7 @@ from hepflow.runtime.config import (
     _runtime_execution_with_overrides,
     default_run_outdir_for_plan,
 )
-from hepflow.runtime.provenance_inspect import (
+from hepflow.runtime.provenance import (
     format_provenance_artifact,
     format_provenance_graph,
     format_provenance_summary,

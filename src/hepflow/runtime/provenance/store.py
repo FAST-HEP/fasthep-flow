@@ -12,9 +12,97 @@ from typing import Any
 
 from hepflow.build_layout import BuildPaths
 from hepflow.model.plan import ExecutionPlan
-from hepflow.runtime.operation_provenance import RuntimeProvenanceRecorder
+from hepflow.runtime.provenance.model import (
+    ExecutionRecord,
+    OperationRecord,
+    ProvenanceDocument,
+    ResolvedResourceRecord,
+)
+from hepflow.runtime.provenance.resources import ResolvedResource
 
 PROVENANCE_VERSION = "1.0"
+
+
+class ProvenanceStore:
+    """Mutable collection of execution operations and resolved resources."""
+
+    def __init__(self) -> None:
+        self._executions: dict[str, ExecutionRecord] = {}
+        self._resources: dict[str, ResolvedResourceRecord] = {}
+
+    def register_operation_record(
+        self,
+        execution: ExecutionRecord,
+        operation: OperationRecord,
+    ) -> None:
+        current = self._executions.get(execution.id)
+        operations = [*(current.operations if current else []), operation]
+        self._executions[execution.id] = ExecutionRecord(
+            id=execution.id,
+            node_id=execution.node_id,
+            impl=execution.impl,
+            role=execution.role,
+            dataset=execution.dataset,
+            partition=execution.partition,
+            operations=operations,
+        )
+
+    def register_resource(self, resource: ResolvedResource) -> None:
+        self._resources[resource.id] = resource.to_record()
+
+    def register_resource_record(
+        self,
+        resource_id: str,
+        record: dict[str, Any] | ResolvedResourceRecord,
+    ) -> None:
+        if isinstance(record, ResolvedResourceRecord):
+            self._resources[resource_id] = record
+            return
+        self._resources[resource_id] = ResolvedResourceRecord.from_obj(
+            resource_id,
+            record,
+        )
+
+    def merge(self, other: ProvenanceStore) -> None:
+        for execution in other.executions().values():
+            for operation in execution.operations:
+                self.register_operation_record(execution, operation)
+        for resource_id, resource in other.resources().items():
+            self._resources[resource_id] = resource
+
+    def executions(self) -> dict[str, ExecutionRecord]:
+        return dict(self._executions)
+
+    def resources(self) -> dict[str, ResolvedResourceRecord]:
+        return dict(self._resources)
+
+    def serialise_resources(self) -> dict[str, dict[str, Any]]:
+        return {
+            resource_id: resource.to_record()
+            for resource_id, resource in sorted(self._resources.items())
+        }
+
+    def serialise_executions(self) -> dict[str, dict[str, Any]]:
+        return {
+            execution_id: execution.to_record()
+            for execution_id, execution in self._executions.items()
+        }
+
+    def validate(self) -> None:
+        missing = sorted(
+            {
+                resource_id
+                for execution in self._executions.values()
+                for operation in execution.operations
+                for resource_id in operation.inputs.resources
+                if resource_id not in self._resources
+            }
+        )
+        if missing:
+            raise ValueError(
+                "Runtime provenance references unresolved resources: "
+                + ", ".join(missing)
+            )
 
 
 def write_artifact_provenance_records(
@@ -22,14 +110,14 @@ def write_artifact_provenance_records(
     plan: ExecutionPlan,
     writer_records: list[dict[str, Any]],
     outdir: str | Path,
-    runtime_provenance: RuntimeProvenanceRecorder | None = None,
+    runtime_provenance: Any | None = None,
 ) -> dict[str, dict[str, str]]:
     """
     Write generic artifact provenance records and a provenance manifest.
 
     Writer records are the first integration point because they already know
-    produced artifact paths, node identity, data lineage, and
-    file sizes without reopening output files.
+    produced artifact paths, node identity, data lineage, and file sizes without
+    reopening output files.
     """
     if not writer_records:
         return {}
@@ -108,6 +196,45 @@ def write_artifact_provenance_records(
     return links
 
 
+def load_provenance_document(path: str | Path) -> ProvenanceDocument:
+    doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(doc, dict):
+        raise ValueError(f"Expected provenance JSON object in {path}")
+    return ProvenanceDocument.from_obj(doc)
+
+
+def write_provenance_document(path: str | Path, document: ProvenanceDocument) -> None:
+    _write_json(Path(path), document.to_record())
+
+
+def _execution_index(
+    *,
+    plan: ExecutionPlan,
+    run_id: str,
+    paths: BuildPaths,
+    writer_records: list[dict[str, Any]],
+    runtime_provenance: Any | None,
+) -> dict[str, Any]:
+    index = ProvenanceDocument(
+        version=PROVENANCE_VERSION,
+        run_id=run_id,
+        workflow=_workflow_references(paths),
+        software=_software_versions(),
+        execution=_execution_context(),
+        partitions=_partition_index(plan, writer_records),
+        node_executions=_node_execution_index(writer_records),
+    ).to_record()
+    if runtime_provenance is not None:
+        runtime_provenance.validate()
+        resources = runtime_provenance.serialise_resources()
+        executions = runtime_provenance.serialise_executions()
+        if resources:
+            index["resources"] = resources
+        if executions:
+            index["executions"] = executions
+    return index
+
+
 def _record_sort_key(record: dict[str, Any]) -> tuple[str, str, int, int, str]:
     return (
         str(record.get("node_id") or ""),
@@ -163,36 +290,7 @@ def _producer_partition_id(record: dict[str, Any]) -> str | None:
 
 
 def _node_execution_id(node_id: str, partition_id: str | None) -> str:
-    if partition_id:
-        return f"{node_id}::{partition_id}"
-    return node_id
-
-
-def _execution_index(
-    *,
-    plan: ExecutionPlan,
-    run_id: str,
-    paths: BuildPaths,
-    writer_records: list[dict[str, Any]],
-    runtime_provenance: RuntimeProvenanceRecorder | None,
-) -> dict[str, Any]:
-    index = {
-        "version": PROVENANCE_VERSION,
-        "run_id": run_id,
-        "workflow": _workflow_references(paths),
-        "software": _software_versions(),
-        "execution": _execution_context(),
-        "partitions": _partition_index(plan, writer_records),
-        "node_executions": _node_execution_index(writer_records),
-    }
-    if runtime_provenance is not None:
-        resources = runtime_provenance.serialise_resources()
-        executions = runtime_provenance.serialise_executions()
-        if resources:
-            index["resources"] = resources
-        if executions:
-            index["executions"] = executions
-    return index
+    return f"{node_id}::{partition_id}" if partition_id else node_id
 
 
 def _partition_index(
@@ -325,3 +423,12 @@ def _drop_none(value: dict[str, Any]) -> dict[str, Any]:
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+__all__ = [
+    "PROVENANCE_VERSION",
+    "ProvenanceStore",
+    "load_provenance_document",
+    "write_artifact_provenance_records",
+    "write_provenance_document",
+]

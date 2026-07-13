@@ -179,6 +179,46 @@ def build_provenance_graph(artifact_path: str | Path) -> dict[str, Any]:
     }
 
 
+def operation_resource_records(execution: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Return resource records referenced by operation inputs."""
+    resources = dict(execution.get("resources") or {})
+    referenced = sorted(
+        {
+            str(resource_id)
+            for item in list(dict(execution.get("executions") or {}).values())
+            if isinstance(item, dict)
+            for operation in list(item.get("operations") or [])
+            if isinstance(operation, dict)
+            for resource_id in list(dict(operation.get("inputs") or {}).get("resources") or [])
+        }
+    )
+    return {
+        resource_id: dict(resources[resource_id])
+        for resource_id in referenced
+        if isinstance(resources.get(resource_id), dict)
+    }
+
+
+def resolve_operation_resources(
+    operation: dict[str, Any],
+    execution: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Resolve one operation's input resource ids to run-level resource records."""
+    resources = dict(execution.get("resources") or {})
+    input_resources = list(dict(operation.get("inputs") or {}).get("resources") or [])
+    missing = [resource_id for resource_id in input_resources if resource_id not in resources]
+    if missing:
+        raise KeyError(
+            "Operation references unresolved provenance resources: "
+            + ", ".join(str(item) for item in missing)
+        )
+    return {
+        str(resource_id): dict(resources[str(resource_id)])
+        for resource_id in input_resources
+        if isinstance(resources.get(str(resource_id)), dict)
+    }
+
+
 def _load_bundle(
     outdir: Path,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, dict[str, Any]]]:
@@ -429,13 +469,19 @@ def _format_input_partitions(partitions: list[dict[str, Any]]) -> list[str]:
         return ["  (none)"]
     lines: list[str] = []
     for partition in partitions:
-        part_id = partition.get("id") or ""
-        dataset = partition.get("dataset") or ""
-        source = partition.get("source") or ""
-        file_path = partition.get("file") or ""
-        part = partition.get("part") or ""
-        lines.append(
-            f"  {part_id} dataset={dataset} source={source} "
-            f"file={file_path} part={part}"
-        )
+        bits = [str(partition.get("id") or "")]
+        for key in ("dataset", "source", "file", "part"):
+            if partition.get(key) is not None:
+                bits.append(f"{key}={partition[key]}")
+        lines.append("  " + " ".join(bit for bit in bits if bit))
     return lines
+
+
+__all__ = [
+    "build_provenance_graph",
+    "format_provenance_artifact",
+    "format_provenance_graph",
+    "format_provenance_summary",
+    "operation_resource_records",
+    "resolve_operation_resources",
+]

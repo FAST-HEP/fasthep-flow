@@ -23,11 +23,11 @@ from hepflow.runtime.engine import (
     merge_partition_value_stores_for_dataset,
 )
 from hepflow.runtime.materialize import materialize_final_products
-from hepflow.runtime.provenance import write_artifact_provenance_records
-from hepflow.runtime.provenance_inspect import (
+from hepflow.runtime.provenance import (
     format_provenance_artifact,
     format_provenance_graph,
     format_provenance_summary,
+    write_artifact_provenance_records,
 )
 from hepflow.runtime.writer_manifests import write_writer_manifests
 

@@ -19,7 +19,7 @@ from hepflow.runtime.engine import (
     merge_partition_value_stores_for_dataset,
 )
 from hepflow.runtime.hooks.manager import HookManager
-from hepflow.runtime.operation_provenance import ensure_runtime_provenance
+from hepflow.runtime.provenance import ensure_runtime_provenance
 from hepflow.runtime.writer_manifests import write_writer_manifests
 
 

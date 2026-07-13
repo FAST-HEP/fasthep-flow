@@ -3,16 +3,25 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from hepflow.model.plan import ExecutionPartition, ExecutionPlan
-from hepflow.runtime.operation_provenance import (
-    ResolvedRuntimeResource,
-    RuntimeProvenanceRecorder,
+from hepflow.runtime.provenance import (
+    ExecutionRecord,
+    OperationRecord,
+    ProvenanceDocument,
+    ProvenanceRecorder,
+    ProvenanceStore,
+    ResolvedResource,
+    load_provenance_document,
+    resolve_operation_resources,
+    write_artifact_provenance_records,
+    write_provenance_document,
 )
-from hepflow.runtime.provenance import write_artifact_provenance_records
 
 
 def test_operation_provenance_records_symbols_only() -> None:
-    recorder = RuntimeProvenanceRecorder()
+    recorder = ProvenanceRecorder()
 
     with recorder.operation_context(
         node_id="stage.Build",
@@ -41,11 +50,11 @@ def test_operation_provenance_records_symbols_only() -> None:
 
 
 def test_resolved_resource_serialisation_excludes_runtime_value() -> None:
-    recorder = RuntimeProvenanceRecorder()
+    recorder = ProvenanceRecorder()
     runtime_value = object()
 
     recorder.record_resource(
-        ResolvedRuntimeResource(
+        ResolvedResource(
             id="cms.pileup.2024",
             kind="correctionlib",
             value=runtime_value,
@@ -76,6 +85,93 @@ def test_resolved_resource_serialisation_excludes_runtime_value() -> None:
     assert "value" not in json.dumps(resources)
 
 
+def test_store_validates_resource_references() -> None:
+    recorder = ProvenanceRecorder()
+    with recorder.operation_context(
+        node_id="stage.PileupWeights",
+        impl="chip.pileup_weights",
+        role="transform",
+        dataset="dy",
+        partition={"id": "events__dy__0"},
+    ):
+        recorder.record_operation(
+            inputs={"resources": ["cms.pileup.2024"]},
+            outputs={"symbols": ["weight_pu_nominal"]},
+        )
+
+    with pytest.raises(ValueError, match=r"unresolved resources: cms\.pileup\.2024"):
+        recorder.validate()
+
+
+def test_repeated_operations_preserve_order_and_resources_deduplicate() -> None:
+    recorder = ProvenanceRecorder()
+    with recorder.operation_context(
+        node_id="stage.Build",
+        impl="toy.record",
+        role="transform",
+        dataset="data",
+        partition={"id": "events__data__0"},
+    ):
+        recorder.record_operation(inputs={"symbols": ["a"]}, outputs={"symbols": ["b"]})
+        recorder.record_operation(inputs={"symbols": ["b"]}, outputs={"symbols": ["c"]})
+
+    recorder.record_resource(
+        ResolvedResource(id="resource", kind="test", value=object(), path="first")
+    )
+    recorder.record_resource(
+        ResolvedResource(id="resource", kind="test", value=object(), path="second")
+    )
+
+    execution = recorder.serialise_executions()["stage.Build::events__data__0"]
+    assert execution["operations"] == [
+        {"inputs": {"symbols": ["a"]}, "outputs": {"symbols": ["b"]}},
+        {"inputs": {"symbols": ["b"]}, "outputs": {"symbols": ["c"]}},
+    ]
+    assert recorder.serialise_resources()["resource"]["selected"]["path"] == "second"
+
+
+def test_provenance_document_persistence_round_trip(tmp_path: Path) -> None:
+    document = ProvenanceDocument(
+        version="1.0",
+        run_id="run",
+        workflow={"graph": "graph/graph.json"},
+        software={},
+        execution={},
+        partitions=[],
+        node_executions=[],
+    )
+    path = tmp_path / "execution.json"
+
+    write_provenance_document(path, document)
+    loaded = load_provenance_document(path)
+
+    assert loaded == document
+
+
+def test_inspection_resolves_operation_resources() -> None:
+    execution = {
+        "resources": {
+            "cms.pileup.2024": {
+                "kind": "correctionlib",
+                "selected": {"path": "/cvmfs/example/puWeights.json.gz"},
+            }
+        }
+    }
+    operation = {
+        "inputs": {
+            "symbols": ["Pileup_nTrueInt"],
+            "resources": ["cms.pileup.2024"],
+        }
+    }
+
+    assert resolve_operation_resources(operation, execution) == {
+        "cms.pileup.2024": {
+            "kind": "correctionlib",
+            "selected": {"path": "/cvmfs/example/puWeights.json.gz"},
+        }
+    }
+
+
 def test_runtime_operation_provenance_persists_to_execution_index(
     tmp_path: Path,
 ) -> None:
@@ -89,9 +185,9 @@ def test_runtime_operation_provenance_persists_to_execution_index(
             part="0_0",
         )
     ]
-    recorder = RuntimeProvenanceRecorder()
+    recorder = ProvenanceRecorder()
     recorder.record_resource(
-        ResolvedRuntimeResource(
+        ResolvedResource(
             id="cms.pileup.2024",
             kind="correctionlib",
             value=object(),
@@ -153,3 +249,31 @@ def test_runtime_operation_provenance_persists_to_execution_index(
             "outputs": {"symbols": ["weight_pu_nominal"]},
         }
     ]
+
+
+def test_store_can_merge_worker_records() -> None:
+    left = ProvenanceStore()
+    right = ProvenanceStore()
+    right.register_resource(
+        ResolvedResource(id="resource", kind="test", value=object(), path="worker")
+    )
+    right.register_operation_record(
+        execution=_execution("stage.Build::events__data__0"),
+        operation=OperationRecord.from_obj({"inputs": {"resources": ["resource"]}}),
+    )
+
+    left.merge(right)
+
+    left.validate()
+    assert left.serialise_resources()["resource"]["selected"]["path"] == "worker"
+
+
+def _execution(execution_id: str) -> ExecutionRecord:
+    return ExecutionRecord(
+        id=execution_id,
+        node_id="stage.Build",
+        impl="toy.record",
+        role="transform",
+        dataset="data",
+        partition="events__data__0",
+    )

@@ -24,8 +24,8 @@ from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.handlers import run_observer, run_sink, run_source, run_transform
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
 from hepflow.runtime.materialize import materialize_final_products
-from hepflow.runtime.operation_provenance import (
-    RuntimeProvenanceRecorder,
+from hepflow.runtime.provenance import (
+    ProvenanceRecorder,
     ensure_runtime_provenance,
 )
 from hepflow.runtime.writer_manifests import write_writer_manifests
@@ -243,7 +243,7 @@ def _dispatch_node_error(
 
 
 def _operation_context(
-    recorder: RuntimeProvenanceRecorder,
+    recorder: ProvenanceRecorder,
     *,
     node: ExecutionNode,
     ctx: dict[str, Any],
