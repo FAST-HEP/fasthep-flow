@@ -130,6 +130,15 @@ def execute_plan_partition(
                     )
                 continue
 
+            if node.role == "sink":
+                when = _sink_when(node)
+                if when in {"dataset_end", "run_end"}:
+                    continue
+                if when != "partition_end":
+                    raise ValueError(
+                        f"Unsupported sink execution timing for node {node.id!r}: {when!r}"
+                    )
+
             inputs = _collect_inputs(node.inputs, value_store, plan=plan, ctx=ctx)
 
             if node.role == "transform":
@@ -172,13 +181,6 @@ def execute_plan_partition(
                 continue
 
             if node.role == "sink":
-                when = _sink_when(node)
-                if when in {"dataset_end", "run_end"}:
-                    continue
-                if when != "partition_end":
-                    raise ValueError(
-                        f"Unsupported sink execution timing for node {node.id!r}: {when!r}"
-                    )
                 with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
                     hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
                     target = _sink_target(inputs)
@@ -706,11 +708,14 @@ def _source_should_read_metadata_only(
     dataset = _ctx_dataset(ctx)
     for candidate in candidates:
         for ref in candidate.inputs:
-            active_ref = (
-                resolve_active_input_ref(plan, ref, dataset=dataset)
-                if ctx is not None
-                else ref
-            )
+            try:
+                active_ref = (
+                    resolve_active_input_ref(plan, ref, dataset=dataset)
+                    if ctx is not None
+                    else ref
+                )
+            except ValueError:
+                continue
             if active_ref.node_id == node.id and active_ref.output_name in output_names:
                 direct_consumers.append(candidate)
                 break
@@ -788,12 +793,15 @@ def _node_consumes_active_output(
     has_context: bool,
 ) -> bool:
     for ref in candidate.inputs:
-        active_ref = _active_ref_for_metadata_walk(
-            plan,
-            ref,
-            dataset=dataset,
-            has_context=has_context,
-        )
+        try:
+            active_ref = _active_ref_for_metadata_walk(
+                plan,
+                ref,
+                dataset=dataset,
+                has_context=has_context,
+            )
+        except ValueError:
+            continue
         if (
             active_ref.node_id == current_node_id
             and active_ref.output_name in current_outputs

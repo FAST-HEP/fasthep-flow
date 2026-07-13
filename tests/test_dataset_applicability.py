@@ -212,6 +212,52 @@ def test_unsupported_applicability_bypass_raises_clear_error(
         build_plan_from_normalized(normalize_author(author))
 
 
+def test_run_end_sink_can_consume_data_and_mc_specific_products(
+    toy_author: dict[str, Any],
+) -> None:
+    author = deepcopy(toy_author)
+    author["data"] = {
+        "datasets": [
+            {"name": "data", "eventtype": "data", "files": ["data.root"]},
+            {"name": "ttbar", "eventtype": "mc", "files": ["ttbar.root"]},
+        ]
+    }
+    author["analysis"]["stages"] = [
+        {
+            "id": "DataProduct",
+            "op": "toy.scale",
+            "params": {"source": "pt", "output": "data_pt"},
+            "applies_to": {"eventtype": "data"},
+        },
+        {
+            "id": "MCProduct",
+            "op": "toy.scale",
+            "params": {"source": "pt", "output": "mc_pt"},
+            "applies_to": {"eventtype": "mc"},
+        },
+        {
+            "id": "Compare",
+            "op": "hep.render.comparison",
+            "from": [
+                {"node": "DataProduct", "port": "stream", "as": "reference"},
+                {"node": "MCProduct", "port": "stream", "as": "target"},
+            ],
+            "when": "final",
+            "out": "compare.json",
+            "params": {
+                "style": {
+                    "op": "hep.render.comparison",
+                    "comparison": {"reference": "reference", "target": "target"},
+                }
+            },
+        },
+    ]
+
+    _graph, plan = build_plan_from_normalized(normalize_author(author))
+
+    assert plan.get_node("render.Compare.0").params["when"] == "run_end"
+
+
 def test_lowered_graph_records_applicability_metadata(
     toy_author: dict[str, Any],
 ) -> None:

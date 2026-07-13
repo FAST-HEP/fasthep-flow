@@ -82,6 +82,12 @@ def _validate_dataset(
     label: str,
 ) -> None:
     for node in active_plan_nodes_for_dataset(plan, dataset=dataset):
+        if (
+            node.role == "sink"
+            and str(node.params.get("when") or "") == "run_end"
+            and len(node.inputs) > 1
+        ):
+            continue
         for ref in node.inputs:
             try:
                 resolve_active_input_ref(plan, ref, dataset=dataset)
