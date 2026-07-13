@@ -18,12 +18,8 @@ from hepflow.runtime.provenance.model import (
 from hepflow.runtime.provenance.recorder import (
     ProvenanceRecorder,
     ensure_runtime_provenance,
-    runtime_provenance_from_ctx,
 )
-from hepflow.runtime.provenance.resources import (
-    ResolvedResource,
-    warn_resource_fallback,
-)
+from hepflow.runtime.provenance.resources import warn_resource_fallback
 from hepflow.runtime.provenance.store import (
     PROVENANCE_VERSION,
     ProvenanceStore,
@@ -40,7 +36,6 @@ __all__ = [
     "ProvenanceDocument",
     "ProvenanceRecorder",
     "ProvenanceStore",
-    "ResolvedResource",
     "ResolvedResourceRecord",
     "build_provenance_graph",
     "ensure_runtime_provenance",
@@ -50,7 +45,6 @@ __all__ = [
     "load_provenance_document",
     "operation_resource_records",
     "resolve_operation_resources",
-    "runtime_provenance_from_ctx",
     "warn_resource_fallback",
     "write_artifact_provenance_records",
     "write_provenance_document",

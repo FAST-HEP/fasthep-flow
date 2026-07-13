@@ -11,6 +11,7 @@ from hepflow.registry.loaders import (
     load_runtime_spec_and_impl,
     runtime_registry_from_config,
 )
+from hepflow.runtime.context import ComponentContext, component_context
 
 EXECUTION_ONLY_SINK_PARAMS = {"when"}
 
@@ -63,6 +64,7 @@ def _run_writer_like_sink(
     if target is None:
         raise ValueError(f"Sink '{sink_name}' target is None")
 
+    component_ctx = component_context(ctx)
     impl_params = _sink_impl_params(params)
     when = normalize_lifecycle_event(params.get("when") or "run_end")
     if "path" in impl_params:
@@ -71,7 +73,7 @@ def _run_writer_like_sink(
         impl_params = _resolve_writer_paths_for_context(
             impl_params,
             when=when,
-            ctx=dict(ctx or {}),
+            ctx=component_ctx,
             meta=dict(meta or {}),
         )
     if "output_path" not in impl_params and (
@@ -79,7 +81,7 @@ def _run_writer_like_sink(
     ):
         output_path, output_dir = _derive_artifact_output_paths(
             impl_params,
-            ctx=dict(ctx or {}),
+            ctx=component_ctx,
             meta=dict(meta or {}),
         )
         impl_params["output_path"] = output_path
@@ -91,7 +93,7 @@ def _run_writer_like_sink(
         for parameter in signature.parameters.values()
     )
     if "ctx" in signature.parameters or accepts_kwargs:
-        impl_params["ctx"] = dict(ctx or {})
+        impl_params["ctx"] = component_ctx
     if "meta" in signature.parameters or accepts_kwargs:
         impl_params["meta"] = dict(meta or {})
 
@@ -110,7 +112,7 @@ def _resolve_writer_paths_for_context(
     params: dict[str, Any],
     *,
     when: str,
-    ctx: dict[str, Any],
+    ctx: dict[str, Any] | ComponentContext,
     meta: dict[str, Any],
 ) -> dict[str, Any]:
     path_template = str(params["path"])
@@ -141,7 +143,7 @@ def _resolve_writer_paths_for_context(
 def _derive_artifact_output_paths(
     params: dict[str, Any],
     *,
-    ctx: dict[str, Any],
+    ctx: dict[str, Any] | ComponentContext,
     meta: dict[str, Any],
 ) -> tuple[str, str]:
     spec = dict(params.get("spec") or {})
@@ -178,7 +180,7 @@ def run_observer(
         params=params,
         component_type="observer",
     )
-    return impl(target=target, **params, ctx=dict(ctx or {}))
+    return impl(target=target, **params, ctx=component_context(ctx))
 
 
 def run_source(
@@ -190,7 +192,7 @@ def run_source(
 ) -> Any:
     spec, impl = load_runtime_spec_and_impl(registry_cfg, "sources", source_name)
     _validate_required_params(spec=spec, params=params)
-    return impl(ctx=dict(ctx or {}), **params)
+    return impl(ctx=component_context(ctx), **params)
 
 
 def run_transform(
@@ -203,7 +205,7 @@ def run_transform(
 ) -> Any:
     spec, impl = load_runtime_spec_and_impl(registry_cfg, "transforms", transform_name)
     _validate_transform_call(spec=spec, inputs=inputs, params=params)
-    return impl(**inputs, **params, ctx=dict(ctx or {}))
+    return impl(**inputs, **params, ctx=component_context(ctx))
 
 
 def _validate_component_call(

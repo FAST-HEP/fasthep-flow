@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from hepflow.model.lifecycle import normalize_lifecycle_event
@@ -242,22 +244,33 @@ def _dispatch_node_error(
         print(f"Error hook {hook_exc.kind} failed: {hook_exc.cause}")  # noqa: T201
 
 
+@contextmanager
 def _operation_context(
     recorder: ProvenanceRecorder,
     *,
     node: ExecutionNode,
     ctx: dict[str, Any],
-) -> Any:
+) -> Iterator[None]:
     partition = ctx.get("partition")
     if not isinstance(partition, dict):
         partition = None
-    return recorder.operation_context(
-        node_id=node.id,
-        impl=node.impl,
-        role=node.role,
-        dataset=str(ctx["dataset_name"]) if ctx.get("dataset_name") else None,
-        partition=partition,
-    )
+    had_node_id = "node_id" in ctx
+    previous_node_id = ctx.get("node_id")
+    ctx["node_id"] = node.id
+    try:
+        with recorder.operation_context(
+            node_id=node.id,
+            impl=node.impl,
+            role=node.role,
+            dataset=str(ctx["dataset_name"]) if ctx.get("dataset_name") else None,
+            partition=partition,
+        ):
+            yield
+    finally:
+        if had_node_id:
+            ctx["node_id"] = previous_node_id
+        else:
+            ctx.pop("node_id", None)
 
 
 def execute_plan_locally(

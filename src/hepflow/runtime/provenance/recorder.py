@@ -4,8 +4,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from hepflow.model import ResolvedResource
 from hepflow.runtime.provenance.model import ExecutionRecord, OperationRecord
-from hepflow.runtime.provenance.resources import ResolvedResource
 from hepflow.runtime.provenance.store import ProvenanceStore
 
 

@@ -15,11 +15,18 @@ from hepflow.model import (
     IssueLevel,
     OperationResult,
     ProductRef,
+    ResolvedResource,
 )
+from hepflow.runtime import ComponentContext
 ```
 
 Most transform and sink authors only need `ComponentSpec`, and many components
 can simply expose a `ComponentSpec`-shaped dictionary.
+
+Use `hepflow.api` for high-level compile and run operations. Use
+`hepflow.runtime.ComponentContext` inside runtime component implementations. Do
+not import backend classes, runtime engine helpers, or provenance store modules
+from `hepflow.runtime`.
 
 Do not treat backend classes, Dask helpers, lowered graph nodes, execution-plan
 internals, or render Data Transfer Objects (DTOs) as component-author API. Those are compiler/runtime,
@@ -210,29 +217,33 @@ records. The resolved resource metadata is stored centrally at run level, while
 the runtime object itself is not serialised.
 
 ```python
-def run_component(stream, *, input_fields, resource, ctx=None):
-    input_name = input_fields[0]
-    resolved = ctx["resources"][resource]
+from hepflow.model import ResolvedResource
+from hepflow.runtime import ComponentContext
 
-    values = resolved.value.evaluate(stream[input_name], "nominal")
+
+def run_component(data, *, params, ctx: ComponentContext):
+    resource: ResolvedResource = ctx.resources[params["resource"]]
+    input_name = params["input_fields"][0]
+
+    values = resource.value.evaluate(data[input_name], "nominal")
     output = "weight_nominal"
-    result = {**stream, output: values}
+    result = {**data, output: values}
 
-    ctx["provenance"].record_operation(
+    ctx.provenance.record_operation(
         inputs={
             "symbols": [input_name],
-            "resources": [resource],
+            "resources": [resource.id],
         },
         outputs={"symbols": [output]},
     )
 
-    return {"stream": result}
+    return result
 ```
 
 Components that do not use external resources may omit the `resources` entry:
 
 ```python
-ctx["provenance"].record_operation(
+ctx.provenance.record_operation(
     inputs={"symbols": ["Muon_Px", "Muon_Py"]},
     outputs={"symbols": ["Muon_Pt"]},
 )

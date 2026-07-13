@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from hepflow.model import ResolvedResource
 from hepflow.model.plan import ExecutionPartition, ExecutionPlan
 from hepflow.runtime.provenance import (
     ExecutionRecord,
@@ -12,7 +13,6 @@ from hepflow.runtime.provenance import (
     ProvenanceDocument,
     ProvenanceRecorder,
     ProvenanceStore,
-    ResolvedResource,
     load_provenance_document,
     resolve_operation_resources,
     write_artifact_provenance_records,

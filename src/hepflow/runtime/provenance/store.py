@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from hepflow.build_layout import BuildPaths
+from hepflow.model import ResolvedResource
 from hepflow.model.plan import ExecutionPlan
 from hepflow.runtime.provenance.model import (
     ExecutionRecord,
@@ -18,7 +19,7 @@ from hepflow.runtime.provenance.model import (
     ProvenanceDocument,
     ResolvedResourceRecord,
 )
-from hepflow.runtime.provenance.resources import ResolvedResource
+from hepflow.runtime.provenance.resources import resolved_resource_record
 
 PROVENANCE_VERSION = "1.0"
 
@@ -48,7 +49,7 @@ class ProvenanceStore:
         )
 
     def register_resource(self, resource: ResolvedResource) -> None:
-        self._resources[resource.id] = resource.to_record()
+        self._resources[resource.id] = resolved_resource_record(resource)
 
     def register_resource_record(
         self,
