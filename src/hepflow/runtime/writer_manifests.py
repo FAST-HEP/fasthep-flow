@@ -8,6 +8,7 @@ from typing import Any
 from hepflow.build_layout import BuildPaths
 from hepflow.model.io import OutputResult
 from hepflow.model.plan import ExecutionPartition, ExecutionPlan
+from hepflow.runtime.operation_provenance import RuntimeProvenanceRecorder
 from hepflow.runtime.provenance import write_artifact_provenance_records
 
 
@@ -17,6 +18,7 @@ def write_writer_manifests(
     stores: list[dict[tuple[str, str], Any]],
     partitions: list[ExecutionPartition] | None = None,
     outdir: str | Path,
+    runtime_provenance: RuntimeProvenanceRecorder | None = None,
 ) -> None:
     """Aggregate successful partition-writer results into one manifest per writer."""
     records_by_node: dict[str, list[dict[str, Any]]] = {}
@@ -53,6 +55,7 @@ def write_writer_manifests(
         plan=plan,
         writer_records=[record for _, record in result_records],
         outdir=outdir,
+        runtime_provenance=runtime_provenance,
     )
     for output, record in result_records:
         provenance = provenance_links.get(_record_id(record))

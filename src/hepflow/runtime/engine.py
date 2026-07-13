@@ -24,6 +24,10 @@ from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.handlers import run_observer, run_sink, run_source, run_transform
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
 from hepflow.runtime.materialize import materialize_final_products
+from hepflow.runtime.operation_provenance import (
+    RuntimeProvenanceRecorder,
+    ensure_runtime_provenance,
+)
 from hepflow.runtime.writer_manifests import write_writer_manifests
 
 
@@ -94,6 +98,7 @@ def execute_plan_partition(
     Assumes graph/plan ordering is already topological.
     """
     ctx = dict(ctx or {})
+    recorder = ensure_runtime_provenance(ctx)
     registry_cfg = registry_cfg or plan.registry
     _ensure_expr_registry(ctx, registry_cfg)
     value_store: dict[tuple[str, str], Any] = dict(initial_values or {})
@@ -115,12 +120,13 @@ def execute_plan_partition(
                     )
                     if _source_should_read_metadata_only(plan, node, ctx=ctx):
                         params["metadata_only"] = True
-                    result = run_source(
-                        source_name=node.impl,
-                        params=params,
-                        registry_cfg=registry_cfg,
-                        ctx=ctx,
-                    )
+                    with _operation_context(recorder, node=node, ctx=ctx):
+                        result = run_source(
+                            source_name=node.impl,
+                            params=params,
+                            registry_cfg=registry_cfg,
+                            ctx=ctx,
+                        )
                     _store_node_outputs(node.id, node.outputs, result, value_store)
                     hook_manager.after_node(
                         node=node,
@@ -144,13 +150,14 @@ def execute_plan_partition(
             if node.role == "transform":
                 with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
                     hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
-                    result = run_transform(
-                        transform_name=node.impl,
-                        inputs=inputs,
-                        params=node.params,
-                        registry_cfg=registry_cfg,
-                        ctx=ctx,
-                    )
+                    with _operation_context(recorder, node=node, ctx=ctx):
+                        result = run_transform(
+                            transform_name=node.impl,
+                            inputs=inputs,
+                            params=node.params,
+                            registry_cfg=registry_cfg,
+                            ctx=ctx,
+                        )
                     hook_manager.after_node(
                         node=node,
                         inputs=inputs,
@@ -164,13 +171,14 @@ def execute_plan_partition(
                 with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
                     hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
                     target = _default_target(inputs)
-                    result = run_observer(
-                        observer_name=node.impl,
-                        target=target,
-                        params=node.params,
-                        registry_cfg=registry_cfg,
-                        ctx=ctx,
-                    )
+                    with _operation_context(recorder, node=node, ctx=ctx):
+                        result = run_observer(
+                            observer_name=node.impl,
+                            target=target,
+                            params=node.params,
+                            registry_cfg=registry_cfg,
+                            ctx=ctx,
+                        )
                     _store_node_outputs(node.id, node.outputs, result, value_store)
                     hook_manager.after_node(
                         node=node,
@@ -184,14 +192,15 @@ def execute_plan_partition(
                 with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
                     hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
                     target = _sink_target(inputs)
-                    result = run_sink(
-                        sink_name=node.impl,
-                        target=target,
-                        params=node.params,
-                        ctx=ctx,
-                        meta=_node_meta(node),
-                        registry_cfg=registry_cfg,
-                    )
+                    with _operation_context(recorder, node=node, ctx=ctx):
+                        result = run_sink(
+                            sink_name=node.impl,
+                            target=target,
+                            params=node.params,
+                            ctx=ctx,
+                            meta=_node_meta(node),
+                            registry_cfg=registry_cfg,
+                        )
                     _store_node_outputs(node.id, node.outputs, result, value_store)
                     hook_manager.after_node(
                         node=node,
@@ -233,6 +242,24 @@ def _dispatch_node_error(
         print(f"Error hook {hook_exc.kind} failed: {hook_exc.cause}")  # noqa: T201
 
 
+def _operation_context(
+    recorder: RuntimeProvenanceRecorder,
+    *,
+    node: ExecutionNode,
+    ctx: dict[str, Any],
+) -> Any:
+    partition = ctx.get("partition")
+    if not isinstance(partition, dict):
+        partition = None
+    return recorder.operation_context(
+        node_id=node.id,
+        impl=node.impl,
+        role=node.role,
+        dataset=str(ctx["dataset_name"]) if ctx.get("dataset_name") else None,
+        partition=partition,
+    )
+
+
 def execute_plan_locally(
     plan: ExecutionPlan,
     *,
@@ -249,6 +276,10 @@ def execute_plan_locally(
     base_ctx = dict(plan.context)
     base_ctx.update(dict(ctx or {}))
     base_ctx.update(dict(base_ctx.get("globals") or {}))
+    recorder = ensure_runtime_provenance(base_ctx)
+    base_ctx.setdefault("runtime_resources", {})
+    resolved_resources = base_ctx.setdefault("resolved_resources", {})
+    base_ctx.setdefault("resources", resolved_resources)
     _ensure_expr_registry(base_ctx, registry_cfg)
     if "dataset_names" not in base_ctx:
         base_ctx["dataset_names"] = list((base_ctx.get("datasets") or {}).keys())
@@ -281,6 +312,7 @@ def execute_plan_locally(
             plan,
             stores=[value_store],
             outdir=str(base_ctx.get("outdir") or "."),
+            runtime_provenance=recorder,
         )
         hook_manager.run_end(plan=plan, ctx=base_ctx, summary={})
         if isinstance(ctx, dict):
@@ -354,6 +386,7 @@ def execute_plan_locally(
         stores=results,
         partitions=partitions,
         outdir=str(base_ctx.get("outdir") or "."),
+        runtime_provenance=recorder,
     )
     hook_manager.run_end(plan=plan, ctx=base_ctx, summary={})
     if isinstance(ctx, dict):
@@ -536,6 +569,7 @@ def execute_dataset_sinks(
 ) -> dict[tuple[str, str], Any]:
     skip_roles = set(skip_roles or set())
     hook_manager = hook_manager or HookManager.from_plan(plan)
+    recorder = ensure_runtime_provenance(ctx)
 
     for node in active_plan_nodes_for_context(plan, ctx=ctx):
         if node.role in skip_roles or node.role != "sink":
@@ -559,14 +593,15 @@ def execute_dataset_sinks(
         try:
             with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
                 hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
-                result = run_sink(
-                    sink_name=node.impl,
-                    target=target,
-                    params=node.params,
-                    ctx=ctx,
-                    meta=_node_meta(node),
-                    registry_cfg=registry_cfg,
-                )
+                with _operation_context(recorder, node=node, ctx=ctx):
+                    result = run_sink(
+                        sink_name=node.impl,
+                        target=target,
+                        params=node.params,
+                        ctx=ctx,
+                        meta=_node_meta(node),
+                        registry_cfg=registry_cfg,
+                    )
                 _store_node_outputs(node.id, node.outputs, result, dataset_value_store)
                 hook_manager.after_node(
                     node=node,
@@ -603,6 +638,7 @@ def execute_final_nodes(
 ) -> None:
     skip_roles = set(skip_roles or set())
     hook_manager = hook_manager or HookManager.from_plan(plan)
+    recorder = ensure_runtime_provenance(ctx)
 
     for node in active_plan_nodes_for_context(plan, ctx=ctx):
         if node.role in skip_roles or node.role != "sink":
@@ -621,14 +657,15 @@ def execute_final_nodes(
         try:
             with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
                 hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
-                result = run_sink(
-                    sink_name=node.impl,
-                    target=target,
-                    params=node.params,
-                    ctx=ctx,
-                    meta=_node_meta(node),
-                    registry_cfg=registry_cfg,
-                )
+                with _operation_context(recorder, node=node, ctx=ctx):
+                    result = run_sink(
+                        sink_name=node.impl,
+                        target=target,
+                        params=node.params,
+                        ctx=ctx,
+                        meta=_node_meta(node),
+                        registry_cfg=registry_cfg,
+                    )
                 _store_node_outputs(node.id, node.outputs, result, value_store)
                 hook_manager.after_node(
                     node=node,

@@ -19,6 +19,7 @@ from hepflow.runtime.engine import (
     merge_partition_value_stores_for_dataset,
 )
 from hepflow.runtime.hooks.manager import HookManager
+from hepflow.runtime.operation_provenance import ensure_runtime_provenance
 from hepflow.runtime.writer_manifests import write_writer_manifests
 
 
@@ -41,6 +42,10 @@ class DaskBackend:
 
         base_ctx = dict(plan.context)
         base_ctx.update(dict(ctx or {}))
+        base_ctx.pop("provenance", None)
+        base_ctx.setdefault("runtime_resources", {})
+        resolved_resources = base_ctx.setdefault("resolved_resources", {})
+        base_ctx.setdefault("resources", resolved_resources)
         tasks = build_dask_graph(plan, base_ctx=base_ctx)
 
         dashboard_link: str | None = None
@@ -277,6 +282,14 @@ def build_dask_backend_result(
     final_ctx = dict(base_ctx)
     final_warnings: list[dict[str, Any]] = []
     final_ctx["_warnings"] = final_warnings
+    recorder = ensure_runtime_provenance(final_ctx)
+    for item in task_results:
+        for operation in list(item.get("provenance_operations") or []):
+            if isinstance(operation, dict):
+                recorder.record_operation_record(operation)
+        for resource_id, resource in dict(item.get("provenance_resources") or {}).items():
+            if isinstance(resource, dict):
+                recorder.record_resource_record(str(resource_id), resource)
     final_hook_manager = HookManager.from_plan(plan)
     dataset_stores: list[dict[tuple[str, str], Any]] = []
     grouped_results = group_partition_results_by_dataset(
@@ -323,6 +336,7 @@ def build_dask_backend_result(
         stores=partition_stores,
         partitions=plan.partitions,
         outdir=str(final_ctx.get("outdir") or "."),
+        runtime_provenance=recorder,
     )
     warnings.extend(final_warnings)
 
@@ -385,6 +399,7 @@ def _execute_partition_task(
     )
     warnings: list[dict[str, Any]] = []
     partition_ctx["_warnings"] = warnings
+    recorder = ensure_runtime_provenance(partition_ctx)
     hook_manager = HookManager.from_plan(plan)
     value_store = execute_plan_partition(
         plan,
@@ -400,6 +415,8 @@ def _execute_partition_task(
         "value_store": value_store,
         "warnings": warnings,
         "hooks": partition_ctx.get("_hook_summary") or {"enabled": []},
+        "provenance_operations": recorder.operation_records(),
+        "provenance_resources": recorder.serialise_resources(),
     }
 
 

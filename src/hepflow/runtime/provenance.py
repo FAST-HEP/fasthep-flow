@@ -12,6 +12,7 @@ from typing import Any
 
 from hepflow.build_layout import BuildPaths
 from hepflow.model.plan import ExecutionPlan
+from hepflow.runtime.operation_provenance import RuntimeProvenanceRecorder
 
 PROVENANCE_VERSION = "1.0"
 
@@ -21,6 +22,7 @@ def write_artifact_provenance_records(
     plan: ExecutionPlan,
     writer_records: list[dict[str, Any]],
     outdir: str | Path,
+    runtime_provenance: RuntimeProvenanceRecorder | None = None,
 ) -> dict[str, dict[str, str]]:
     """
     Write generic artifact provenance records and a provenance manifest.
@@ -46,6 +48,7 @@ def write_artifact_provenance_records(
             run_id=run_id,
             paths=paths,
             writer_records=writer_records,
+            runtime_provenance=runtime_provenance,
         ),
     )
 
@@ -171,8 +174,9 @@ def _execution_index(
     run_id: str,
     paths: BuildPaths,
     writer_records: list[dict[str, Any]],
+    runtime_provenance: RuntimeProvenanceRecorder | None,
 ) -> dict[str, Any]:
-    return {
+    index = {
         "version": PROVENANCE_VERSION,
         "run_id": run_id,
         "workflow": _workflow_references(paths),
@@ -181,6 +185,14 @@ def _execution_index(
         "partitions": _partition_index(plan, writer_records),
         "node_executions": _node_execution_index(writer_records),
     }
+    if runtime_provenance is not None:
+        resources = runtime_provenance.serialise_resources()
+        executions = runtime_provenance.serialise_executions()
+        if resources:
+            index["resources"] = resources
+        if executions:
+            index["executions"] = executions
+    return index
 
 
 def _partition_index(

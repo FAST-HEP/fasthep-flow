@@ -192,6 +192,92 @@ provides:
 The required symbols come from parsing `params.variables.*.expr` as an
 expression. The provided symbol comes from reading `params.variables.*.name`.
 
+## Runtime provenance for custom components
+
+Component specs describe the static dependency contract: the symbols a component
+expects (`requires.symbols`) and the symbols it provides (`provides.symbols`).
+Runtime provenance is the execution-time record of what the component actually
+consumed and produced for a particular node, dataset, and partition.
+
+Custom components should call `record_operation` when they consume configured
+symbols, use resolved runtime resources, or produce new symbols that should be
+auditable. Flow supplies the node id, operation implementation, dataset,
+partition, and execution id automatically through the runtime context; component
+authors should report only the actual operation inputs and outputs.
+
+External resources should be referenced by their resource id in operation
+records. The resolved resource metadata is stored centrally at run level, while
+the runtime object itself is not serialised.
+
+```python
+def run_component(stream, *, input_fields, resource, ctx=None):
+    input_name = input_fields[0]
+    resolved = ctx["resources"][resource]
+
+    values = resolved.value.evaluate(stream[input_name], "nominal")
+    output = "weight_nominal"
+    result = {**stream, output: values}
+
+    ctx["provenance"].record_operation(
+        inputs={
+            "symbols": [input_name],
+            "resources": [resource],
+        },
+        outputs={"symbols": [output]},
+    )
+
+    return {"stream": result}
+```
+
+Components that do not use external resources may omit the `resources` entry:
+
+```python
+ctx["provenance"].record_operation(
+    inputs={"symbols": ["Muon_Px", "Muon_Py"]},
+    outputs={"symbols": ["Muon_Pt"]},
+)
+```
+
+The serialised provenance keeps resource metadata at the run level and
+references resources by id from per-operation records:
+
+```json
+{
+  "resources": {
+    "cms.pileup.2024": {
+      "kind": "correctionlib",
+      "requested_era": "RunIII2024Summer24",
+      "selected": {
+        "era": "2023_Summer23",
+        "path": "/cvmfs/.../puWeights.json.gz",
+        "correction": "Collisions2023_366403_369802_eraBC_GoldenJson",
+        "fallback": true,
+        "reason": "No RunIII2024Summer24 payload is available."
+      }
+    }
+  },
+  "executions": {
+    "stage.PileupWeights::events__dy__0": {
+      "node_id": "stage.PileupWeights",
+      "operations": [
+        {
+          "inputs": {
+            "symbols": ["Pileup_nTrueInt"],
+            "resources": ["cms.pileup.2024"]
+          },
+          "outputs": {
+            "symbols": [
+              "weight_pu_nominal",
+              "weight_pu_up",
+              "weight_pu_down"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
+
 ## Sink example
 
 Sinks and writers should also declare the stream symbols they require,
