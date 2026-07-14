@@ -57,11 +57,33 @@ def test_provenance_report_context_is_structured(tmp_path: Path) -> None:
     context = provenance_report_context(
         plan=plan,
         paths=paths,
-        summary={"summary_path": "run_summary.yaml"},
+        summary={
+            "summary_path": "run_summary.yaml",
+            "partitions": [
+                {
+                    "partition": {"id": "events__dy__0", "dataset": "dy"},
+                    "outputs": [
+                        {
+                            "node": "stage.PileupWeights",
+                            "port": "stream",
+                            "type": "Array",
+                        }
+                    ],
+                }
+            ],
+        },
     )
 
     assert context["run"]["id"] == "run-1"
     assert context["resources"][0]["id"] == "cms.pileup.2024"
+    assert context["executed_stages"] == [
+        {
+            "node_id": "stage.PileupWeights",
+            "datasets": ["dy"],
+            "partitions": ["events__dy__0"],
+            "outputs": [{"port": "stream", "type": "Array"}],
+        }
+    ]
     assert context["operations"][0]["inputs"]["symbols"] == ["Pileup_nTrueInt"]
     assert context["artifacts"][0]["path"] == "artifacts/files/out.root"
     assert context["warnings"][0]["code"] == "RESOURCE_FALLBACK"
@@ -161,6 +183,17 @@ def _write_provenance_fixture(paths: BuildPaths) -> None:
             },
             "software": {"fasthep-flow": "0.1"},
             "execution": {"host": "worker"},
+            "partitions": [
+                {
+                    "id": "events__dy__0",
+                    "dataset": "dy",
+                    "file": "dy.root",
+                    "source": "events",
+                    "part": "0_0",
+                    "start": None,
+                    "stop": None,
+                }
+            ],
             "resources": {
                 "cms.pileup.2024": {
                     "kind": "correctionlib",

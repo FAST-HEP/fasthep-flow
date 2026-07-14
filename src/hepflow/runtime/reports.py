@@ -90,6 +90,7 @@ def provenance_report_context(
             "datasets": list((plan.context.get("datasets") or {}).keys()),
         },
         "resources": resources,
+        "executed_stages": _executed_stage_context(summary),
         "executions": executions,
         "operations": operations,
         "artifacts": artifacts,
@@ -113,6 +114,42 @@ def _artifact_context(manifest: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return artifacts
+
+
+def _executed_stage_context(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    stages: dict[str, dict[str, Any]] = {}
+    for partition_record in list(summary.get("partitions") or []):
+        if not isinstance(partition_record, dict):
+            continue
+        partition = dict(partition_record.get("partition") or {})
+        dataset = partition.get("dataset")
+        partition_id = partition.get("id")
+        for output in list(partition_record.get("outputs") or []):
+            if not isinstance(output, dict):
+                continue
+            node_id = str(output.get("node") or "")
+            if not node_id.startswith("stage."):
+                continue
+            stage = stages.setdefault(
+                node_id,
+                {
+                    "node_id": node_id,
+                    "datasets": [],
+                    "partitions": [],
+                    "outputs": [],
+                },
+            )
+            if dataset is not None and dataset not in stage["datasets"]:
+                stage["datasets"].append(dataset)
+            if partition_id is not None and partition_id not in stage["partitions"]:
+                stage["partitions"].append(partition_id)
+            output_record = {
+                "port": str(output.get("port") or ""),
+                "type": str(output.get("type") or ""),
+            }
+            if output_record not in stage["outputs"]:
+                stage["outputs"].append(output_record)
+    return list(stages.values())
 
 
 def _resource_context(execution: dict[str, Any]) -> list[dict[str, Any]]:

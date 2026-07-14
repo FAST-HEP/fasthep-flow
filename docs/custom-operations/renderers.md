@@ -6,8 +6,8 @@ From Flow's perspective, a render operation is just a sink:
 registry:
   sinks:
     hep.render.hist1d:
-      spec: fasthep_render.sinks.hist1d:HIST1D_RENDER_SPEC
-      impl: fasthep_render.sinks.hist1d:run_hist1d_render
+      spec: fasthep_render.hist.hist1d:HIST1D_RENDER_SPEC
+      impl: fasthep_render.hist.hist1d:run_hist1d_render
 ```
 
 The sink's `ComponentSpec` declares the execution contract and any dependency
