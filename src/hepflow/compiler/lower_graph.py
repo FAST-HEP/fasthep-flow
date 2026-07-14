@@ -153,13 +153,14 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
         op = stage["op"]
 
         if str(op).startswith("hep.render."):
-            _lower_render_stage(
-                graph=graph,
-                stage=stage,
-                style_defs=style_defs,
-                stage_nodes=stage_nodes,
-                stream_effective_nodes=stream_effective_nodes,
-            )
+            for render_stage in _expand_render_variation_stages(stage):
+                _lower_render_stage(
+                    graph=graph,
+                    stage=render_stage,
+                    style_defs=style_defs,
+                    stage_nodes=stage_nodes,
+                    stream_effective_nodes=stream_effective_nodes,
+                )
             continue
 
         stage_node = _make_stage_node(stage)
@@ -385,6 +386,56 @@ def _lower_render_stage(
     return render_node
 
 
+def _expand_render_variation_stages(stage: dict[str, Any]) -> list[dict[str, Any]]:
+    variations = stage.get("variations")
+    if variations is None:
+        return [stage]
+    if not isinstance(variations, dict):
+        raise TypeError("render variations must be a mapping")
+
+    values = variations.get("values")
+    if not isinstance(values, list) or not values:
+        raise ValueError("render variations.values must be a non-empty list")
+
+    expanded: list[dict[str, Any]] = []
+    for raw_value in values:
+        value = str(raw_value)
+        item = deepcopy(stage)
+        item.pop("variations", None)
+        item["id"] = f"{stage['id']}_{value}"
+        if "out" in item:
+            item["out"] = str(item["out"]).replace("{variation}", value)
+
+        params = dict(item.get("params") or {})
+        comparison = dict(params.get("comparison") or {})
+        comparison["variation_axis"] = str(variations.get("axis") or "variation")
+        comparison["variation"] = value
+        comparison["variation_reference"] = str(
+            variations.get("reference") or "nominal"
+        )
+        params["comparison"] = comparison
+        item["params"] = params
+
+        from_items = item.get("from", item.get("in"))
+        if isinstance(from_items, str):
+            item["from"] = [{"node": from_items, "port": "hist", "as": "hist"}]
+        elif isinstance(from_items, list):
+            item["from"] = [
+                {
+                    **dict(input_item),
+                    "as": dict(input_item).get("as", "hist"),
+                }
+                for input_item in from_items
+            ]
+        else:
+            raise TypeError(
+                f"Render stage '{stage['id']}' with variations requires a "
+                "string or list 'from' input"
+            )
+        expanded.append(item)
+    return expanded
+
+
 def _make_render_stage_node(
     *,
     node_id: str,
@@ -462,12 +513,41 @@ def _expand_hist_dataset_axis(params: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
+def _expand_hist_variation_axis(params: dict[str, Any]) -> dict[str, Any]:
+    params = dict(params)
+    variations = params.get("variations")
+    if variations is None:
+        return params
+    if not isinstance(variations, dict):
+        raise TypeError("hist variations must be a mapping")
+
+    axis_name = str(variations.get("axis") or "variation")
+    axes = list(params.get("axes") or [])
+    if axis_name not in {str(axis.get("name")) for axis in axes if isinstance(axis, dict)}:
+        weights = variations.get("weights")
+        bins = None
+        if isinstance(weights, dict):
+            bins = [str(key) for key in weights]
+        axes = [
+            *axes,
+            {
+                "name": axis_name,
+                "type": "category",
+                "source": "__variation__",
+                "bins": bins,
+            },
+        ]
+    params["axes"] = axes
+    return params
+
+
 def _canonicalize_hist_params(params: dict[str, Any]) -> dict[str, Any]:
     params = dict(params)
     params = _expand_hist_dataset_axis(params)
+    params = _expand_hist_variation_axis(params)
 
     weight_expr = params.get("weight_expr")
-    if weight_expr is not None:
+    if weight_expr is not None or params.get("variations") is not None:
         if "storage" not in params:
             params["storage"] = "weighted"
     elif "storage" not in params:

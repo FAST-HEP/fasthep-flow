@@ -106,6 +106,7 @@ def infer_data_flow(
         primary_stream=primary_stream,
         aliases_by_stream=aliases_by_stream,
         origins=origins,
+        dataset=None,
     )
 
     has_dataset_applicability = any(
@@ -126,6 +127,7 @@ def infer_data_flow(
             primary_stream=primary_stream,
             aliases_by_stream=aliases_by_stream,
             origins=dataset_origins,
+            dataset=dict(dataset or {}),
         )
         required_by_dataset[str(dataset_name)] = dataset_flow["required_sources"]
 
@@ -155,6 +157,7 @@ def _infer_data_flow_for_nodes(
     primary_stream: str,
     aliases_by_stream: dict[str, dict[str, str]],
     origins: dict[str, dict[str, Any]],
+    dataset: dict[str, Any] | None,
 ) -> dict[str, Any]:
     produced_data: set[str] = set()
     source_required_data: dict[str, set[str]] = defaultdict(set)
@@ -170,7 +173,7 @@ def _infer_data_flow_for_nodes(
             continue
         deps = parse_component_data_dependencies(
             spec=spec,
-            params=node.params,
+            params=_dependency_params_for_dataset(node.params, dataset=dataset),
             dep_ctx=dep_ctx,
         )
 
@@ -222,6 +225,29 @@ def _infer_data_flow_for_nodes(
         "consumers": dict(sorted(consumers.items())),
         "origins": {key: origins[key] for key in sorted(origins)},
     }
+
+
+def _dependency_params_for_dataset(
+    params: dict[str, Any],
+    *,
+    dataset: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if dataset is None:
+        return params
+    variations = params.get("variations")
+    if not isinstance(variations, dict):
+        return params
+    apply_to = variations.get("apply_to")
+    if not isinstance(apply_to, dict):
+        return params
+    eventtype = apply_to.get("eventtype")
+    if eventtype is None or str(dataset.get("eventtype")) == str(eventtype):
+        return params
+    pruned = dict(params)
+    pruned_variations = dict(variations)
+    pruned_variations["weights"] = {}
+    pruned["variations"] = pruned_variations
+    return pruned
 
 
 def apply_data_flow_to_sources(plan: ExecutionPlan) -> None:
@@ -347,6 +373,8 @@ def _required_symbols_from_spec(
         )
         for value in values:
             if value is None:
+                continue
+            if value == "__variation__":
                 continue
             if kind == "field_list":
                 symbols.update(_field_names(value, source=source, spec_name=spec.name))

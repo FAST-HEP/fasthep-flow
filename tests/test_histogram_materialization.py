@@ -18,6 +18,7 @@ from hepflow.model.plan import (
 from hepflow.model.products import OperationResult, ProductHandlerEntry, ProductRef
 from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.engine import (
+    _reset_final_product_manifests,
     _store_node_outputs,
     merge_partition_value_stores,
     merge_partition_value_stores_for_dataset,
@@ -143,6 +144,31 @@ def test_final_product_materialization_goes_through_handler(tmp_path: Path) -> N
     assert (tmp_path / "artifacts" / "histograms" / "NumberMuons.pkl").read_text(
         encoding="utf-8"
     ) == "handled"
+
+
+def test_final_product_manifest_reset_removes_stale_manifests_only(
+    tmp_path: Path,
+) -> None:
+    histograms = tmp_path / "artifacts" / "histograms"
+    cutflows = tmp_path / "artifacts" / "cutflows"
+    histograms.mkdir(parents=True)
+    cutflows.mkdir(parents=True)
+    stale_histogram = histograms / "OldHistogram.pkl"
+    stale_histogram.write_text("stale", encoding="utf-8")
+    (histograms / "manifest.json").write_text(
+        json.dumps({"histograms": [{"id": "OldHistogram"}]}),
+        encoding="utf-8",
+    )
+    (cutflows / "manifest.json").write_text(
+        json.dumps({"cutflows": [{"id": "OldCutflow"}]}),
+        encoding="utf-8",
+    )
+
+    _reset_final_product_manifests(str(tmp_path))
+
+    assert stale_histogram.read_text(encoding="utf-8") == "stale"
+    assert not (histograms / "manifest.json").exists()
+    assert not (cutflows / "manifest.json").exists()
 
 
 def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> None:

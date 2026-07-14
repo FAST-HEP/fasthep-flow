@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 from hepflow.model.lifecycle import normalize_lifecycle_event
@@ -297,6 +298,7 @@ def execute_plan_locally(
     if "dataset_names" not in base_ctx:
         base_ctx["dataset_names"] = list((base_ctx.get("datasets") or {}).keys())
     hook_manager = HookManager.from_plan(plan)
+    _reset_final_product_manifests(str(base_ctx.get("outdir") or "."))
 
     if partitions is None:
         value_store = execute_plan_partition(
@@ -405,6 +407,15 @@ def execute_plan_locally(
     if isinstance(ctx, dict):
         ctx["_hook_summary"] = base_ctx.get("_hook_summary")
     return results
+
+
+def _reset_final_product_manifests(outdir: str) -> None:
+    """Remove append-style product manifests before publishing current run products."""
+    artifacts_dir = Path(outdir) / "artifacts"
+    for family in ("histograms", "cutflows"):
+        manifest = artifacts_dir / family / "manifest.json"
+        if manifest.is_file():
+            manifest.unlink()
 
 
 def build_partition_context(
@@ -611,7 +622,7 @@ def execute_dataset_sinks(
                         sink_name=node.impl,
                         target=target,
                         params=node.params,
-                        ctx=ctx,
+                        ctx={**ctx, "datasets": dict(plan.context.get("datasets") or {})},
                         meta=_node_meta(node),
                         registry_cfg=registry_cfg,
                     )

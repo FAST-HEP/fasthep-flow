@@ -258,6 +258,116 @@ def test_run_end_sink_can_consume_data_and_mc_specific_products(
     assert plan.get_node("render.Compare.0").params["when"] == "run_end"
 
 
+def test_hist_variations_add_explicit_variation_axis(toy_author: dict[str, Any]) -> None:
+    author = deepcopy(toy_author)
+    author["analysis"]["stages"] = [
+        {
+            "id": "PV_npvs",
+            "op": "hep.hist",
+            "params": {
+                "dataset_axis": True,
+                "axes": [
+                    {
+                        "name": "PV_npvs",
+                        "source": "PV_npvs",
+                        "type": "regular",
+                        "bins": {"low": 0, "high": 100, "nbins": 50},
+                    }
+                ],
+                "variations": {
+                    "axis": "variation",
+                    "apply_to": {"eventtype": "mc"},
+                    "weights": {
+                        "nominal": "weight_pu_nominal",
+                        "up": "weight_pu_up",
+                        "down": "weight_pu_down",
+                    },
+                },
+            },
+        }
+    ]
+
+    graph = lower_author_to_graph(normalize_author(author))
+    node = graph.nodes["stage.PV_npvs"]["payload"]
+
+    assert node.params["storage"] == "weighted"
+    assert node.params["axes"] == [
+        {
+            "name": "dataset",
+            "type": "category",
+            "source": "dataset_name",
+            "bins": None,
+        },
+        {
+            "name": "PV_npvs",
+            "source": "PV_npvs",
+            "type": "regular",
+            "bins": {"low": 0, "high": 100, "nbins": 50},
+        },
+        {
+            "name": "variation",
+            "type": "category",
+            "source": "__variation__",
+            "bins": ["nominal", "up", "down"],
+        },
+    ]
+
+
+def test_render_variations_expand_to_explicit_render_nodes(
+    toy_author: dict[str, Any],
+) -> None:
+    author = deepcopy(toy_author)
+    author["analysis"]["stages"] = [
+        {
+            "id": "PV_npvs",
+            "op": "hep.hist",
+            "params": {
+                "dataset_axis": True,
+                "axes": [
+                    {
+                        "name": "PV_npvs",
+                        "source": "PV_npvs",
+                        "type": "regular",
+                        "bins": {"low": 0, "high": 100, "nbins": 50},
+                    }
+                ],
+                "variations": {
+                    "axis": "variation",
+                    "apply_to": {"eventtype": "mc"},
+                    "weights": {
+                        "nominal": "weight_pu_nominal",
+                        "up": "weight_pu_up",
+                    },
+                },
+            },
+        },
+        {
+            "id": "RenderPV_npvs",
+            "op": "hep.render.comparison",
+            "from": "PV_npvs",
+            "out": "debug/PV_npvs_{variation}.png",
+            "params": {"style": {"op": "hep.render.comparison"}},
+            "variations": {
+                "axis": "variation",
+                "values": ["nominal", "up"],
+                "reference": "nominal",
+            },
+        },
+    ]
+
+    graph = lower_author_to_graph(normalize_author(author))
+
+    assert "render.RenderPV_npvs_nominal.0" in graph.nodes
+    assert "render.RenderPV_npvs_up.0" in graph.nodes
+    nominal = graph.nodes["render.RenderPV_npvs_nominal.0"]["payload"]
+    up = graph.nodes["render.RenderPV_npvs_up.0"]["payload"]
+    assert nominal.params["out"] == "debug/PV_npvs_nominal.png"
+    assert up.params["out"] == "debug/PV_npvs_up.png"
+    assert up.params["spec"]["comparison"]["variation_axis"] == "variation"
+    assert up.params["spec"]["comparison"]["variation"] == "up"
+    assert up.params["spec"]["comparison"]["variation_reference"] == "nominal"
+
+
 def test_lowered_graph_records_applicability_metadata(
     toy_author: dict[str, Any],
 ) -> None:
