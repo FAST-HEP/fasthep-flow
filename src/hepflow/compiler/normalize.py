@@ -58,6 +58,7 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
     styles = normalize_styles(doc.get("styles"))
     outputs = normalize_outputs(doc.get("outputs"))
     observers = normalize_top_level_observers(doc.get("observers"))
+    reports = normalize_reports(doc.get("reports"))
 
     analysis = doc.get("analysis") or {}
     analysis = _ensure_mapping(analysis, "analysis")
@@ -93,6 +94,7 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
         styles=styles,
         outputs=outputs,
         observers=observers,
+        reports=reports,
         analysis=analysis,
         primary_stream=primary_stream,
         use=use,
@@ -108,6 +110,51 @@ def normalize_use(raw: Any) -> dict[str, Any]:
     return {
         "profiles": normalize_profile_names(raw.get("profiles")),
     }
+
+
+def normalize_reports(raw: Any) -> list[dict[str, Any]]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("reports must be a list")
+
+    reports: list[dict[str, Any]] = []
+    for idx, item_raw in enumerate(raw):
+        item = _ensure_mapping(item_raw, f"reports[{idx}]")
+        report_id = _required_string(item.get("id"), f"reports[{idx}].id")
+        op = _required_string(item.get("op"), f"reports[{idx}].op")
+        source = _required_string(item.get("source"), f"reports[{idx}].source")
+        template = item.get("template")
+        if template is not None:
+            template = _required_string(template, f"reports[{idx}].template")
+        outputs_raw = item.get("outputs")
+        if not isinstance(outputs_raw, list) or not outputs_raw:
+            raise ValueError(f"reports[{idx}].outputs must be a non-empty list")
+        outputs: list[dict[str, str]] = []
+        for output_idx, output_raw in enumerate(outputs_raw):
+            output = _ensure_mapping(output_raw, f"reports[{idx}].outputs[{output_idx}]")
+            outputs.append(
+                {
+                    "path": _required_string(
+                        output.get("path"),
+                        f"reports[{idx}].outputs[{output_idx}].path",
+                    ),
+                    "format": _required_string(
+                        output.get("format"),
+                        f"reports[{idx}].outputs[{output_idx}].format",
+                    ),
+                }
+            )
+        reports.append(
+            {
+                "id": report_id,
+                "op": op,
+                "source": source,
+                "template": template,
+                "outputs": outputs,
+            }
+        )
+    return reports
 
 
 def normalize_systematics(raw: Any) -> SystematicsConfig | None:
@@ -452,6 +499,12 @@ def _ensure_mapping(x: Any, where: str) -> dict[str, Any]:
     return x
 
 
+def _required_string(x: Any, where: str) -> str:
+    if not isinstance(x, str) or not x.strip():
+        raise ValueError(f"{where} must be a non-empty string")
+    return x.strip()
+
+
 def _normalize_systematic_applicability(
     raw: Any, where: str
 ) -> SystematicApplicability:
@@ -557,6 +610,10 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
         "registry.compile_hooks",
     )
     render = _ensure_mapping(raw.get("render") or {}, "registry.render")
+    report_templates = _ensure_mapping(
+        raw.get("report_templates") or {},
+        "registry.report_templates",
+    )
 
     for group_name, group in [
         ("registry.functions", functions),
@@ -589,6 +646,17 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
                 raise ValueError(f"{group_name}[{name!r}].spec must be 'module:object'")
             if not isinstance(impl_ref, str) or ":" not in impl_ref:
                 raise ValueError(f"{group_name}[{name!r}].impl must be 'module:object'")
+
+    for name, entry in report_templates.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("registry.report_templates keys must be non-empty strings")
+        if not isinstance(entry, dict):
+            raise ValueError(f"registry.report_templates[{name!r}] must be a mapping")
+        path = entry.get("path")
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError(
+                f"registry.report_templates[{name!r}].path must be a non-empty string"
+            )
 
     for name, entry in backends.items():
         if not isinstance(name, str) or not name.strip():
@@ -628,4 +696,5 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
         "hooks": {k: dict(v) for k, v in hooks.items()},
         "compile_hooks": {k: dict(v) for k, v in compile_hooks.items()},
         "render": {k: dict(v) for k, v in render.items()},
+        "report_templates": {k: dict(v) for k, v in report_templates.items()},
     }

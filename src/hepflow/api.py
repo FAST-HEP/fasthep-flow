@@ -54,6 +54,7 @@ from hepflow.runtime.provenance import (
     format_provenance_graph,
     format_provenance_summary,
 )
+from hepflow.runtime.reports import run_workflow_reports
 from hepflow.utils import read_yaml, write_yaml
 
 __all__ = [
@@ -114,6 +115,7 @@ def normalise_author_file(
     normalized["registry"] = registry_result.registry
     normalized["execution"] = execution_result["execution"]
     normalized["execution_hooks"] = hooks_result["execution_hooks"]
+    normalized["author_path"] = str(author_file)
     normalized.setdefault("provenance", {}).update(registry_result.provenance)
     normalized.setdefault("provenance", {}).update(execution_result["provenance"])
     normalized.setdefault("provenance", {}).update(hooks_result["provenance"])
@@ -193,6 +195,7 @@ def load_plan_file(plan_path: str | Path) -> ExecutionPlan:
         provenance=dict(doc.get("provenance") or {}),
         execution=dict(doc.get("execution") or {}),
         execution_hooks=list(doc.get("execution_hooks") or []),
+        reports=list(doc.get("reports") or []),
         data_flow=dict(doc.get("data_flow") or {}),
     )
     plan.partitions = [
@@ -291,6 +294,18 @@ def run_plan_file(
         summary,
         variation_name=build_paths.variation,
     )
+    report_outputs = run_workflow_reports(
+        plan,
+        outdir=build_paths.root,
+        summary=summary,
+    )
+    if report_outputs:
+        summary["reports"] = report_outputs
+        write_run_summary(
+            build_paths.root,
+            summary,
+            variation_name=build_paths.variation,
+        )
     result.summary = summary
     return result
 

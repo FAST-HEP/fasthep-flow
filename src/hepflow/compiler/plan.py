@@ -135,6 +135,9 @@ def build_plan_from_normalized(
     variation = normalized.get("variation")
     if isinstance(variation, dict):
         plan.context["variation"] = dict(variation)
+    plan.reports = list(normalized.get("reports") or [])
+    if isinstance(normalized.get("author_path"), str):
+        plan.context["author_path"] = str(normalized["author_path"])
     return graph, plan
 
 

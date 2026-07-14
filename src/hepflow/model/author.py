@@ -284,6 +284,7 @@ class NormalizedAuthor:
     outputs: dict[str, dict[str, Any]] = field(default_factory=dict)
     fields: dict[str, FieldSpec] = field(default_factory=dict)
     observers: list[dict[str, Any]] = field(default_factory=list)
+    reports: list[dict[str, Any]] = field(default_factory=list)
     analysis: dict[str, Any] = field(default_factory=dict)
     primary_stream: str | None = None
     use: dict[str, Any] = field(default_factory=dict)
@@ -308,6 +309,8 @@ class NormalizedAuthor:
             raise ValueError("outputs must be a mapping")
         if not isinstance(self.observers, list):
             raise ValueError("observers must be a list")
+        if not isinstance(self.reports, list):
+            raise ValueError("reports must be a list")
         if not isinstance(self.use, dict):
             raise ValueError("use must be a mapping")
         if not isinstance(self.execution, dict):
@@ -332,6 +335,9 @@ class NormalizedAuthor:
         for idx, observer in enumerate(self.observers):
             if not isinstance(observer, dict):
                 raise ValueError(f"observers[{idx}] must be a mapping")
+        for idx, report in enumerate(self.reports):
+            if not isinstance(report, dict):
+                raise ValueError(f"reports[{idx}] must be a mapping")
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)

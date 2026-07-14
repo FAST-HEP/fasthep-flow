@@ -100,6 +100,7 @@ class ExecutionPlan:
         }
     )
     execution_hooks: list[dict[str, Any]] = field(default_factory=list)
+    reports: list[dict[str, Any]] = field(default_factory=list)
     data_flow: dict[str, Any] = field(default_factory=dict)
 
     def add_node(self, node: ExecutionNode) -> None:
@@ -123,6 +124,7 @@ class ExecutionPlan:
             "provenance": self.provenance,
             "execution": self.execution,
             "execution_hooks": self.execution_hooks,
+            "reports": self.reports,
             "data_flow": self.data_flow,
         }
 

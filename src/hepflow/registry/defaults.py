@@ -17,6 +17,7 @@ REGISTRY_SECTIONS: tuple[str, ...] = (
     "hooks",
     "compile_hooks",
     "render",
+    "report_templates",
     "execution_modifiers",
     "product_handlers",
 )
@@ -83,6 +84,7 @@ def default_runtime_registry_config() -> dict[str, Any]:
         "hooks": {},
         "compile_hooks": {},
         "render": {},
+        "report_templates": {},
         "execution_modifiers": {},
         "product_handlers": {},
     }

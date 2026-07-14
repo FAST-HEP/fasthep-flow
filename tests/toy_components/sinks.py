@@ -60,3 +60,43 @@ def run_toy_capture_registry(
         "plan_has_registry": "registry" in plan,
         "product_handlers": sorted(getattr(runtime_registry, "product_handlers", {})),
     }
+
+
+TOY_REPORT_SPEC = {
+    "name": "toy.report",
+    "kind": "sink",
+    "params": {
+        "source": {"required": True},
+        "template": {"required": False},
+        "outputs": {"required": True},
+    },
+    "result": {"artifact": "artifact"},
+}
+
+
+def run_toy_report(
+    *,
+    report_context: dict[str, Any],
+    source: str,
+    outputs: list[dict[str, str]],
+    template: str | None = None,
+    ctx: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    del template, ctx
+    written: list[dict[str, str]] = []
+    for output in outputs:
+        output_path = Path(output["path"])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(
+                {
+                    "source": source,
+                    "run_id": report_context["run"]["id"],
+                    "artifacts": [item["path"] for item in report_context["artifacts"]],
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        written.append({"path": str(output_path), "format": output["format"]})
+    return written
