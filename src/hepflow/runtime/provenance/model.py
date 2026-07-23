@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -118,6 +119,7 @@ class ResolvedResourceRecord:
         )
 
     def to_record(self) -> dict[str, Any]:
+        metadata = dict(self.metadata)
         selected = _drop_none(
             {
                 "era": self.selected_era,
@@ -127,12 +129,15 @@ class ResolvedResourceRecord:
                 "reason": self.reason,
             }
         )
+        selected_extra = metadata.pop("selected", None)
+        if isinstance(selected_extra, Mapping):
+            selected = {**dict(selected_extra), **selected}
         return _drop_none(
             {
                 "kind": self.kind,
                 "requested_era": self.requested_era,
                 "selected": selected or None,
-                "metadata": dict(self.metadata) if self.metadata else None,
+                "metadata": metadata or None,
             }
         )
 
