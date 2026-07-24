@@ -8,6 +8,7 @@ extensions = [
     "sphinx_copybutton",
     "sphinx_design",
     "sphinxcontrib.mermaid",
+    "sphinx.ext.mathjax",
 ]
 
 source_suffix = {
@@ -31,4 +32,17 @@ myst_enable_extensions = [
     "substitution",
 ]
 
-mermaid_params = ['--theme', 'forest', '--width', '600', '--backgroundColor', 'transparent']
+mermaid_params = [
+    '--theme',
+    'forest',
+    # '--width',
+    # '600',
+    '--backgroundColor',
+    'transparent']
+mermaid_height = "auto"
+
+# conf.py
+exclude_patterns = [
+    "_build",
+    "archive/**",
+]

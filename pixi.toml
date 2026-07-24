@@ -46,6 +46,8 @@ pydata-sphinx-theme = "*"
 sphinx-copybutton = "*"
 sphinx-design = "*"
 sphinxcontrib-mermaid = "*"
+sphinx-autobuild = "*"
+
 
 [tasks]
 format = "ruff format src tests"
@@ -61,3 +63,4 @@ check-dist = "twine check dist/*"
 [feature.docs.tasks]
 docs = "sphinx-build -b html docs docs/_build/html"
 docs-clean = "rm -rf docs/_build"
+docs-serve = "WATCHFILES_DEBUG=1 sphinx-autobuild docs docs/_build/html -a"
