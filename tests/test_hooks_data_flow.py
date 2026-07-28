@@ -46,6 +46,43 @@ def test_toy_transform_spec_tracks_consumed_and_produced_symbols(
     assert deps == DataDependencyResult(consumes={"pt"}, produces={"scaled_pt"})
 
 
+def test_component_spec_dependency_parser_adds_dynamic_symbols() -> None:
+    def parser(params: dict[str, Any], **_: Any) -> DataDependencyResult:
+        source = str(params["source"])
+        output = str(params["output"])
+        return DataDependencyResult(
+            consumes={f"{source}_eta", f"{source}_phi"},
+            produces={output},
+        )
+
+    deps = parse_component_data_dependencies(
+        spec={
+            "name": "toy.dynamic",
+            "kind": "transform",
+            "params": {
+                "source": {"type": "string", "required": True},
+                "output": {"type": "string", "required": True},
+            },
+            "dependency_parser": parser,
+        },
+        params={"source": "selected_photons", "output": "cleaned_photons"},
+        dep_ctx=type(
+            "DepCtx",
+            (),
+            {
+                "known_functions": set(),
+                "known_constants": set(),
+                "context_symbols": set(),
+            },
+        )(),
+    )
+
+    assert deps == DataDependencyResult(
+        consumes={"selected_photons_eta", "selected_photons_phi"},
+        produces={"cleaned_photons"},
+    )
+
+
 def test_data_flow_infers_source_requirements_without_requiring_produced_data(
     toy_author_path: Path,
     tmp_path: Path,

@@ -47,6 +47,7 @@ class RuntimeComponentSpec:
     result: dict[str, Any] = field(default_factory=dict)
     requires: dict[str, Any] = field(default_factory=dict)
     provides: dict[str, Any] = field(default_factory=dict)
+    dependency_parser: Any = None
     lifecycle: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -79,5 +80,6 @@ class RuntimeComponentSpec:
             result=dict(obj.get("result") or {}),
             requires=dict(obj.get("requires") or {}),
             provides=dict(obj.get("provides") or {}),
+            dependency_parser=obj.get("dependency_parser"),
             lifecycle=dict(obj.get("lifecycle") or {}),
         )

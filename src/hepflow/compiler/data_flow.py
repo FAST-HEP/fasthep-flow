@@ -307,6 +307,42 @@ def parse_component_data_dependencies(
             produced=declared_provides,
         )
     )
+    return _merge_custom_dependency_parser(
+        result,
+        spec=component_spec,
+        params=params,
+        dep_ctx=dep_ctx,
+    )
+
+
+def _merge_custom_dependency_parser(
+    result: DataDependencyResult,
+    *,
+    spec: RuntimeComponentSpec,
+    params: dict[str, Any],
+    dep_ctx: DependencyContext,
+) -> DataDependencyResult:
+    parser_ref = spec.dependency_parser
+    if parser_ref is None:
+        return result
+
+    parser = load_object(parser_ref) if isinstance(parser_ref, str) else parser_ref
+    if not callable(parser):
+        raise TypeError(f"dependency_parser for {spec.name!r} must be callable")
+
+    parsed = parser(
+        params,
+        known_functions=dep_ctx.known_functions,
+        known_constants=dep_ctx.known_constants,
+        context_symbols=dep_ctx.context_symbols,
+    )
+    if not isinstance(parsed, DataDependencyResult):
+        raise TypeError(
+            f"dependency_parser for {spec.name!r} must return DataDependencyResult"
+        )
+
+    result.consumes.update(parsed.consumes)
+    result.produces.update(parsed.produces)
     return result
 
 
