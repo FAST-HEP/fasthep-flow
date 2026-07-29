@@ -1,1 +1,466 @@
-# Operations and Specifications
+# Operations and specifications
+
+Operations are the executable building blocks of a Flow workflow.
+
+Sources, transforms, observers, and sinks have different roles in the workflow graph, but share a common principle:
+
+```{mermaid}
+flowchart LR
+    Capability["registered capability"]
+
+    subgraph Specification["Specification"]
+        Spec["spec"]
+        Contract["Flow-visible contract"]
+        Spec --> Contract
+    end
+
+    subgraph Implementation["Implementation"]
+        Impl["impl"]
+        Behaviour["runtime behaviour"]
+        Impl --> Behaviour
+    end
+
+    Capability --> Spec
+    Capability --> Impl
+```
+
+The **specification**, or **spec**, exposes the contract Flow needs to understand an operation before it runs.
+
+The **implementation**, or **impl**, provides the code that performs the actual work.
+
+Together they separate planning semantics from runtime behaviour, allowing Flow to reason about a workflow without executing arbitrary operation code.
+
+---
+
+## The operation contract
+
+An operation has two audiences:
+
+```text
+compiler
+    needs to understand the operation
+
+runtime
+    needs to execute the operation
+```
+
+For example, an operation may:
+
+- consume an event stream
+- require particular fields
+- produce new fields
+- return a different product type
+- require a particular execution scope
+
+Flow needs this information while compiling the workflow.
+
+The implementation, meanwhile, needs to know how to perform the actual computation.
+
+A registry therefore connects an operation name to both parts:
+
+```yaml
+transforms:
+  hep.define:
+    spec: fasthep_carpenter.operations.define:DEFINE_SPEC
+    impl: fasthep_carpenter.operations.define:run_define_transform
+```
+
+When an author writes:
+
+```yaml
+- id: BasicVars
+  op: hep.define
+  params:
+    variables:
+      - name: Muon_Pt
+        expr: "sqrt(Muon_Px ** 2 + Muon_Py ** 2)"
+```
+
+the registry gives Flow the corresponding contract and implementation:
+
+```{mermaid}
+flowchart LR
+    Author["hep.define"]
+    Registry["registry"]
+
+    Spec["DEFINE_SPEC"]
+    Compiler["compiler"]
+
+    Impl["run_define_transform"]
+    Runtime["runtime"]
+
+    Author --> Registry
+    Registry --> Spec --> Compiler
+    Registry --> Impl --> Runtime
+```
+
+The compiler uses the spec while constructing the workflow. The runtime later invokes the implementation described by the resulting plan.
+
+---
+
+## Specs expose planner-visible semantics
+
+A spec describes behaviour that matters to Flow, not the algorithm used to implement it.
+
+For example, the `hep.define` specification is:
+
+```python
+DEFINE_SPEC = {
+    "name": "hep.define",
+    "kind": "transform",
+    "version": "1.0",
+    "input": {"name": "stream", "kind": "event_stream", "required": True},
+    "params": {"variables": {"type": "list[mapping]", "required": True}},
+    "result": {
+        "kind": "event_stream",
+        "description": "Event stream with newly defined fields.",
+    },
+    "requires": {
+        "symbols": [
+            {"from": "params.variables.*.expr", "kind": "expr"},
+            {"from": "params.variables.*.reduce.over", "kind": "expr_or_field"},
+        ]
+    },
+    "provides": {
+        "symbols": [
+            {"from": "params.variables.*.name", "kind": "field_list"},
+        ]
+    },
+}
+```
+
+This exposes several aspects of the operation that matter during compilation:
+
+| Spec entry | Meaning to Flow |
+|---|---|
+| `kind` | this capability is a transform |
+| `input` | it consumes an `event_stream` |
+| `params` | `variables` is a required list of mappings |
+| `result` | it produces an `event_stream` |
+| `requires.symbols` | configured expressions and fields introduce dependencies |
+| `provides.symbols` | configured variable names introduce new fields |
+
+Importantly, the spec also describes **where Flow should look inside operation-specific parameters** for planner-visible information.
+
+Consider:
+
+```yaml
+params:
+  variables:
+    - name: Muon_Pt
+      expr: "sqrt(Muon_Px ** 2 + Muon_Py ** 2)"
+```
+
+The spec maps:
+
+```text
+params.variables.*.expr
+    ↓
+expression
+    ↓
+Muon_Px
+Muon_Py
+    ↓
+required fields
+```
+
+while:
+
+```text
+params.variables.*.name
+    ↓
+Muon_Pt
+    ↓
+provided field
+```
+
+Flow can therefore derive:
+
+```text
+requires
+    Muon_Px
+    Muon_Py
+
+provides
+    Muon_Pt
+```
+
+without knowing how `hep.define` evaluates the expression at runtime.
+
+The implementation remains free to choose the appropriate array library, expression evaluator, or other computational machinery.
+
+```{note}
+Operation-specific syntax can remain inside `params`.
+
+The spec tells Flow which values represent expressions, fields, products, or other planner-visible information. An operation-specific concept does not need to become part of the core author language merely so that the compiler can reason about it.
+```
+
+---
+
+## Specs drive dependency inference
+
+Planner-visible requirements can be propagated through the workflow.
+
+Suppose one operation produces:
+
+```text
+Muon_Pt
+```
+
+from:
+
+```text
+Muon_Px
+Muon_Py
+```
+
+and a downstream operation consumes `Muon_Pt`.
+
+Flow can reason backwards:
+
+```{mermaid}
+flowchart LR
+    Source["source<br/>Muon_Px, Muon_Py"]
+    Define["define<br/>Muon_Pt"]
+    Consumer["consumer<br/>Muon_Pt"]
+
+    Source --> Define --> Consumer
+```
+
+and determine that the source ultimately needs to provide:
+
+```text
+Muon_Px
+Muon_Py
+```
+
+This is what allows Flow to request only the source fields required by the compiled workflow.
+
+Field aliases declared through `fields` participate in the same dependency reasoning.
+
+The same mechanism also applies when an operation-specific parameter contains references that are not part of Flow's core syntax. The operation spec exposes those references to the compiler and turns them into graph or field dependencies as appropriate.
+
+---
+
+## Operations communicate through products
+
+Dependencies are not limited to fields.
+
+Operations communicate through named **products**.
+
+For example:
+
+```text
+event_stream
+     ↓
+ transform
+     ↓
+event_stream
+```
+
+or:
+
+```text
+event_stream
+     ↓
+ histogram operation
+     ↓
+ histogram
+     ↓
+   sink
+```
+
+The operation contract describes these interfaces so that Flow can construct explicit graph connections between compatible nodes.
+
+The resulting execution plan records those connections as named inputs and outputs.
+
+---
+
+## Scope is part of the contract
+
+Products may exist at different execution scopes.
+
+An event-processing transform may operate independently on partitions:
+
+```text
+partition
+    ↓
+transform
+    ↓
+partition
+```
+
+while another operation may require a dataset-level or global product.
+
+Flow can use the operation and product contracts to arrange the required scope transitions before invoking the implementation.
+
+The implementation can therefore remain focused on its local computation rather than orchestrating the surrounding workflow.
+
+See {doc}`../execution/plan` and {doc}`../execution/runtime` for the execution model.
+
+---
+
+## Implementations receive planned work
+
+By the time an implementation runs, Flow has already resolved much of the surrounding structure:
+
+```text
+author.yaml
+     ↓
+operation names + parameters
+     ↓
+registry resolution
+     ↓
+operation contracts
+     ↓
+dependency and scope reasoning
+     ↓
+execution plan
+     ↓
+implementation
+```
+
+The implementation generally does not need to rediscover the workflow around it.
+
+Its responsibility is local: perform the work represented by the planned node according to its contract.
+
+This boundary makes implementations easier to replace and allows the compiler to inspect workflows without executing them.
+
+```{note}
+An alternative implementation may use a different library, algorithm, or execution technology.
+
+As long as it satisfies the contract Flow relies upon, those implementation choices do not need to become part of the author language.
+```
+
+---
+
+## Operation roles
+
+The common operation model is specialised by the role an operation plays in the graph:
+
+| Role | Contract in the graph |
+|---|---|
+| {doc}`sources` | external data → product |
+| {doc}`transforms` | product → product |
+| {doc}`observers` | inspect an existing workflow point |
+| {doc}`sinks` | product → external output or artifact |
+
+The role-specific pages focus on what is distinctive about each operation rather than repeating the common spec/implementation model described here.
+
+---
+
+## Specs outside data-flow operations
+
+The same architectural idea can also apply outside ordinary runtime nodes.
+
+For example, compile hooks currently expose both a spec and implementation:
+
+```yaml
+compile_hooks:
+  fasthep.render.graph_d2:
+    spec: fasthep_render.graph.compile_hooks:GRAPH_D2_RENDER_HOOK_SPEC
+    impl: fasthep_render.graph.compile_hooks:render_graph_d2_hook
+```
+
+The contract is different because the capability participates during compilation rather than in the runtime data-flow graph, but the same separation remains useful:
+
+```text
+declarative contract
+    tells Flow what it needs to know
+
+implementation
+    provides the specialised behaviour
+```
+
+Other extension points are still evolving.
+
+Execution modifiers are currently registered by implementation:
+
+```yaml
+execution_modifiers:
+  gpu.preload:
+    impl: fasthep_carpenter.runtime.modifiers.gpu_preload:GPUPreloadModifier
+```
+
+and backends similarly expose their implementations:
+
+```yaml
+backends:
+  local.default:
+    impl: hepflow.backends:Local
+
+  dask:
+    impl: hepflow.backends:Dask
+```
+
+Their interfaces may gain richer specifications as their contracts stabilise.
+
+In particular, backend specifications are expected to provide a structured way to describe supported execution strategies and their configuration.
+
+```{note}
+The mature operation-spec model described on this page applies primarily to executable workflow operations.
+
+Flow's other extension points use the same registry/profile architecture, but their declarative contracts are still being developed where needed.
+
+The goal is the same: make behaviour that Flow must reason about explicit rather than hiding it inside implementation code.
+```
+
+See {doc}`compile-hooks`, {doc}`execution-modifiers`, and {doc}`backends` for their respective lifecycle roles.
+
+---
+
+## Specs make compilation inspectable
+
+Because Flow has a machine-readable description of operation behaviour, it can inspect a workflow before processing the full dataset.
+
+Compilation can determine information such as:
+
+- which implementation was resolved
+- which fields operations require and produce
+- how nodes are connected
+- which source fields are required
+- which products cross execution scopes
+
+These decisions can be recorded in compilation outputs such as the dependency description and execution plan.
+
+The spec is therefore not merely input validation. It is part of the information from which Flow constructs its interpretation of the authored workflow.
+
+---
+
+## The exact spec API
+
+This page describes the role of operation specifications rather than every field of the current spec objects.
+
+The spec API is still evolving as Flow's contracts become more expressive.
+
+Reference documentation should ultimately be generated from the implementation itself so that:
+
+- available spec fields
+- accepted values
+- defaults
+- validation rules
+
+remain synchronised with the installed version of Flow.
+
+These conceptual pages can then remain focused on what the contract means and why it exists.
+
+---
+
+## Where next?
+
+See {doc}`registries-and-profiles` for how specs and implementations are made available to workflows.
+
+For role-specific contracts:
+
+- {doc}`sources`
+- {doc}`transforms`
+- {doc}`observers`
+- {doc}`sinks`
+
+Other extension points are described in:
+
+- {doc}`compile-hooks`
+- {doc}`execution-modifiers`
+- {doc}`backends`
+
+For step-by-step examples of implementing custom capabilities, see the FAST-HEP workshop.
