@@ -21,6 +21,7 @@ from hepflow.compiler.artifacts import (
     write_compile_artifacts,
     write_compile_hook_artifacts,
 )
+from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.execution import (
     resolve_author_execution,
     resolve_author_execution_hooks,
@@ -119,6 +120,7 @@ def normalise_author_file(
     normalized.setdefault("provenance", {}).update(registry_result.provenance)
     normalized.setdefault("provenance", {}).update(execution_result["provenance"])
     normalized.setdefault("provenance", {}).update(hooks_result["provenance"])
+    normalized = apply_component_param_defaults(normalized)
 
     write_yaml(normalized, str(normalized_path(out_path)))
     return normalized

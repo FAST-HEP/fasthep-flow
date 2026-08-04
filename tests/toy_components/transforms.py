@@ -45,6 +45,22 @@ TOY_RECORD_SPEC = {
     },
 }
 
+TOY_DEFAULTED_SPEC = {
+    "name": "toy.defaulted",
+    "kind": "transform",
+    "input": {"name": "stream", "required": True},
+    "params": {
+        "required": {"required": True},
+        "mode": {"required": False, "default": "nominal"},
+        "sort": {
+            "required": False,
+            "default": {"by": "pt", "order": "descending"},
+        },
+    },
+    "normalize_params": {"defaults": True},
+    "result": {"stream": "event_stream"},
+}
+
 
 def run_toy_scale(
     *,
@@ -75,3 +91,22 @@ def run_toy_record(
             outputs={"symbols": [output]},
         )
     return {"stream": {**stream, output: values}}
+
+
+def run_toy_defaulted(
+    *,
+    stream: dict[str, Any],
+    required: str,
+    mode: str = "nominal",
+    sort: dict[str, Any] | None = None,
+    ctx: dict[str, Any] | None = None,
+    **params: Any,
+) -> dict[str, Any]:
+    return {
+        "stream": {
+            **stream,
+            "required": required,
+            "mode": mode,
+            "sort_by": None if sort is None else sort.get("by"),
+        }
+    }

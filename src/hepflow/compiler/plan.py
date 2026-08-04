@@ -4,6 +4,7 @@ from typing import Any, cast
 
 import networkx as nx
 
+from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.data_flow import (
     apply_data_flow_to_sources,
     infer_data_flow,
@@ -117,6 +118,7 @@ def build_plan_from_normalized(
     *,
     chunk_size: int | None = None,
 ) -> tuple[nx.DiGraph, ExecutionPlan]:
+    normalized = apply_component_param_defaults(normalized)
     execution = normalize_global_execution(normalized.get("execution"))
     validate_stage_execution_resource_references(
         list((normalized.get("analysis") or {}).get("stages") or []),

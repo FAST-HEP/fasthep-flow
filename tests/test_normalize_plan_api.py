@@ -199,6 +199,43 @@ def test_lowering_and_plan_creation_write_graph_artifacts(
     assert not (build_dir / "graph.mmd").exists()
 
 
+def test_opt_in_component_defaults_materialize_in_normalized_and_plan(
+    tmp_path: Path,
+) -> None:
+    author = {
+        "version": "1.0",
+        "use": {"profiles": ["tests.toy_components:registry"]},
+        "sources": {"events": {"kind": "toy.source"}},
+        "analysis": {
+            "stages": [
+                {
+                    "id": "Defaulted",
+                    "op": "toy.defaulted",
+                    "params": {"required": "configured"},
+                }
+            ]
+        },
+    }
+    author_path = tmp_path / "author.yaml"
+    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    build_dir = tmp_path / "build"
+
+    normalized = normalise_author_file(author_path, outdir=build_dir)
+    plan = make_plan_file(build_dir / "compile" / "normalized.yaml", outdir=build_dir)
+
+    expected_sort = {"by": "pt", "order": "descending"}
+    assert normalized["analysis"]["stages"][0]["params"] == {
+        "required": "configured",
+        "mode": "nominal",
+        "sort": expected_sort,
+    }
+    assert plan.get_node("stage.Defaulted").params == {
+        "required": "configured",
+        "mode": "nominal",
+        "sort": expected_sort,
+    }
+
+
 def test_compile_graph_d2_uses_readable_observer_labels(
     toy_author: dict[str, Any],
 ) -> None:

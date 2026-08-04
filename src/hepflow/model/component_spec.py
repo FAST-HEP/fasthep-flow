@@ -49,6 +49,7 @@ class RuntimeComponentSpec:
     provides: dict[str, Any] = field(default_factory=dict)
     dependency_parser: Any = None
     lifecycle: dict[str, Any] = field(default_factory=dict)
+    normalize_params: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_obj(cls, obj: Any) -> RuntimeComponentSpec:
@@ -82,4 +83,5 @@ class RuntimeComponentSpec:
             provides=dict(obj.get("provides") or {}),
             dependency_parser=obj.get("dependency_parser"),
             lifecycle=dict(obj.get("lifecycle") or {}),
+            normalize_params=dict(obj.get("normalize_params") or {}),
         )
