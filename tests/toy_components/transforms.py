@@ -61,6 +61,22 @@ TOY_DEFAULTED_SPEC = {
     "result": {"stream": "event_stream"},
 }
 
+TOY_STAGE_ID_OUTPUT_SPEC = {
+    "name": "toy.stage_id_output",
+    "kind": "transform",
+    "input": {"name": "stream", "required": True},
+    "params": {
+        "output": {"required": False},
+    },
+    "normalize_params": {"stage_id_defaults": {"output": "id"}},
+    "result": {"stream": "event_stream"},
+    "provides": {
+        "symbols": [
+            {"from": "params.output", "kind": "field_list"},
+        ],
+    },
+}
+
 
 def run_toy_scale(
     *,
@@ -110,3 +126,14 @@ def run_toy_defaulted(
             "sort_by": None if sort is None else sort.get("by"),
         }
     }
+
+
+def run_toy_stage_id_output(
+    *,
+    stream: dict[str, Any],
+    output: str,
+    ctx: dict[str, Any] | None = None,
+    **params: Any,
+) -> dict[str, Any]:
+    del ctx, params
+    return {"stream": {**stream, output: [True for _ in stream.get("pt", [])]}}

@@ -10,6 +10,9 @@ registry:
     toy.defaulted:
       spec: tests.toy_components.transforms:TOY_DEFAULTED_SPEC
       impl: tests.toy_components.transforms:run_toy_defaulted
+    toy.stage_id_output:
+      spec: tests.toy_components.transforms:TOY_STAGE_ID_OUTPUT_SPEC
+      impl: tests.toy_components.transforms:run_toy_stage_id_output
   sinks:
     toy.write:
       spec: tests.toy_components.sinks:TOY_WRITE_SPEC

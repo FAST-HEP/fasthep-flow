@@ -236,6 +236,57 @@ def test_opt_in_component_defaults_materialize_in_normalized_and_plan(
     }
 
 
+def test_stage_id_default_materializes_in_normalized_and_plan(
+    tmp_path: Path,
+) -> None:
+    author = {
+        "version": "1.0",
+        "use": {"profiles": ["tests.toy_components:registry"]},
+        "sources": {"events": {"kind": "toy.source"}},
+        "analysis": {
+            "stages": [
+                {
+                    "id": "FlagFromStageId",
+                    "op": "toy.stage_id_output",
+                    "params": {},
+                },
+                {
+                    "id": "FlagWithOverride",
+                    "op": "toy.stage_id_output",
+                    "params": {"output": "explicit_flag"},
+                },
+            ]
+        },
+    }
+    author_path = tmp_path / "author.yaml"
+    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    build_dir = tmp_path / "build"
+
+    normalized = normalise_author_file(author_path, outdir=build_dir)
+    plan = make_plan_file(build_dir / "compile" / "normalized.yaml", outdir=build_dir)
+
+    assert normalized["analysis"]["stages"][0]["params"] == {
+        "output": "FlagFromStageId",
+    }
+    assert normalized["analysis"]["stages"][1]["params"] == {
+        "output": "explicit_flag",
+    }
+    assert plan.get_node("stage.FlagFromStageId").params == {
+        "output": "FlagFromStageId",
+    }
+    assert plan.get_node("stage.FlagWithOverride").params == {
+        "output": "explicit_flag",
+    }
+    assert plan.data_flow["origins"]["FlagFromStageId"] == {
+        "kind": "produced",
+        "node": "stage.FlagFromStageId",
+    }
+    assert plan.data_flow["origins"]["explicit_flag"] == {
+        "kind": "produced",
+        "node": "stage.FlagWithOverride",
+    }
+
+
 def test_compile_graph_d2_uses_readable_observer_labels(
     toy_author: dict[str, Any],
 ) -> None:

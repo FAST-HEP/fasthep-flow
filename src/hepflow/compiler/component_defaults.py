@@ -26,16 +26,22 @@ def apply_component_param_defaults(
             normalized_stages.append(stage)
             continue
         item = dict(stage)
+        stage_id = item.get("id")
         op = str(item.get("op") or "")
         if not op:
             normalized_stages.append(item)
             continue
         spec = _component_spec(registry, op)
-        if spec is not None and _should_materialize_defaults(spec):
-            item["params"] = _with_param_defaults(
-                dict(item.get("params") or {}),
-                spec.params,
+        if spec is not None and _should_normalize_params(spec):
+            params = dict(item.get("params") or {})
+            if _should_materialize_defaults(spec):
+                params = _with_param_defaults(params, spec.params)
+            params = _with_stage_id_defaults(
+                params,
+                stage_id=stage_id,
+                marker=spec.normalize_params,
             )
+            item["params"] = params
         normalized_stages.append(item)
 
     analysis["stages"] = normalized_stages
@@ -63,6 +69,13 @@ def _should_materialize_defaults(spec: RuntimeComponentSpec | None) -> bool:
     return isinstance(marker, dict) and marker.get("defaults") is True
 
 
+def _should_normalize_params(spec: RuntimeComponentSpec | None) -> bool:
+    if spec is None:
+        return False
+    marker = getattr(spec, "normalize_params", None)
+    return isinstance(marker, dict) and bool(marker)
+
+
 def _with_param_defaults(
     params: dict[str, Any],
     schema: dict[str, Any],
@@ -73,4 +86,27 @@ def _with_param_defaults(
             continue
         if name not in out:
             out[name] = deepcopy(param_schema["default"])
+    return out
+
+
+def _with_stage_id_defaults(
+    params: dict[str, Any],
+    *,
+    stage_id: Any,
+    marker: dict[str, Any],
+) -> dict[str, Any]:
+    defaults = marker.get("stage_id_defaults")
+    if not isinstance(defaults, dict) or not defaults:
+        return params
+    if not isinstance(stage_id, str) or not stage_id:
+        return params
+
+    out = deepcopy(params)
+    for param_name, source in defaults.items():
+        if source != "id":
+            continue
+        if not isinstance(param_name, str) or not param_name:
+            continue
+        if param_name not in out:
+            out[param_name] = stage_id
     return out
