@@ -394,6 +394,8 @@ def _required_symbols_from_spec(
             "expr_or_field",
             "field_list",
             "field_prefix",
+            "relative_expr",
+            "scoped_expr",
         }:
             raise ValueError(
                 f"Unsupported requires.symbols kind for {spec.name!r}: {kind!r}"
@@ -402,11 +404,9 @@ def _required_symbols_from_spec(
             raise ValueError(
                 f"requires.symbols[{index}].from for {spec.name!r} must reference params.*"
             )
-        values = _values_from_param_reference(
-            params,
-            source=source,
-            spec=spec,
-        )
+        if _rule_should_skip(rule, params=params, spec=spec):
+            continue
+        values = _values_from_param_reference(params, source=source, spec=spec)
         for value in values:
             if value is None:
                 continue
@@ -416,18 +416,55 @@ def _required_symbols_from_spec(
                 symbols.update(_field_names(value, source=source, spec_name=spec.name))
                 continue
             if kind == "field_prefix":
-                suffixes = rule.get("suffixes")
-                if not isinstance(value, str) or not value.strip():
-                    raise ValueError(
-                        f"{source} for {spec.name!r} must be a non-empty string"
+                suffixes = _suffixes_for_rule(rule, params=params, spec=spec)
+                symbols.update(
+                    f"{prefix}_{suffix}"
+                    for prefix in _field_names(
+                        value,
+                        source=source,
+                        spec_name=spec.name,
                     )
-                if not isinstance(suffixes, list) or not all(
-                    isinstance(item, str) and item for item in suffixes
+                    for suffix in suffixes
+                )
+                continue
+            if kind == "relative_expr":
+                prefix_source = rule.get("prefix_from")
+                if not isinstance(prefix_source, str) or not prefix_source.startswith(
+                    "params."
                 ):
                     raise ValueError(
-                        f"field_prefix rule for {spec.name!r} requires string suffixes"
+                        f"relative_expr rule for {spec.name!r} requires "
+                        "'prefix_from' referencing params.*"
                     )
-                symbols.update(f"{value.strip()}_{suffix}" for suffix in suffixes)
+                prefixes = _param_field_names(
+                    params,
+                    source=prefix_source,
+                    spec=spec,
+                    param_name="prefix_from",
+                )
+                for expression in _expression_values(value, source=source, spec=spec):
+                    fields = data_symbols_in_expr(
+                        expression,
+                        known_functions=dep_ctx.known_functions,
+                        known_constants=dep_ctx.known_constants,
+                        context_symbols=dep_ctx.context_symbols,
+                        produced=produced,
+                    )
+                    symbols.update(
+                        f"{prefix}_{field}" for prefix in prefixes for field in fields
+                    )
+                continue
+            if kind == "scoped_expr":
+                for expression in _expression_values(value, source=source, spec=spec):
+                    symbols.update(
+                        _scoped_expression_dependencies(
+                            expression,
+                            rule=rule,
+                            params=params,
+                            spec=spec,
+                            dep_ctx=dep_ctx,
+                        )
+                    )
                 continue
             if kind == "cutflow":
                 for expression in _cutflow_expressions(value):
@@ -495,6 +532,182 @@ def _values_from_param_reference(
     return values
 
 
+def _suffixes_for_rule(
+    rule: dict[str, Any],
+    *,
+    params: dict[str, Any],
+    spec: RuntimeComponentSpec,
+) -> set[str]:
+    suffixes = rule.get("suffixes")
+    suffixes_from = rule.get("suffixes_from")
+    if suffixes is not None and suffixes_from is not None:
+        raise ValueError(
+            f"field_prefix rule for {spec.name!r} cannot set both "
+            "'suffixes' and 'suffixes_from'"
+        )
+    if suffixes_from is not None:
+        if not isinstance(suffixes_from, str) or not suffixes_from.startswith("params."):
+            raise ValueError(
+                f"field_prefix suffixes_from for {spec.name!r} must reference params.*"
+            )
+        resolved = _param_field_names(
+            params,
+            source=suffixes_from,
+            spec=spec,
+            param_name="suffixes_from",
+            optional=bool(rule.get("optional")),
+        )
+    else:
+        if not isinstance(suffixes, list) or not all(
+            isinstance(item, str) and item for item in suffixes
+        ):
+            raise ValueError(
+                f"field_prefix rule for {spec.name!r} requires string suffixes"
+            )
+        resolved = {item.strip() for item in suffixes}
+    exclude_from = rule.get("exclude_suffixes_from")
+    if exclude_from is not None:
+        if not isinstance(exclude_from, str) or not exclude_from.startswith("params."):
+            raise ValueError(
+                f"field_prefix exclude_suffixes_from for {spec.name!r} "
+                "must reference params.*"
+            )
+        resolved -= _param_field_names(
+            params,
+            source=exclude_from,
+            spec=spec,
+            param_name="exclude_suffixes_from",
+            optional=True,
+        )
+    return resolved
+
+
+def _param_field_names(
+    params: dict[str, Any],
+    *,
+    source: str,
+    spec: RuntimeComponentSpec,
+    param_name: str,
+    optional: bool = False,
+) -> set[str]:
+    fields: set[str] = set()
+    for value in _values_from_param_reference(params, source=source, spec=spec):
+        if value is None or value is False:
+            continue
+        fields.update(_field_names(value, source=source, spec_name=spec.name))
+    if not fields and not optional:
+        raise ValueError(
+            f"{param_name}={source!r} for {spec.name!r} did not resolve to fields"
+        )
+    return fields
+
+
+def _rule_should_skip(
+    rule: dict[str, Any],
+    *,
+    params: dict[str, Any],
+    spec: RuntimeComponentSpec,
+) -> bool:
+    skip_if_false = rule.get("skip_if_false")
+    if skip_if_false is None:
+        return False
+    if not isinstance(skip_if_false, str) or not skip_if_false.startswith("params."):
+        raise ValueError(f"skip_if_false for {spec.name!r} must reference params.*")
+    return any(
+        value is False
+        for value in _values_from_param_reference(
+            params,
+            source=skip_if_false,
+            spec=spec,
+        )
+    )
+
+
+def _expression_values(
+    value: Any,
+    *,
+    source: str,
+    spec: RuntimeComponentSpec,
+) -> list[str]:
+    if value is None or value is False:
+        return []
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, list):
+        values = value
+    else:
+        raise TypeError(f"{source} for {spec.name!r} must contain expression strings")
+    expressions: list[str] = []
+    for item in values:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"{source} for {spec.name!r} contains an invalid expression")
+        expressions.append(item.strip())
+    return expressions
+
+
+def _scoped_expression_dependencies(
+    expression: str,
+    *,
+    rule: dict[str, Any],
+    params: dict[str, Any],
+    spec: RuntimeComponentSpec,
+    dep_ctx: DependencyContext,
+) -> set[str]:
+    symbols = data_symbols_in_expr(
+        expression,
+        known_functions=dep_ctx.known_functions,
+        known_constants=dep_ctx.known_constants,
+        context_symbols=dep_ctx.context_symbols,
+        produced=set(),
+    )
+    allowed = {str(item) for item in list(rule.get("allowed") or [])}
+    runtime_symbols = {str(item) for item in list(rule.get("runtime_symbols") or [])}
+    symbol_prefixes = [str(item) for item in list(rule.get("symbol_prefixes") or [])]
+    dependency = rule.get("dependency", "prefixes")
+
+    dependencies: set[str] = set()
+    for symbol in sorted(symbols):
+        if symbol in runtime_symbols:
+            continue
+        if symbol in allowed:
+            if dependency not in {"none", None}:
+                raise ValueError(
+                    f"scoped_expr symbol {symbol!r} for {spec.name!r} has no "
+                    "declared dependency mapping"
+                )
+            continue
+        matched_prefix = next(
+            (prefix for prefix in symbol_prefixes if symbol.startswith(prefix)),
+            None,
+        )
+        if matched_prefix is None:
+            expected = sorted([*allowed, *(f"{item}<field>" for item in symbol_prefixes)])
+            raise ValueError(
+                f"Unsupported scoped expression symbol {symbol!r} for {spec.name!r}; "
+                f"expected one of {expected}"
+            )
+        field = symbol.removeprefix(matched_prefix)
+        if not field:
+            raise ValueError(
+                f"Scoped expression symbol {symbol!r} for {spec.name!r} "
+                "does not include a field suffix"
+            )
+        prefixes_from = rule.get("prefixes_from")
+        if not isinstance(prefixes_from, str) or not prefixes_from.startswith("params."):
+            raise ValueError(
+                f"scoped_expr rule for {spec.name!r} requires "
+                "'prefixes_from' referencing params.*"
+            )
+        prefixes = _param_field_names(
+            params,
+            source=prefixes_from,
+            spec=spec,
+            param_name="prefixes_from",
+        )
+        dependencies.update(f"{prefix}_{field}" for prefix in prefixes)
+    return dependencies
+
+
 def _provided_symbols_from_spec(
     spec: RuntimeComponentSpec,
     *,
@@ -505,19 +718,149 @@ def _provided_symbols_from_spec(
         raise TypeError(f"provides.symbols for {spec.name!r} must be a list")
     symbols: set[str] = set()
     for index, rule in enumerate(rules):
-        if not isinstance(rule, dict) or rule.get("kind") != "field_list":
+        if not isinstance(rule, dict):
             raise ValueError(
-                f"provides.symbols[{index}] for {spec.name!r} must use kind 'field_list'"
+                f"provides.symbols[{index}] for {spec.name!r} must be a mapping"
+            )
+        kind = rule.get("kind")
+        if kind not in {"field_list", "field_prefix", "count", "template"}:
+            raise ValueError(
+                f"Unsupported provides.symbols kind for {spec.name!r}: {kind!r}"
             )
         source = rule.get("from")
+        if kind == "template":
+            symbols.update(_template_provided_symbols(rule, params=params, spec=spec))
+            continue
         if not isinstance(source, str) or not source.startswith("params."):
             raise ValueError(
                 f"provides.symbols[{index}].from for {spec.name!r} must reference params.*"
             )
+        if _rule_should_skip(rule, params=params, spec=spec):
+            continue
         for value in _values_from_param_reference(params, source=source, spec=spec):
-            if value is not None:
+            if value is None or value is False:
+                continue
+            if kind == "field_list":
                 symbols.update(_field_names(value, source=source, spec_name=spec.name))
+            elif kind == "field_prefix":
+                suffixes = _suffixes_for_rule(rule, params=params, spec=spec)
+                symbols.update(
+                    f"{prefix}_{suffix}"
+                    for prefix in _provided_prefixes(
+                        rule,
+                        value,
+                        source=source,
+                        spec_name=spec.name,
+                    )
+                    for suffix in suffixes
+                )
+            elif kind == "count":
+                symbols.update(
+                    f"n{prefix}"
+                    for prefix in _provided_prefixes(
+                        rule,
+                        value,
+                        source=source,
+                        spec_name=spec.name,
+                    )
+                )
     return symbols
+
+
+def _provided_prefixes(
+    rule: dict[str, Any],
+    value: Any,
+    *,
+    source: str,
+    spec_name: str,
+) -> set[str]:
+    prefixes = _field_names(value, source=source, spec_name=spec_name)
+    suffix = rule.get("prefix_suffix")
+    if suffix is None:
+        return prefixes
+    if not isinstance(suffix, str):
+        raise ValueError(f"prefix_suffix for {spec_name!r} must be a string")
+    return {f"{prefix}{suffix}" for prefix in prefixes}
+
+
+def _template_provided_symbols(
+    rule: dict[str, Any],
+    *,
+    params: dict[str, Any],
+    spec: RuntimeComponentSpec,
+) -> set[str]:
+    when_true = rule.get("when_true")
+    if when_true is not None:
+        if not isinstance(when_true, str) or not when_true.startswith("params."):
+            raise ValueError(f"template when_true for {spec.name!r} must reference params.*")
+        try:
+            values = _values_from_param_reference(params, source=when_true, spec=spec)
+        except TypeError:
+            return set()
+        if not any(value is True for value in values):
+            return set()
+
+    condition = rule.get("unless_false")
+    if condition is not None:
+        if not isinstance(condition, str) or not condition.startswith("params."):
+            raise ValueError(
+                f"template unless_false for {spec.name!r} must reference params.*"
+            )
+        if any(
+            value is False
+            for value in _values_from_param_reference(params, source=condition, spec=spec)
+        ):
+            return set()
+
+    source = rule.get("from")
+    if source is not None:
+        if not isinstance(source, str) or not source.startswith("params."):
+            raise ValueError(f"template from for {spec.name!r} must reference params.*")
+        values = _values_from_param_reference(params, source=source, spec=spec)
+        resolved = {
+            str(value).strip()
+            for value in values
+            if isinstance(value, str) and value.strip()
+        }
+        if resolved:
+            return resolved
+        if any(value is False or value is None for value in values):
+            return set()
+
+    template = rule.get("template")
+    if not isinstance(template, str) or not template.strip():
+        raise ValueError(f"template rule for {spec.name!r} requires a string template")
+    return {_format_param_template(template, params=params, spec=spec)}
+
+
+def _format_param_template(
+    template: str,
+    *,
+    params: dict[str, Any],
+    spec: RuntimeComponentSpec,
+) -> str:
+    values: dict[str, str] = {}
+    for raw in template.split("{")[1:]:
+        token = raw.split("}", 1)[0]
+        if not token.startswith("params."):
+            raise ValueError(
+                f"Template token {token!r} for {spec.name!r} must reference params.*"
+            )
+        resolved = _values_from_param_reference(params, source=token, spec=spec)
+        names = [
+            str(value).strip()
+            for value in resolved
+            if isinstance(value, str) and value.strip()
+        ]
+        if len(names) != 1:
+            raise ValueError(
+                f"Template token {token!r} for {spec.name!r} must resolve to one string"
+            )
+        values[token] = names[0]
+    out = template
+    for token, value in values.items():
+        out = out.replace("{" + token + "}", value)
+    return out
 
 
 def _field_names(value: Any, *, source: str, spec_name: str) -> set[str]:

@@ -10,6 +10,9 @@ registry:
     toy.record:
       spec: tests.toy_components.transforms:TOY_RECORD_SPEC
       impl: tests.toy_components.transforms:run_toy_record
+    toy.template_output:
+      spec: tests.toy_components.transforms:TOY_TEMPLATE_OUTPUT_SPEC
+      impl: tests.toy_components.transforms:run_toy_template_output
   sinks:
     toy.write:
       spec: tests.toy_components.sinks:TOY_WRITE_SPEC

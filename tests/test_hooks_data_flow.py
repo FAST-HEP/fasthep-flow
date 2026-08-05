@@ -214,6 +214,264 @@ def test_expression_requirements_support_wildcards_and_optional_params() -> None
     )
 
 
+def test_field_prefix_expands_multiple_prefixes_and_fields_from_params() -> None:
+    spec = {
+        "name": "toy.collections",
+        "kind": "transform",
+        "params": {
+            "collections": {"required": True},
+            "keep": {"required": True},
+            "output": {"required": True},
+        },
+        "requires": {
+            "symbols": [
+                {
+                    "from": "params.collections",
+                    "kind": "field_prefix",
+                    "suffixes": ["eta", "phi"],
+                },
+                {
+                    "from": "params.collections",
+                    "kind": "field_prefix",
+                    "suffixes_from": "params.keep",
+                },
+            ]
+        },
+        "provides": {
+            "symbols": [
+                {
+                    "from": "params.output",
+                    "kind": "field_prefix",
+                    "suffixes_from": "params.keep",
+                },
+                {"from": "params.output", "kind": "count"},
+            ]
+        },
+    }
+
+    deps = parse_component_data_dependencies(
+        spec=spec,
+        params={
+            "collections": ["tight_muons", "loose_muons"],
+            "keep": ["pt", "charge"],
+            "output": "selected_muons",
+        },
+        dep_ctx=type(
+            "DepCtx",
+            (),
+            {
+                "known_functions": set(),
+                "known_constants": set(),
+                "context_symbols": set(),
+            },
+        )(),
+    )
+
+    assert deps == DataDependencyResult(
+        consumes={
+            "tight_muons_eta",
+            "tight_muons_phi",
+            "tight_muons_pt",
+            "tight_muons_charge",
+            "loose_muons_eta",
+            "loose_muons_phi",
+            "loose_muons_pt",
+            "loose_muons_charge",
+        },
+        produces={
+            "selected_muons_pt",
+            "selected_muons_charge",
+            "nselected_muons",
+        },
+    )
+
+
+def test_relative_expression_prefixes_symbols_and_uses_defaults() -> None:
+    spec = {
+        "name": "toy.select",
+        "kind": "transform",
+        "params": {
+            "collection": {"required": True},
+            "selection": {"required": False, "default": []},
+            "sort": {"required": False, "default": {"by": "pt"}},
+            "derived": {"required": False},
+        },
+        "requires": {
+            "symbols": [
+                {
+                    "from": "params.selection",
+                    "kind": "relative_expr",
+                    "prefix_from": "params.collection",
+                },
+                {
+                    "from": "params.collection",
+                    "kind": "field_prefix",
+                    "suffixes_from": "params.sort.by",
+                    "exclude_suffixes_from": "params.derived",
+                    "skip_if_false": "params.sort",
+                    "optional": True,
+                },
+            ]
+        },
+    }
+
+    deps = parse_component_data_dependencies(
+        spec=spec,
+        params={
+            "collection": "Muon",
+            "selection": ["abs(eta) < 2.4"],
+        },
+        dep_ctx=type(
+            "DepCtx",
+            (),
+            {
+                "known_functions": {"abs"},
+                "known_constants": set(),
+                "context_symbols": set(),
+            },
+        )(),
+    )
+
+    assert deps.consumes == {"Muon_eta", "Muon_pt"}
+
+
+def test_scoped_expression_maps_symbols_and_validates_runtime_symbols() -> None:
+    spec = {
+        "name": "toy.pairs",
+        "kind": "transform",
+        "params": {
+            "collections": {"required": True},
+            "pair_selection": {"required": True},
+            "candidate_selection": {"required": True},
+        },
+        "requires": {
+            "symbols": [
+                {
+                    "from": "params.pair_selection",
+                    "kind": "scoped_expr",
+                    "symbol_prefixes": ["object_1_", "object_2_"],
+                    "prefixes_from": "params.collections",
+                },
+                {
+                    "from": "params.candidate_selection",
+                    "kind": "scoped_expr",
+                    "allowed": ["pt", "eta", "phi", "mass"],
+                    "dependency": "none",
+                },
+            ]
+        },
+    }
+
+    deps = parse_component_data_dependencies(
+        spec=spec,
+        params={
+            "collections": ["tight", "loose"],
+            "pair_selection": ["object_1_charge * object_2_charge < 0"],
+            "candidate_selection": ["abs(eta) < 2.4", "mass > 60"],
+        },
+        dep_ctx=type(
+            "DepCtx",
+            (),
+            {
+                "known_functions": {"abs"},
+                "known_constants": set(),
+                "context_symbols": set(),
+            },
+        )(),
+    )
+
+    assert deps.consumes == {
+        "tight_charge",
+        "loose_charge",
+    }
+
+
+def test_scoped_expression_rejects_unsupported_symbols() -> None:
+    spec = {
+        "name": "toy.candidate",
+        "kind": "transform",
+        "params": {"selection": {"required": True}},
+        "requires": {
+            "symbols": [
+                {
+                    "from": "params.selection",
+                    "kind": "scoped_expr",
+                    "allowed": ["pt", "eta"],
+                    "dependency": "none",
+                }
+            ]
+        },
+    }
+
+    with pytest.raises(ValueError, match="Unsupported scoped expression symbol 'foo'"):
+        parse_component_data_dependencies(
+            spec=spec,
+            params={"selection": ["foo > 0"]},
+            dep_ctx=type(
+                "DepCtx",
+                (),
+                {
+                    "known_functions": set(),
+                    "known_constants": set(),
+                    "context_symbols": set(),
+                },
+            )(),
+        )
+
+
+def test_template_outputs_support_prefix_suffixes_and_guards() -> None:
+    spec = {
+        "name": "toy.outputs",
+        "kind": "transform",
+        "params": {
+            "output": {"required": True},
+            "fields": {"required": True},
+            "diagnostics": {"required": False},
+        },
+        "provides": {
+            "symbols": [
+                {
+                    "from": "params.output",
+                    "kind": "field_prefix",
+                    "prefix_suffix": "_candidate",
+                    "suffixes_from": "params.fields",
+                },
+                {"from": "params.output", "kind": "count", "prefix_suffix": "_candidate"},
+                {
+                    "kind": "template",
+                    "template": "{params.output}_removed",
+                    "when_true": "params.diagnostics.keep_removed",
+                },
+            ]
+        },
+    }
+
+    deps = parse_component_data_dependencies(
+        spec=spec,
+        params={
+            "output": "pair",
+            "fields": ["pt", "mass"],
+            "diagnostics": {"keep_removed": True},
+        },
+        dep_ctx=type(
+            "DepCtx",
+            (),
+            {
+                "known_functions": set(),
+                "known_constants": set(),
+                "context_symbols": set(),
+            },
+        )(),
+    )
+
+    assert deps.produces == {
+        "pair_candidate_pt",
+        "pair_candidate_mass",
+        "npair_candidate",
+        "pair_removed",
+    }
+
+
 def test_hook_context_result_symbols_are_visible_to_data_flow(
     tmp_path: Path,
     toy_author: dict[str, Any],

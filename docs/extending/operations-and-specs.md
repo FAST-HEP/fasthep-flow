@@ -195,6 +195,94 @@ Operation-specific syntax can remain inside `params`.
 The spec tells Flow which values represent expressions, fields, products, or other planner-visible information. An operation-specific concept does not need to become part of the core author language merely so that the compiler can reason about it.
 ```
 
+## Parameter-derived requirements and outputs
+
+Many operations use compact author parameters but still need explicit compiled
+dependencies. Flow provides reusable `requires.symbols` and `provides.symbols`
+rules for common parameter-derived patterns, so operation modules do not need
+custom dependency parsers for ordinary field expansion.
+
+Useful requirement rules include:
+
+| Rule | Use |
+|---|---|
+| `field_list` | A parameter already names one or more complete fields. |
+| `field_prefix` with `suffixes` | One or more collection prefixes require fixed field suffixes, such as `eta` and `phi`. |
+| `field_prefix` with `suffixes_from` | A collection prefix requires fields listed in another parameter, such as `params.keep`. |
+| `relative_expr` | Expressions are written relative to one collection and their symbols should be prefixed with `params.collection`. |
+| `scoped_expr` | Expressions use an operation-defined namespace, such as `object_1_pt` and `object_2_pt`, with the spec declaring how symbols map to source fields. |
+
+Useful output rules include:
+
+| Rule | Use |
+|---|---|
+| `field_list` | A parameter names complete output fields. |
+| `field_prefix` with `suffixes_from` | An output collection prefix provides fields from another parameter. |
+| `count` | A collection prefix provides the deterministic count field `n<prefix>`. |
+| `template` | A deterministic output name is composed from parameters. |
+
+For example, an object-selection operation can expose compact author params:
+
+```yaml
+params:
+  collection: Muon
+  output: selected_tight_Muon
+  selection:
+    - pt >= 20
+  keep:
+    - pt
+    - eta
+```
+
+with a declarative spec contract:
+
+```python
+"requires": {
+    "symbols": [
+        {
+            "from": "params.collection",
+            "kind": "field_prefix",
+            "suffixes_from": "params.keep",
+        },
+        {
+            "from": "params.selection",
+            "kind": "relative_expr",
+            "prefix_from": "params.collection",
+        },
+    ]
+},
+"provides": {
+    "symbols": [
+        {
+            "from": "params.output",
+            "kind": "field_prefix",
+            "suffixes_from": "params.keep",
+        },
+        {"from": "params.output", "kind": "count"},
+    ]
+},
+```
+
+Flow then derives `Muon_pt`, `Muon_eta`, `selected_tight_Muon_pt`,
+`selected_tight_Muon_eta`, and `nselected_tight_Muon`.
+
+For pair builders or similar operations with multiple expression contexts,
+the spec can declare scoped symbols:
+
+```python
+{
+    "from": "params.selection.pair",
+    "kind": "scoped_expr",
+    "symbol_prefixes": ["object_1_", "object_2_"],
+    "prefixes_from": "params.collections",
+}
+```
+
+This keeps the runtime focused on array operations while Flow handles
+expression inspection, symbol validation, and graph-visible dependencies.
+Use a custom `dependency_parser` only when the contract cannot be expressed
+with these reusable rules.
+
 ---
 
 ## Specs drive dependency inference

@@ -287,6 +287,61 @@ def test_stage_id_default_materializes_in_normalized_and_plan(
     }
 
 
+def test_param_template_default_materializes_in_normalized_and_plan(
+    tmp_path: Path,
+) -> None:
+    author = {
+        "version": "1.0",
+        "use": {"profiles": ["tests.toy_components:registry"]},
+        "sources": {"events": {"kind": "toy.source"}},
+        "analysis": {
+            "stages": [
+                {
+                    "id": "DerivedMuon",
+                    "op": "toy.template_output",
+                    "params": {"source": "Muon"},
+                },
+                {
+                    "id": "DerivedElectron",
+                    "op": "toy.template_output",
+                    "params": {"source": "Electron", "output": "explicit_Electron"},
+                },
+            ]
+        },
+    }
+    author_path = tmp_path / "author.yaml"
+    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    build_dir = tmp_path / "build"
+
+    normalized = normalise_author_file(author_path, outdir=build_dir)
+    plan = make_plan_file(build_dir / "compile" / "normalized.yaml", outdir=build_dir)
+
+    assert normalized["analysis"]["stages"][0]["params"] == {
+        "source": "Muon",
+        "output": "derived_Muon",
+    }
+    assert normalized["analysis"]["stages"][1]["params"] == {
+        "source": "Electron",
+        "output": "explicit_Electron",
+    }
+    assert plan.get_node("stage.DerivedMuon").params == {
+        "source": "Muon",
+        "output": "derived_Muon",
+    }
+    assert plan.get_node("stage.DerivedElectron").params == {
+        "source": "Electron",
+        "output": "explicit_Electron",
+    }
+    assert plan.data_flow["origins"]["derived_Muon"] == {
+        "kind": "produced",
+        "node": "stage.DerivedMuon",
+    }
+    assert plan.data_flow["origins"]["explicit_Electron"] == {
+        "kind": "produced",
+        "node": "stage.DerivedElectron",
+    }
+
+
 def test_compile_graph_d2_uses_readable_observer_labels(
     toy_author: dict[str, Any],
 ) -> None:

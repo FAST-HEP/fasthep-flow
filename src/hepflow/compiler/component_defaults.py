@@ -36,6 +36,10 @@ def apply_component_param_defaults(
             params = dict(item.get("params") or {})
             if _should_materialize_defaults(spec):
                 params = _with_param_defaults(params, spec.params)
+            params = _with_param_templates(
+                params,
+                marker=spec.normalize_params,
+            )
             params = _with_stage_id_defaults(
                 params,
                 stage_id=stage_id,
@@ -86,6 +90,50 @@ def _with_param_defaults(
             continue
         if name not in out:
             out[name] = deepcopy(param_schema["default"])
+    return out
+
+
+def _with_param_templates(
+    params: dict[str, Any],
+    *,
+    marker: dict[str, Any],
+) -> dict[str, Any]:
+    templates = marker.get("param_templates")
+    if not isinstance(templates, dict) or not templates:
+        return params
+    out = deepcopy(params)
+    for param_name, template in templates.items():
+        if not isinstance(param_name, str) or not param_name:
+            continue
+        if param_name in out:
+            continue
+        if not isinstance(template, str) or not template.strip():
+            continue
+        out[param_name] = _format_template(template, out)
+    return out
+
+
+def _format_template(template: str, params: dict[str, Any]) -> str:
+    values: dict[str, str] = {}
+    for raw in template.split("{")[1:]:
+        token = raw.split("}", 1)[0]
+        value: Any = params
+        for segment in token.split("."):
+            if not isinstance(value, dict) or segment not in value:
+                raise ValueError(
+                    f"Cannot materialize component parameter template {template!r}: "
+                    f"{token!r} is missing"
+                )
+            value = value[segment]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"Cannot materialize component parameter template {template!r}: "
+                f"{token!r} must resolve to one string"
+            )
+        values[token] = value.strip()
+    out = template
+    for token, value in values.items():
+        out = out.replace("{" + token + "}", value)
     return out
 
 

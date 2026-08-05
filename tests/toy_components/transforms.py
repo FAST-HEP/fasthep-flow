@@ -77,6 +77,23 @@ TOY_STAGE_ID_OUTPUT_SPEC = {
     },
 }
 
+TOY_TEMPLATE_OUTPUT_SPEC = {
+    "name": "toy.template_output",
+    "kind": "transform",
+    "input": {"name": "stream", "required": True},
+    "params": {
+        "source": {"required": True},
+        "output": {"required": False},
+    },
+    "normalize_params": {"param_templates": {"output": "derived_{source}"}},
+    "result": {"stream": "event_stream"},
+    "provides": {
+        "symbols": [
+            {"from": "params.output", "kind": "field_list"},
+        ],
+    },
+}
+
 
 def run_toy_scale(
     *,
@@ -137,3 +154,15 @@ def run_toy_stage_id_output(
 ) -> dict[str, Any]:
     del ctx, params
     return {"stream": {**stream, output: [True for _ in stream.get("pt", [])]}}
+
+
+def run_toy_template_output(
+    *,
+    stream: dict[str, Any],
+    source: str,
+    output: str,
+    ctx: dict[str, Any] | None = None,
+    **params: Any,
+) -> dict[str, Any]:
+    del ctx, params
+    return {"stream": {**stream, output: list(stream.get(source, []))}}
