@@ -262,11 +262,21 @@ def _record_id(record: dict[str, Any]) -> str:
 def _record_inputs(record: dict[str, Any]) -> list[dict[str, Any]]:
     raw_inputs = record.get("inputs")
     if isinstance(raw_inputs, list):
-        return [
-            {"partition_id": item.get("id")}
-            for item in raw_inputs
-            if isinstance(item, dict) and item.get("id")
-        ]
+        inputs = []
+        for item in raw_inputs:
+            if not isinstance(item, dict):
+                continue
+            if item.get("id"):
+                inputs.append({"partition_id": item.get("id")})
+                continue
+            product_input = {
+                key: item[key]
+                for key in ("name", "node_id", "port", "path", "kind")
+                if item.get(key) is not None
+            }
+            if product_input:
+                inputs.append(product_input)
+        return inputs
     return []
 
 

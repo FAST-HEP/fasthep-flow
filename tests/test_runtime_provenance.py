@@ -251,6 +251,58 @@ def test_runtime_operation_provenance_persists_to_execution_index(
     ]
 
 
+def test_artifact_provenance_records_product_inputs(tmp_path: Path) -> None:
+    write_artifact_provenance_records(
+        plan=ExecutionPlan(),
+        writer_records=[
+            {
+                "kind": "schema_validation_markdown",
+                "node_id": "render.SchemaValidationReport.0",
+                "path": "reports/schema-validation.md",
+                "path_type": "relative_to_outdir",
+                "inputs": [
+                    {
+                        "name": "mc",
+                        "node_id": "stage.CompareMCSchemas",
+                        "port": "comparison",
+                        "kind": "schema_comparison",
+                        "path": "artifacts/comparisons/CompareMCSchemas.json",
+                    },
+                    {
+                        "name": "data",
+                        "node_id": "stage.CompareDataSchemas",
+                        "port": "comparison",
+                        "kind": "schema_comparison",
+                        "path": "artifacts/comparisons/CompareDataSchemas.json",
+                    },
+                ],
+            }
+        ],
+        outdir=tmp_path,
+    )
+
+    record_path = next((tmp_path / "artifacts" / "provenance" / "records").glob("*.json"))
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+
+    assert record["producer"]["node_id"] == "render.SchemaValidationReport.0"
+    assert record["inputs"] == [
+        {
+            "name": "mc",
+            "node_id": "stage.CompareMCSchemas",
+            "port": "comparison",
+            "path": "artifacts/comparisons/CompareMCSchemas.json",
+            "kind": "schema_comparison",
+        },
+        {
+            "name": "data",
+            "node_id": "stage.CompareDataSchemas",
+            "port": "comparison",
+            "path": "artifacts/comparisons/CompareDataSchemas.json",
+            "kind": "schema_comparison",
+        },
+    ]
+
+
 def test_store_can_merge_worker_records() -> None:
     left = ProvenanceStore()
     right = ProvenanceStore()
