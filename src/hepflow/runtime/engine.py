@@ -950,7 +950,9 @@ def _collect_input_products(
                     ref,
                     dataset=dataset if isinstance(dataset, dict) else None,
                 )
-            except ValueError:
+            except (KeyError, ValueError):
+                # The input may have been supplied directly through initial_values.
+                # In that case, no producer/product metadata is available.
                 continue
         binding = bindings.get((active_ref.node_id, active_ref.output_name))
         if isinstance(binding, dict):
