@@ -9,6 +9,7 @@ from hepflow.backends.model import BackendResult
 from hepflow.build_layout import BuildPaths
 from hepflow.model.plan import ExecutionNode, ExecutionPartition, ExecutionPlan
 from hepflow.runtime.engine import (
+    _register_product_bindings,
     build_dataset_context,
     build_partition_context,
     execute_dataset_sinks,
@@ -19,6 +20,7 @@ from hepflow.runtime.engine import (
     merge_partition_value_stores_for_dataset,
 )
 from hepflow.runtime.hooks.manager import HookManager
+from hepflow.runtime.materialize import materialize_final_products
 from hepflow.runtime.provenance import ensure_runtime_provenance
 from hepflow.runtime.writer_manifests import write_writer_manifests
 
@@ -323,6 +325,13 @@ def build_dask_backend_result(
         dataset_stores,
         registry_cfg=plan.registry,
     )
+    product_items = materialize_final_products(
+        plan,
+        value_store=merged_value_store,
+        outdir=str(final_ctx.get("outdir") or "."),
+        registry_cfg=plan.registry,
+    )
+    _register_product_bindings(final_ctx, product_items)
 
     execute_final_nodes(
         plan,

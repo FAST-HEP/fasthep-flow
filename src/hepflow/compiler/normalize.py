@@ -28,7 +28,6 @@ from hepflow.model.author import (
 from hepflow.model.defaults import (
     DEFAULT_DATASET_EVENTTYPE,
     DEFAULT_JOIN_ON_MISMATCH,
-    DEFAULT_ROOT_TREE,
     DEFAULT_STREAM_TYPE,
 )
 from hepflow.registry.defaults import (
@@ -48,9 +47,10 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
     version = str(doc.get("version", "1.0"))
     data = normalize_data(doc.get("data") or {}, doc.get("datasets"))
 
-    sources = normalize_sources(doc.get("sources"), data.defaults)
+    sources_raw = doc.get("sources")
+    sources = normalize_sources(sources_raw)
 
-    if not sources:
+    if not sources and sources_raw is None:
         sources["events"] = inject_default_events_source(data.defaults).to_dict()
 
     joins = normalize_joins(doc.get("joins"))
@@ -292,9 +292,7 @@ def normalize_datasets(
     return norm_datasets
 
 
-def normalize_sources(
-    sources: Any, data_defaults: dict[str, Any]
-) -> dict[str, dict[str, Any]]:
+def normalize_sources(sources: Any) -> dict[str, dict[str, Any]]:
     # If sources are provided explicitly, preserve them.
     if sources is None:
         sources = {}
@@ -326,15 +324,6 @@ def normalize_sources(
             "kind": kind,
             "stream_type": str(spec.get("stream_type", DEFAULT_STREAM_TYPE)),
         }
-
-    # v1 compatibility: only inject default if NONE provided
-    if not out:
-        default_tree = data_defaults.get("tree_primary", DEFAULT_ROOT_TREE)
-        out["events"] = RootTreeSourceSpec(
-            kind="root_tree",
-            tree=default_tree,
-            stream_type=DEFAULT_STREAM_TYPE,
-        ).to_dict()
 
     return out
 

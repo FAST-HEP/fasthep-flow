@@ -18,7 +18,7 @@ def materialize_final_products(
     outdir: str | Path,
     registry_cfg: dict[str, Any] | None = None,
     runtime_registry: RuntimeRegistry | None = None,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     runtime_registry = runtime_registry or runtime_registry_from_config(
         registry_cfg or plan.registry
     )
@@ -27,7 +27,7 @@ def materialize_final_products(
         variation=output_variation_from_context(plan.context),
     )
 
-    items: list[dict[str, str]] = []
+    items: list[dict[str, Any]] = []
     for node in plan.nodes:
         for output_name, product_kind in node.outputs.items():
             key = (node.id, output_name)
@@ -46,7 +46,14 @@ def materialize_final_products(
                 build_paths=build_paths,
             )
             value_store[key] = result.get("value", value_store[key])
-            items.extend(_manifest_items(result.get("items")))
+            items.extend(
+                _materialized_items(
+                    result.get("items"),
+                    node=node,
+                    output_name=output_name,
+                    product_kind=product_kind,
+                )
+            )
 
     return items
 
@@ -97,12 +104,36 @@ def _safe_filename(value: str) -> str:
     return cleaned or "product"
 
 
-def _manifest_items(value: Any) -> list[dict[str, str]]:
+def _materialized_items(
+    value: Any,
+    *,
+    node: ExecutionNode,
+    output_name: str,
+    product_kind: str,
+) -> list[dict[str, Any]]:
     if isinstance(value, list):
-        return [item for item in value if _is_manifest_item(item)]
+        return [
+            _materialized_item(item, node, output_name, product_kind)
+            for item in value
+            if _is_manifest_item(item)
+        ]
     if _is_manifest_item(value):
-        return [value]
+        return [_materialized_item(value, node, output_name, product_kind)]
     return []
+
+
+def _materialized_item(
+    item: dict[str, Any],
+    node: ExecutionNode,
+    output_name: str,
+    product_kind: str,
+) -> dict[str, Any]:
+    return {
+        **dict(item),
+        "node_id": node.id,
+        "output_name": output_name,
+        "product_kind": product_kind,
+    }
 
 
 def _is_manifest_item(value: Any) -> bool:

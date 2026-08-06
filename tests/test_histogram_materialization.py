@@ -20,6 +20,7 @@ from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.engine import (
     _reset_final_product_manifests,
     _store_node_outputs,
+    execute_final_nodes,
     merge_partition_value_stores,
     merge_partition_value_stores_for_dataset,
 )
@@ -139,11 +140,95 @@ def test_final_product_materialization_goes_through_handler(tmp_path: Path) -> N
             "id": "NumberMuons",
             "path": "artifacts/histograms/NumberMuons.pkl",
             "producer": "stage.NumberMuons",
+            "node_id": "stage.NumberMuons",
+            "output_name": "hist",
+            "product_kind": "histogram",
         }
     ]
     assert (tmp_path / "artifacts" / "histograms" / "NumberMuons.pkl").read_text(
         encoding="utf-8"
     ) == "handled"
+
+
+def test_materialized_product_bindings_are_context_not_value_mutation(
+    tmp_path: Path,
+) -> None:
+    plan = ExecutionPlan(
+        registry={
+            "sinks": {
+                "toy.capture_products": {
+                    "spec": "tests.toy_components.sinks:TOY_CAPTURE_PRODUCTS_SPEC",
+                    "impl": "tests.toy_components.sinks:run_toy_capture_products",
+                }
+            },
+            "product_handlers": {
+                "toy_product": {
+                    "merge": "tests.toy_components.products:merge_toy_products",
+                    "materialize": (
+                        "tests.toy_components.products:materialize_toy_product"
+                    ),
+                }
+            },
+        }
+    )
+    plan.add_node(
+        ExecutionNode(
+            id="stage.Product",
+            graph_node_id="stage.Product",
+            role="transform",
+            impl="toy.product",
+            outputs={"product": "toy_product"},
+            meta={"stage_id": "Product"},
+        )
+    )
+    plan.add_node(
+        ExecutionNode(
+            id="render.Report.0",
+            graph_node_id="render.Report.0",
+            role="sink",
+            impl="toy.capture_products",
+            inputs=[
+                PlanInputRef(
+                    node_id="stage.Product",
+                    output_name="product",
+                    input_name="target",
+                )
+            ],
+            outputs={"artifact": "artifact"},
+            params={"when": "run_end"},
+        )
+    )
+    value = {"payload": "unchanged"}
+    value_store = {("stage.Product", "product"): value}
+    ctx: dict[str, Any] = {"outdir": str(tmp_path)}
+
+    items = materialize_final_products(plan, value_store=value_store, outdir=tmp_path)
+    ctx["product_bindings"] = {
+        (item["node_id"], item["output_name"]): {
+            "node_id": item["node_id"],
+            "port": item["output_name"],
+            "kind": item["product_kind"],
+            "path": item["path"],
+            "id": item["id"],
+            "producer": item["producer"],
+        }
+        for item in items
+    }
+    execute_final_nodes(plan, value_store=value_store, ctx=ctx)
+
+    assert value == {"payload": "unchanged"}
+    result = value_store[("render.Report.0", "artifact")]
+    assert result["target"] is value
+    assert result["input_products"] == {
+        "target": {
+            "node_id": "stage.Product",
+            "port": "product",
+            "kind": "toy_product",
+            "path": "artifacts/toy_products/Product.json",
+            "id": "Product",
+            "producer": "stage.Product",
+        }
+    }
 
 
 def test_final_product_manifest_reset_removes_stale_manifests_only(

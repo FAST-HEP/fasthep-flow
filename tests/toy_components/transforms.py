@@ -94,6 +94,33 @@ TOY_TEMPLATE_OUTPUT_SPEC = {
     },
 }
 
+TOY_PRODUCT_SPEC = {
+    "name": "toy.product",
+    "kind": "transform",
+    "input": None,
+    "params": {
+        "dataset": {"required": False},
+        "value": {"required": False, "default": "product"},
+    },
+    "result": {"product": "toy_product"},
+}
+
+TOY_PRODUCT_PAIR_SPEC = {
+    "name": "toy.product_pair",
+    "kind": "transform",
+    "input": None,
+    "params": {},
+    "result": {"pair": {"kind": "toy_pair"}},
+}
+
+TOY_HIST_SPEC = {
+    "name": "hep.hist",
+    "kind": "transform",
+    "input": {"name": "stream", "kind": "event_stream", "required": True},
+    "params": {},
+    "result": {"hist": {"kind": "histogram"}},
+}
+
 
 def run_toy_scale(
     *,
@@ -166,3 +193,45 @@ def run_toy_template_output(
 ) -> dict[str, Any]:
     del ctx, params
     return {"stream": {**stream, output: list(stream.get(source, []))}}
+
+
+def run_toy_product(
+    *,
+    dataset: str | None = None,
+    value: str = "product",
+    ctx: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    datasets = dict((ctx or {}).get("datasets") or {})
+    dataset_record = datasets.get(dataset or "", {})
+    return {
+        "product": {
+            "value": value,
+            "dataset": dataset,
+            "dataset_meta": dict(dataset_record.get("meta") or {}),
+        }
+    }
+
+
+def run_toy_product_pair(
+    *,
+    left: dict[str, Any],
+    right: dict[str, Any],
+    ctx: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "pair": {
+            "left": left,
+            "right": right,
+            "input_products": dict((ctx or {}).get("input_products") or {}),
+        }
+    }
+
+
+def run_toy_hist(
+    *,
+    stream: dict[str, Any],
+    ctx: dict[str, Any] | None = None,
+    **params: Any,
+) -> dict[str, Any]:
+    del ctx, params
+    return {"hist": {"entries": len(next(iter(stream.values()), []))}}

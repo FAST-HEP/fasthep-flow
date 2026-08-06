@@ -256,24 +256,24 @@ def test_artifact_provenance_records_product_inputs(tmp_path: Path) -> None:
         plan=ExecutionPlan(),
         writer_records=[
             {
-                "kind": "schema_validation_markdown",
-                "node_id": "render.SchemaValidationReport.0",
-                "path": "reports/schema-validation.md",
+                "kind": "toy_report",
+                "node_id": "render.ProductReport.0",
+                "path": "reports/product-report.md",
                 "path_type": "relative_to_outdir",
                 "inputs": [
                     {
-                        "name": "mc",
-                        "node_id": "stage.CompareMCSchemas",
-                        "port": "comparison",
-                        "kind": "schema_comparison",
-                        "path": "artifacts/comparisons/CompareMCSchemas.json",
+                        "name": "left",
+                        "node_id": "stage.LeftProduct",
+                        "port": "product",
+                        "kind": "toy_product",
+                        "path": "artifacts/toy_products/LeftProduct.json",
                     },
                     {
-                        "name": "data",
-                        "node_id": "stage.CompareDataSchemas",
-                        "port": "comparison",
-                        "kind": "schema_comparison",
-                        "path": "artifacts/comparisons/CompareDataSchemas.json",
+                        "name": "right",
+                        "node_id": "stage.RightProduct",
+                        "port": "product",
+                        "kind": "toy_product",
+                        "path": "artifacts/toy_products/RightProduct.json",
                     },
                 ],
             }
@@ -284,21 +284,21 @@ def test_artifact_provenance_records_product_inputs(tmp_path: Path) -> None:
     record_path = next((tmp_path / "artifacts" / "provenance" / "records").glob("*.json"))
     record = json.loads(record_path.read_text(encoding="utf-8"))
 
-    assert record["producer"]["node_id"] == "render.SchemaValidationReport.0"
+    assert record["producer"]["node_id"] == "render.ProductReport.0"
     assert record["inputs"] == [
         {
-            "name": "mc",
-            "node_id": "stage.CompareMCSchemas",
-            "port": "comparison",
-            "path": "artifacts/comparisons/CompareMCSchemas.json",
-            "kind": "schema_comparison",
+            "name": "left",
+            "node_id": "stage.LeftProduct",
+            "port": "product",
+            "path": "artifacts/toy_products/LeftProduct.json",
+            "kind": "toy_product",
         },
         {
-            "name": "data",
-            "node_id": "stage.CompareDataSchemas",
-            "port": "comparison",
-            "path": "artifacts/comparisons/CompareDataSchemas.json",
-            "kind": "schema_comparison",
+            "name": "right",
+            "node_id": "stage.RightProduct",
+            "port": "product",
+            "path": "artifacts/toy_products/RightProduct.json",
+            "kind": "toy_product",
         },
     ]
 

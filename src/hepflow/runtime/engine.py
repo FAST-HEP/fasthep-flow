@@ -149,9 +149,13 @@ def execute_plan_partition(
                     )
 
             inputs = _collect_inputs(node.inputs, value_store, plan=plan, ctx=ctx)
+            input_products = _collect_input_products(node.inputs, plan=plan, ctx=ctx)
 
             if node.role == "transform":
-                with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
+                with (
+                    _input_products_context(ctx, input_products),
+                    hook_manager.around_node(node=node, inputs=inputs, ctx=ctx),
+                ):
                     hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
                     with _operation_context(recorder, node=node, ctx=ctx):
                         result = run_transform(
@@ -171,7 +175,10 @@ def execute_plan_partition(
                 continue
 
             if node.role == "observer":
-                with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
+                with (
+                    _input_products_context(ctx, input_products),
+                    hook_manager.around_node(node=node, inputs=inputs, ctx=ctx),
+                ):
                     hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
                     target = _default_target(inputs)
                     with _operation_context(recorder, node=node, ctx=ctx):
@@ -192,7 +199,10 @@ def execute_plan_partition(
                 continue
 
             if node.role == "sink":
-                with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
+                with (
+                    _input_products_context(ctx, input_products),
+                    hook_manager.around_node(node=node, inputs=inputs, ctx=ctx),
+                ):
                     hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
                     target = _sink_target(inputs)
                     with _operation_context(recorder, node=node, ctx=ctx):
@@ -309,12 +319,13 @@ def execute_plan_locally(
             skip_roles=skip_roles,
             hook_manager=hook_manager,
         )
-        materialize_final_products(
+        product_items = materialize_final_products(
             plan,
             value_store=value_store,
             outdir=str(base_ctx.get("outdir") or "."),
             registry_cfg=registry_cfg,
         )
+        _register_product_bindings(base_ctx, product_items)
         execute_final_nodes(
             plan,
             value_store=value_store,
@@ -382,12 +393,13 @@ def execute_plan_locally(
         dataset_stores,
         registry_cfg=registry_cfg,
     )
-    materialize_final_products(
+    product_items = materialize_final_products(
         plan,
         value_store=merged_value_store,
         outdir=str(base_ctx.get("outdir") or "."),
         registry_cfg=registry_cfg,
     )
+    _register_product_bindings(base_ctx, product_items)
     execute_final_nodes(
         plan,
         value_store=merged_value_store,
@@ -591,6 +603,7 @@ def execute_dataset_sinks(
     skip_roles: set[str] | None = None,
     hook_manager: HookManager | None = None,
 ) -> dict[tuple[str, str], Any]:
+    registry_cfg = registry_cfg or plan.registry
     skip_roles = set(skip_roles or set())
     hook_manager = hook_manager or HookManager.from_plan(plan)
     recorder = ensure_runtime_provenance(ctx)
@@ -613,16 +626,23 @@ def execute_dataset_sinks(
             plan=plan,
             ctx=ctx,
         )
+        input_products = _collect_input_products(node.inputs, plan=plan, ctx=ctx)
         target = _sink_target(inputs)
         try:
-            with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
+            with (
+                _input_products_context(ctx, input_products),
+                hook_manager.around_node(node=node, inputs=inputs, ctx=ctx),
+            ):
                 hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
                 with _operation_context(recorder, node=node, ctx=ctx):
                     result = run_sink(
                         sink_name=node.impl,
                         target=target,
                         params=node.params,
-                        ctx={**ctx, "datasets": dict(plan.context.get("datasets") or {})},
+                        ctx={
+                            **ctx,
+                            "datasets": dict(plan.context.get("datasets") or {}),
+                        },
                         meta=_node_meta(node),
                         registry_cfg=registry_cfg,
                     )
@@ -660,6 +680,7 @@ def execute_final_nodes(
     skip_roles: set[str] | None = None,
     hook_manager: HookManager | None = None,
 ) -> None:
+    registry_cfg = registry_cfg or plan.registry
     skip_roles = set(skip_roles or set())
     hook_manager = hook_manager or HookManager.from_plan(plan)
     recorder = ensure_runtime_provenance(ctx)
@@ -677,9 +698,13 @@ def execute_final_nodes(
             )
 
         inputs = _collect_inputs(node.inputs, value_store, plan=plan, ctx=ctx)
+        input_products = _collect_input_products(node.inputs, plan=plan, ctx=ctx)
         target = _sink_target(inputs)
         try:
-            with hook_manager.around_node(node=node, inputs=inputs, ctx=ctx):
+            with (
+                _input_products_context(ctx, input_products),
+                hook_manager.around_node(node=node, inputs=inputs, ctx=ctx),
+            ):
                 hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
                 with _operation_context(recorder, node=node, ctx=ctx):
                     result = run_sink(
@@ -905,6 +930,71 @@ def _collect_inputs(
             raise ValueError(f"Duplicate bound input name: {ref.input_name!r}")
         inputs[ref.input_name] = value_store[key]
     return inputs
+
+
+def _collect_input_products(
+    input_refs: list[PlanInputRef],
+    *,
+    plan: ExecutionPlan | None,
+    ctx: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    bindings = dict(ctx.get("product_bindings") or {})
+    products: dict[str, dict[str, Any]] = {}
+    for ref in input_refs:
+        active_ref = ref
+        if plan is not None:
+            dataset = ctx.get("dataset")
+            try:
+                active_ref = resolve_active_input_ref(
+                    plan,
+                    ref,
+                    dataset=dataset if isinstance(dataset, dict) else None,
+                )
+            except ValueError:
+                continue
+        binding = bindings.get((active_ref.node_id, active_ref.output_name))
+        if isinstance(binding, dict):
+            products[ref.input_name] = dict(binding)
+    return products
+
+
+@contextmanager
+def _input_products_context(
+    ctx: dict[str, Any],
+    input_products: dict[str, dict[str, Any]],
+) -> Iterator[None]:
+    sentinel = object()
+    previous = ctx.get("input_products", sentinel)
+    ctx["input_products"] = input_products
+    try:
+        yield
+    finally:
+        if previous is sentinel:
+            ctx.pop("input_products", None)
+        else:
+            ctx["input_products"] = previous
+
+
+def _register_product_bindings(
+    ctx: dict[str, Any],
+    items: list[dict[str, Any]],
+) -> None:
+    bindings = ctx.setdefault("product_bindings", {})
+    if not isinstance(bindings, dict):
+        raise TypeError("Runtime context product_bindings must be a mapping")
+    for item in items:
+        node_id = item.get("node_id")
+        output_name = item.get("output_name")
+        if not isinstance(node_id, str) or not isinstance(output_name, str):
+            continue
+        bindings[(node_id, output_name)] = {
+            "node_id": node_id,
+            "port": output_name,
+            "kind": str(item.get("product_kind") or ""),
+            "path": str(item.get("path") or ""),
+            "id": str(item.get("id") or ""),
+            "producer": str(item.get("producer") or node_id),
+        }
 
 
 def _sink_when(node: ExecutionNode) -> str:

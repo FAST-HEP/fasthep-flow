@@ -14,6 +14,7 @@ from hepflow.compiler.styles import (
 )
 from hepflow.model.graph import GraphNode, add_graph_edge, add_graph_node, new_graph
 from hepflow.model.lifecycle import normalize_lifecycle_event
+from hepflow.registry.loaders import load_object
 
 
 def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
@@ -40,18 +41,18 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
 
     data_block = dict(author.get("data", {}))
     datasets = list(data_block.get("datasets", []))
+    graph.graph["datasets"] = [dict(dataset) for dataset in datasets]
     defaults = dict(data_block.get("defaults", {}))
 
     style_defs = collect_styles(author)
     output_defs = dict(author.get("outputs") or {})
 
     sources = dict(author.get("sources", {}))
-    if not sources:
-        raise ValueError("No sources declared in author document")
+    stages = list(author.get("analysis", {}).get("stages", []))
+    if not sources and not stages:
+        raise ValueError("No sources or analysis stages declared in author document")
 
     joins = dict(author.get("joins", {}))
-
-    stages = list(author.get("analysis", {}).get("stages", []))
 
     stream_entry_nodes: dict[str, str] = {}
     stream_effective_nodes: dict[str, str] = {}
@@ -147,6 +148,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
     previous_stage_stream_source: str | None = None
 
     stage_nodes: dict[str, str] = {}
+    transform_specs = dict((author.get("registry") or {}).get("transforms") or {})
 
     for stage in stages:
         stage_id = stage["id"]
@@ -163,12 +165,35 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
                 )
             continue
 
-        stage_node = _make_stage_node(stage)
+        stage_node = _make_stage_node(stage, registry=transform_specs)
         add_graph_node(graph, stage_node)
         stage_nodes[stage_id] = stage_node.id
 
         explicit_from = stage.get("from", stage.get("in"))
-        if explicit_from is not None:
+        if isinstance(explicit_from, list):
+            for item in explicit_from:
+                if not isinstance(item, dict):
+                    raise TypeError(
+                        f"Stage '{stage_id}' input entries must be mappings, "
+                        f"got {type(item).__name__}"
+                    )
+                if "node" not in item:
+                    raise ValueError(
+                        f"Stage '{stage_id}' input is missing required 'node'"
+                    )
+                upstream_stage_node = _resolve_stage_input_reference(
+                    reference=str(item["node"]),
+                    stage_nodes=stage_nodes,
+                    stream_effective_nodes=stream_effective_nodes,
+                )
+                add_graph_edge(
+                    graph,
+                    upstream_stage_node,
+                    stage_node.id,
+                    output=str(item.get("port", "stream")),
+                    input_name=str(item.get("as", item.get("port", "stream"))),
+                )
+        elif explicit_from is not None:
             upstream_stage_node = _resolve_stage_input_reference(
                 reference=str(explicit_from),
                 stage_nodes=stage_nodes,
@@ -310,7 +335,7 @@ def _make_source_node(
     )
 
 
-def _make_stage_node(stage: dict[str, Any]) -> GraphNode:
+def _make_stage_node(stage: dict[str, Any], *, registry: dict[str, Any]) -> GraphNode:
     stage = deepcopy(stage)
 
     stage_id = stage["id"]
@@ -334,7 +359,7 @@ def _make_stage_node(stage: dict[str, Any]) -> GraphNode:
         role="transform",
         impl=op,
         params=params,
-        outputs=_infer_stage_outputs(op),
+        outputs=_stage_outputs(op, registry=registry),
         meta=meta,
     )
 
@@ -891,22 +916,54 @@ def _default_product_output(outputs: dict[str, str]) -> str:
     return _default_attachment_output(outputs)
 
 
-def _infer_stage_outputs(op: str) -> dict[str, str]:
-    """
-    Minimal output inference for current examples.
-
-    Later this should come from registry metadata.
-    """
-    if op == "hep.hist":
-        return {"hist": "histogram"}
-
-    if op == "hep.selection.cutflow":
-        return {
-            "stream": "event_stream",
-            "cutflow": "cutflow",
-        }
-
+def _stage_outputs(op: str, *, registry: dict[str, Any]) -> dict[str, str]:
+    spec = _registered_spec(op, registry=registry)
+    if spec is not None:
+        outputs = _outputs_from_spec(spec)
+        if outputs:
+            return outputs
     return {"stream": "event_stream"}
+
+
+def _registered_spec(op: str, *, registry: dict[str, Any]) -> dict[str, Any] | None:
+    entry = registry.get(op)
+    if not isinstance(entry, dict) or not isinstance(entry.get("spec"), str):
+        return None
+    spec = load_object(str(entry["spec"]))
+    if not isinstance(spec, dict):
+        raise TypeError(f"Registered transform spec for {op!r} must be a mapping")
+    return spec
+
+
+def _outputs_from_spec(spec: dict[str, Any]) -> dict[str, str]:
+    result = spec.get("result")
+    if not isinstance(result, dict):
+        return {}
+
+    if isinstance(result.get("kind"), str):
+        kind = str(result["kind"])
+        port = result.get("port")
+        if isinstance(port, str) and port:
+            return {port: kind}
+        if kind == "event_stream":
+            return {"stream": kind}
+        if kind == "artifact":
+            return {"artifact": kind}
+        raise ValueError(
+            f"Registered transform spec for {spec.get('name', '<unknown>')!r} "
+            f"declares single result kind {kind!r} without an output port"
+        )
+
+    outputs: dict[str, str] = {}
+    for name, value in result.items():
+        if isinstance(value, str):
+            outputs[str(name)] = value
+            continue
+        if isinstance(value, dict):
+            output_kind = value.get("kind")
+            if isinstance(output_kind, str) and output_kind:
+                outputs[str(name)] = output_kind
+    return outputs
 
 
 def _as_list(value: Any) -> list[Any]:

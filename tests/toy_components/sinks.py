@@ -47,6 +47,14 @@ TOY_CAPTURE_REGISTRY_SPEC = {
     "result": {"artifact": "artifact"},
 }
 
+TOY_CAPTURE_PRODUCTS_SPEC = {
+    "name": "toy.capture_products",
+    "kind": "sink",
+    "input": {"name": "target", "required": True},
+    "params": {},
+    "result": {"artifact": "artifact"},
+}
+
 
 def run_toy_capture_registry(
     *,
@@ -59,6 +67,17 @@ def run_toy_capture_registry(
         "target": target,
         "plan_has_registry": "registry" in plan,
         "product_handlers": sorted(getattr(runtime_registry, "product_handlers", {})),
+    }
+
+
+def run_toy_capture_products(
+    *,
+    target: Any,
+    ctx: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "target": target,
+        "input_products": dict((ctx or {}).get("input_products") or {}),
     }
 
 

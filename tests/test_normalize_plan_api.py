@@ -18,6 +18,7 @@ from hepflow.compiler.d2_graph import lowered_graph_to_d2
 from hepflow.compiler.includes import load_author_with_includes
 from hepflow.compiler.lower_graph import lower_author_to_graph
 from hepflow.compiler.normalize import normalize_author
+from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.utils import read_yaml
 
 
@@ -47,6 +48,112 @@ def test_normalize_preserves_generic_toy_source(toy_author: dict[str, Any]) -> N
 
     assert normalized["sources"]["events"]["kind"] == "toy.source"
     assert normalized["sources"]["events"]["stream_type"] == "event_stream"
+
+
+def test_explicit_empty_sources_are_preserved_for_product_workflows() -> None:
+    normalized = normalize_author(
+        {
+            "version": "1.0",
+            "registry": _toy_product_registry(),
+            "sources": {},
+            "analysis": {
+                "stages": [
+                    {
+                        "id": "Product",
+                        "op": "toy.product",
+                        "from": [],
+                        "params": {"dataset": "sample"},
+                    }
+                ]
+            },
+        }
+    )
+
+    assert normalized["sources"] == {}
+
+
+def test_source_less_product_plan_preserves_datasets_and_spec_outputs() -> None:
+    author = normalize_author(
+        {
+            "version": "1.0",
+            "registry": _toy_product_registry(),
+            "sources": {},
+            "data": {
+                "datasets": {
+                    "sample": {
+                        "files": ["sample.root"],
+                        "implementation": "fasthep",
+                    }
+                }
+            },
+            "analysis": {
+                "stages": [
+                    {
+                        "id": "Product",
+                        "op": "toy.product",
+                        "from": [],
+                        "params": {"dataset": "sample"},
+                    }
+                ]
+            },
+        }
+    )
+
+    graph = lower_author_to_graph(author)
+    graph_node = graph.nodes["stage.Product"]["payload"]
+    _, plan = build_plan_from_normalized(author)
+
+    assert graph_node.outputs == {"product": "toy_product"}
+    assert plan.partitions == []
+    assert plan.context["datasets"]["sample"]["files"] == ["sample.root"]
+    assert plan.context["datasets"]["sample"]["meta"] == {
+        "implementation": "fasthep"
+    }
+
+
+def test_transform_stage_accepts_multiple_product_inputs() -> None:
+    author = normalize_author(
+        {
+            "version": "1.0",
+            "registry": _toy_product_registry(),
+            "sources": {},
+            "analysis": {
+                "stages": [
+                    {
+                        "id": "Reference",
+                        "op": "toy.product",
+                        "from": [],
+                        "params": {"dataset": "reference"},
+                    },
+                    {
+                        "id": "Target",
+                        "op": "toy.product",
+                        "from": [],
+                        "params": {"dataset": "target"},
+                    },
+                    {
+                        "id": "Compare",
+                        "op": "toy.product_pair",
+                        "from": [
+                            {
+                                "node": "Reference",
+                                "port": "product",
+                                "as": "left",
+                            },
+                            {"node": "Target", "port": "product", "as": "right"},
+                        ],
+                    },
+                ]
+            },
+        }
+    )
+
+    _, plan = build_plan_from_normalized(author)
+    compare = plan.get_node("stage.Compare")
+
+    assert compare.outputs == {"pair": "toy_pair"}
+    assert [ref.input_name for ref in compare.inputs] == ["left", "right"]
+    assert [ref.output_name for ref in compare.inputs] == ["product", "product"]
 
 
 def test_top_level_sinks_errors_with_supported_syntax(
@@ -498,3 +605,24 @@ def assert_no_path_objects(value: object) -> None:
     if isinstance(value, list | tuple):
         for item in value:
             assert_no_path_objects(item)
+
+
+def _toy_product_registry() -> dict[str, Any]:
+    return {
+        "transforms": {
+            "toy.product": {
+                "spec": "tests.toy_components.transforms:TOY_PRODUCT_SPEC",
+                "impl": "tests.toy_components.transforms:run_toy_product",
+            },
+            "toy.product_pair": {
+                "spec": "tests.toy_components.transforms:TOY_PRODUCT_PAIR_SPEC",
+                "impl": "tests.toy_components.transforms:run_toy_product_pair",
+            },
+        },
+        "product_handlers": {
+            "toy_product": {
+                "merge": "tests.toy_components.products:merge_toy_products",
+                "materialize": "tests.toy_components.products:materialize_toy_product",
+            }
+        },
+    }

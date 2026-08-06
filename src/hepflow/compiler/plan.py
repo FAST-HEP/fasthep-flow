@@ -42,7 +42,18 @@ def build_execution_plan(
     plan.provenance = dict(provenance or {})
     plan.execution = normalize_global_execution(execution)
     plan.execution_hooks = _normalize_execution_hooks(execution_hooks or [])
-    context_datasets_by_name: dict[str, dict[str, Any]] = {}
+    context_datasets_by_name: dict[str, dict[str, Any]] = {
+        str(dataset["name"]): {
+            "name": str(dataset["name"]),
+            "files": list(dataset.get("files") or []),
+            "nevents": dataset.get("nevents"),
+            "eventtype": dataset.get("eventtype"),
+            "group": dataset.get("group"),
+            "meta": dict(dataset.get("meta") or {}),
+        }
+        for dataset in list(graph.graph.get("datasets") or [])
+        if isinstance(dataset, dict) and dataset.get("name") is not None
+    }
 
     for node_id in nx.topological_sort(graph):
         graph_node = get_graph_node(graph, node_id)
@@ -183,7 +194,7 @@ def build_execution_partitions(
 ) -> list[ExecutionPartition]:
     source_nodes = [node for node in plan.nodes if node.role == "source"]
     if not source_nodes:
-        raise ValueError("Execution plan has no source nodes; cannot build partitions")
+        return []
 
     partitions: list[ExecutionPartition] = []
     datasets_by_name = dict(plan.context.get("datasets") or {})
@@ -276,6 +287,14 @@ def _default_execution_policy(
         )
 
     if role == "transform":
+        if "stream" not in outputs and "event_stream" not in set(outputs.values()):
+            return (
+                "global",
+                "global",
+                PartitionSpec(mode="none"),
+                "never",
+            )
+
         if outputs == {"hist": "histogram"}:
             return (
                 "partition",
