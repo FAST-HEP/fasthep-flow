@@ -208,6 +208,8 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
                 "node_id": "write.SelectedEvents.0",
                 "input_node": "stage.SelectedEvents",
                 "tree": "events",
+                "format": "rntuple",
+                "root_classname": "ROOT::RNTuple",
                 "path": "artifacts/files/selected/data/0_0.root",
                 "path_type": "relative_to_outdir",
                 "dataset": "data",
@@ -237,8 +239,12 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
         ).read_text(encoding="utf-8")
     )
     assert writer_manifest["total_entries"] == 12
+    assert writer_manifest["format"] == "rntuple"
+    assert writer_manifest["root_classname"] == "ROOT::RNTuple"
     writer_file = writer_manifest["datasets"]["data"]["files"][0]
     assert writer_file["path_type"] == "relative_to_outdir"
+    assert writer_file["format"] == "rntuple"
+    assert writer_file["root_classname"] == "ROOT::RNTuple"
 
     provenance_manifest = json.loads(
         (tmp_path / "artifacts" / "provenance" / "manifest.json").read_text(

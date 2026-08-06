@@ -47,7 +47,11 @@ def write_writer_manifests(
                     partition=partition,
                 )
                 result_records.append((output, copied_record))
-                if has_writer_manifest:
+                if (
+                    has_writer_manifest
+                    and copied_record.get("dataset") is not None
+                    and copied_record.get("partition") is not None
+                ):
                     records.append(copied_record)
         if not records:
             continue
@@ -195,6 +199,8 @@ def _build_manifest(records: list[dict[str, Any]]) -> dict[str, Any]:
                     "attempt",
                     "entries",
                     "size_bytes",
+                    "format",
+                    "root_classname",
                     "provenance",
                 )
                 if key in record
@@ -206,6 +212,8 @@ def _build_manifest(records: list[dict[str, Any]]) -> dict[str, Any]:
         "node_id": first["node_id"],
         "input_node": first["input_node"],
         "tree": first["tree"],
+        "format": first.get("format"),
+        "root_classname": first.get("root_classname"),
         "total_entries": total_entries,
         "datasets": datasets,
     }
