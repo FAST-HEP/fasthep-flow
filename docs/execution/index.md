@@ -440,7 +440,6 @@ For runnable workflows, including the exoplanet example used on this page, see t
 :maxdepth: 1
 :hidden:
 
-index
 compilation
 graph-structure
 plan
