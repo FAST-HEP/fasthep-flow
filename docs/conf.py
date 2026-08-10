@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent / "_ext"))
+
 project = "FAST-HEP Flow"
 author = "FAST-HEP contributors"
 
@@ -9,6 +14,7 @@ extensions = [
     "sphinx_design",
     "sphinxcontrib.mermaid",
     "sphinx.ext.mathjax",
+    "mermaid_styles",
 ]
 
 source_suffix = {
@@ -46,3 +52,19 @@ exclude_patterns = [
     "_build",
     "archive/**",
 ]
+mermaid_init_config = {
+    "startOnLoad": True,
+    "theme": "base",
+    "themeVariables": {
+        "background": "#ffffff",
+        "primaryTextColor": "#111111",
+        "lineColor": "#5f6368",
+        "fontSize": "18px",
+    },
+    "flowchart": {
+        "htmlLabels": True,
+        "nodeSpacing": 40,
+        "rankSpacing": 50,
+        "curve": "basis",
+    },
+}
