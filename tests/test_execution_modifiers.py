@@ -145,18 +145,15 @@ def test_global_hook_wraps_node_modifier_lifecycle(toy_registry: dict[str, Any])
     [
         (
             "toy.fail_before",
-            "Error execution_modifier 'toy.fail_before' failed during before_node "
-            "for node stage.Scale: before boom",
+            "Error execution_modifier 'toy.fail_before' failed during before_node for node stage.Scale: before boom",
         ),
         (
             "toy.fail_around",
-            "Error execution_modifier 'toy.fail_around' failed during around_node "
-            "for node stage.Scale: around boom",
+            "Error execution_modifier 'toy.fail_around' failed during around_node for node stage.Scale: around boom",
         ),
         (
             "toy.fail_after",
-            "Error execution_modifier 'toy.fail_after' failed during after_node "
-            "for node stage.Scale: after boom",
+            "Error execution_modifier 'toy.fail_after' failed during after_node for node stage.Scale: after boom",
         ),
     ],
 )
