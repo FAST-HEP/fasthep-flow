@@ -1,20 +1,25 @@
 # Execution environments
 
-Flow separates the description of a computation from the environment in which that computation runs.
+Flow separates the description of a computation from the environment in which
+that computation runs.
 
-The execution plan describes nodes, products, partitions, scopes, and dependencies. The execution environment determines how that planned work is mapped onto computing resources.
+The execution plan describes nodes, products, partitions, scopes, dependencies,
+and execution requirements. The runtime interprets those semantics, while the
+backend maps executable work onto computing resources.
 
 ```{mermaid}
 flowchart LR
-    Plan["execution<br/>plan"]
-    Runtime["Flow<br/>runtime"]
-    Backend["execution<br/>backend"]
-    Resources["computing<br/>resources"]
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Flow runtime</b><br/>execution semantics"]:::runtime
+    Backend["<b>Backend</b><br/>map work to resources"]:::capability
+    Resources["<b>Computing resources</b>"]:::capability
 
     Plan --> Runtime --> Backend --> Resources
 ```
 
-This separation allows the same workflow structure to be used across different execution environments without embedding infrastructure-specific scheduling logic into analysis operations.
+This separation allows the same planned computation to be used across different
+execution environments without embedding infrastructure-specific scheduling
+logic into scientific operations.
 
 ---
 
@@ -66,7 +71,7 @@ registry:
       impl: hepflow.backends:Dask
 ```
 
-The runtime works with Flow concepts such as nodes, products, scopes, and partitions. The backend provides the mechanism for carrying out that work.
+The runtime determines what work is ready according to Flow’s execution semantics. The backend maps that work onto the execution system and available resources.
 
 Conceptually:
 
@@ -104,7 +109,7 @@ backends:
     impl: hepflow.backends:Dask
 ```
 
-The runtime therefore does not require backend implementations to come from fasthep-flow itself. An installed package can register additional backends in exactly the same way.
+The runtime therefore does not require backend implementations to come from `fasthep-flow` itself. An installed package can register additional backends in exactly the same way.
 
 Conceptually:
 ```
@@ -128,7 +133,7 @@ The simplest environment executes the workflow locally.
 For example:
 
 ```bash
-fasthep run author.yaml
+fasthep run workflow.yaml
 ```
 
 with the default execution configuration resolves to the local backend.
@@ -155,11 +160,11 @@ Consider a dataset split into several partitions:
 
 ```{mermaid}
 flowchart TD
-    Plan["execution plan"]
+    Plan["<b>Execution plan</b>"]:::plan
 
-    P1["partition 1"]
-    P2["partition 2"]
-    P3["partition 3"]
+    P1["<b>Partition 1</b>"]:::input
+    P2["<b>Partition 2</b>"]:::input
+    P3["<b>Partition 3</b>"]:::input
 
     Plan --> P1
     Plan --> P2
@@ -170,20 +175,19 @@ A distributed backend can map those units of work onto multiple workers.
 
 ```{mermaid}
 flowchart TD
-    Runtime["Flow runtime"]
+    Runtime["<b>Flow runtime</b>"]:::runtime
+    Dask["<b>Dask backend</b>"]:::capability
 
-    Scheduler["distributed scheduler"]
+    W1["<b>Worker</b>"]:::capability
+    W2["<b>Worker</b>"]:::capability
+    W3["<b>Worker</b>"]:::capability
 
-    W1["worker"]
-    W2["worker"]
-    W3["worker"]
-
-    Runtime --> Scheduler
-
-    Scheduler --> W1
-    Scheduler --> W2
-    Scheduler --> W3
+    Runtime --> Dask
+    Dask --> W1
+    Dask --> W2
+    Dask --> W3
 ```
+Those workers may themselves be provisioned locally or through external infrastructure such as HTCondor or Slurm.
 
 Flow currently provides integration with Dask for distributed execution.
 
@@ -283,10 +287,10 @@ Execution configuration provides a place to describe or select these environment
 
 ```{mermaid}
 flowchart LR
-    Operation["planned<br/>operation"]
-    Requirements["execution<br/>requirements"]
-    Backend["backend"]
-    Worker["suitable worker<br/>environment"]
+    Operation["<b>Planned operation</b>"]:::plan
+    Requirements["<b>Execution requirements</b>"]:::capability
+    Backend["<b>Backend</b>"]:::capability
+    Worker["<b>Suitable worker environment</b>"]:::runtime
 
     Operation --> Requirements --> Backend --> Worker
 ```
@@ -320,12 +324,12 @@ A backend answers the broad question:
 
 > **Which execution system should carry out the work?**
 
-A strategy can refine how that backend is used.
+A strategy can refine how a backend is used.
 
 For example, different strategies might make different decisions about:
 
-- partition sizing
 - scheduling behaviour
+- task grouping
 - resource allocation
 - worker configuration
 - caching
@@ -376,7 +380,7 @@ or:
 experiment batch infrastructure
 ```
 
-The workflow can then select an appropriate execution environment without incorporating all of its infrastructure configuration directly.
+Flow can then be configured with an appropriate execution environment without requiring the workflow to contain all of its infrastructure details.
 
 This follows the same general principle as other Flow profiles: reusable configuration should be composed rather than duplicated.
 
@@ -410,7 +414,7 @@ execution_modifiers:
 
 This is particularly useful for experimenting with new computing technologies.
 
-An implementation can evolve from one execution approach to another without requiring those infrastructure details to become part of Flow's core workflow language.
+An implementation can therefore acquire different runtime preparation without requiring those infrastructure details to become part of the scientific workflow language.
 
 ---
 
@@ -449,10 +453,10 @@ The responsibilities remain separate:
 
 ```{mermaid}
 flowchart TD
-    Flow["Flow<br/>workflow orchestration"]
-    Dask["distributed execution"]
-    Batch["batch / resource management"]
-    Workers["compute resources"]
+    Flow["<b>Flow runtime</b><br/>workflow orchestration"]:::runtime
+    Dask["<b>Dask backend</b><br/>distributed execution"]:::capability
+    Batch["<b>HTCondor / Slurm</b><br/>resource provisioning"]:::capability
+    Workers["<b>Worker resources</b>"]:::capability
 
     Flow --> Dask --> Batch --> Workers
 ```
@@ -486,10 +490,10 @@ This is the same principle used throughout FAST-HEP: components that perform or 
 
 ## Where next?
 
-This completes the path from author description to execution environment:
+This completes the path from workflow description to execution environment:
 
 ```text
-author description
+workflow description
         ↓
 compilation
         ↓

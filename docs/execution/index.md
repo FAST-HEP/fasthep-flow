@@ -2,41 +2,71 @@
 
 Flow separates **describing a workflow** from **executing it**.
 
-An author workflow is first compiled into an explicit execution plan. The runtime then consumes that plan and invokes the registered implementations needed to perform the work.
+A workflow description is compiled through a series of explicit intermediate
+representations into a backend-independent execution plan. The runtime then
+consumes that plan and invokes the registered implementations needed to perform
+the work.
 
 ```{mermaid}
 flowchart LR
-    Author["author.yaml"]
-    Normalised["normalised<br/>workflow"]
-    IR["workflow<br/>representation"]
-    Dependencies["dependency<br/>analysis"]
-    Plan["execution<br/>plan"]
-    Runtime["runtime"]
+    Workflow["<b>workflow.yaml</b><br/>workflow description"]:::input
+    Normalised["<b>Normalised workflow</b>"]:::flow
+    Graph["<b>Logical graph</b>"]:::flow
+    Analysis["<b>Compiler analysis</b><br/>dependencies + datasets"]:::flow
+    Plan["<b>Execution plan</b><br/>backend-independent"]:::plan
+    Runtime["<b>Runtime</b>"]:::runtime
 
-    Author --> Normalised --> IR --> Dependencies --> Plan --> Runtime
+    Workflow --> Normalised --> Graph --> Analysis --> Plan --> Runtime
 ```
 
-This separation allows Flow to reason about a workflow before processing its data.
+This separation allows Flow to reason about a workflow before processing its
+scientific data.
 
 Compilation can determine:
 
-- which capabilities are required
-- how operations depend on one another
-- which data fields are needed
-- what products flow between operations
-- which implementations are available
-- how the workflow should be partitioned
-- which outputs should be produced
+* which capabilities are required
+* how operations depend on one another
+* which data fields are needed
+* what products flow between operations
+* which implementations are available
+* how datasets should be partitioned
+* how products should be merged or materialised
+* which outputs should be produced
 
-The resulting execution plan forms the main boundary between **workflow compilation** and **runtime execution**.
+The resulting **execution plan** forms the main architectural boundary between
+workflow compilation and runtime execution.
+
+Before the plan, Flow is concerned with understanding, resolving, validating,
+and planning the workflow. After the plan, it is concerned with executing that
+resolved computation on a chosen execution backend.
 
 ---
 
-## From author description to execution plan
+## From workflow description to execution plan
 
-Author descriptions are designed for people. They may contain defaults, profiles, references, shorthand, and other conveniences that do not need to appear directly in the runtime representation.
+Workflow descriptions are designed for people. They may contain defaults,
+profiles, references, shorthand, and other conveniences that do not need to
+appear directly in the runtime representation.
 
-Compilation progressively resolves this information into explicit, machine-oriented representations.
+Compilation progressively resolves this information into explicit,
+machine-oriented representations.
+
+At a high level:
+
+```{mermaid}
+flowchart LR
+    Workflow["<b>workflow.yaml</b><br/>author-facing"]:::input
+    Normal["<b>Normalised workflow</b><br/>assembled description"]:::flow
+    Graph["<b>Logical graph</b><br/>data flow"]:::flow
+    Analysis["<b>Compiler analysis</b><br/>requirements + metadata"]:::flow
+    Plan["<b>Execution plan</b><br/>resolved execution"]:::plan
+
+    Workflow --> Normal --> Graph --> Analysis --> Plan
+```
+
+These are useful representations of the compilation process rather than a
+guarantee that Flow will always be implemented as exactly this sequence of
+compiler passes.
 
 A typical Flow run exposes several of these as compilation artifacts:
 
@@ -50,38 +80,29 @@ compile/
 └── report.compile.yaml
 ```
 
-At a high level, these provide different views of the workflow:
-
-```text
-author.yaml        what the user wrote
-      ↓
-normalized.yaml    canonical resolved description
-      ↓
-analysis.ir.yaml   workflow intermediate representation
-      ↓
-deps.yaml          inferred data requirements
-      ↓
-plan.yaml          executable description
-      ↓
-runtime            execution
-```
-
-These files are useful representations of the compilation process rather than a guarantee that Flow will always be implemented as exactly this sequence of compiler passes.
-
 ---
 
-## Normalisation makes the workflow explicit
+## Normalisation assembles the workflow
 
-Normalisation converts the author-facing workflow into a canonical, explicit representation.
+Normalisation converts the author-facing workflow into a canonical, explicit
+description.
 
-Depending on the workflow, this includes resolving:
+Depending on the workflow, this can include assembling:
 
 - defaults
 - included configuration
-- profiles
-- registry contributions
-- references
+- profile references
+- workflow references
 - authoring conveniences
+
+The result is a single normalised workflow from which later compiler stages can
+construct and analyse the logical graph.
+
+Normalisation does not execute scientific operations. It makes the author's
+description explicit enough for subsequent compiler stages to reason about it.
+
+This also allows the workflow language to evolve independently of the logical
+graph, execution plan, and runtime.
 
 For example, an author workflow may simply request:
 
@@ -181,13 +202,13 @@ The relationship is therefore approximately:
 
 ```{mermaid}
 flowchart LR
-    Author["author<br/>operations"]
-    Specs["operation<br/>specifications"]
-    Deps["inferred<br/>requirements"]
-    Plan["source fields<br/>in plan"]
-    Reader["source<br/>implementation"]
+    Operation["<b>Operation</b><br/>uses planet_radius"]:::transform
+    Spec["<b>Specification</b><br/>declares requirements"]:::flow
+    Analysis["<b>Dependency analysis</b>"]:::flow
+    Projection["<b>Source projection</b><br/>required fields"]:::plan
+    Reader["<b>Source</b><br/>implementation"]:::source
 
-    Author --> Specs --> Deps --> Plan --> Reader
+    Operation --> Spec --> Analysis --> Projection --> Reader
 ```
 
 By default, only fields required by the compiled workflow need to be requested from the data source.
@@ -196,11 +217,11 @@ How a particular source implements that request is outside Flow itself. For exam
 
 ---
 
-## The workflow becomes an explicit graph
+## The logical graph makes data flow explicit
 
 Compilation also connects operations according to their inputs and outputs.
 
-The compiled exoplanet workflow can be visualised as:
+The logical graph for the compiled exoplanet workflow can be visualised as:
 
 ```{image} ../_static/images/nasa_workflow.svg
 :alt: Compiled Flow graph for the NASA exoplanet example
@@ -236,18 +257,24 @@ The graph can also support:
 
 ## The execution plan
 
-The execution plan is the main boundary between compilation and runtime execution.
+The execution plan is the resolved description of what should execute and forms
+the main boundary between compilation and runtime.
 
-It contains the resolved information needed to execute the workflow, including:
+It records the information required by the runtime, including:
 
-- workflow nodes and their implementations
-- inputs and outputs
+- graph nodes and their inputs and outputs
+- selected implementations
 - operation parameters
 - datasets and partitions
+- lifecycle behaviour
+- merge and materialisation policies
+- registry information
 - execution configuration
-- registry state
-- inferred data-flow requirements
+- data-flow requirements
 - provenance information
+
+The plan describes **what should execute** while remaining independent of
+**where its partitions are eventually executed**.
 
 A heavily abbreviated version of the exoplanet plan looks like:
 
@@ -292,18 +319,17 @@ This also means that Flow's runtime does not fundamentally require the standard 
 
 ## Runtime executes the resolved workflow
 
-At runtime, Flow follows the plan and invokes the implementations selected during compilation.
+At runtime, Flow follows the plan and executes **active graph nodes for each partition**.
 
 Conceptually:
 
 ```{mermaid}
 flowchart LR
-    Plan["execution plan"]
-    Runtime["Flow runtime"]
-
-    Source["source<br/>implementation"]
-    Transform["transform<br/>implementation"]
-    Sink["sink<br/>implementation"]
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Flow runtime</b><br/>execution semantics"]:::runtime
+    Source["<b>Source</b>"]:::source
+    Transform["<b>Transform</b>"]:::transform
+    Sink["<b>Sink</b>"]:::sink
 
     Plan --> Runtime
     Runtime --> Source
@@ -327,9 +353,17 @@ Flow provides the orchestration that connects and executes them. It does not nee
 
 ## Execution environments can vary
 
-The plan describes the computation separately from the environment in which it runs.
+The execution plan describes the computation separately from the infrastructure
+on which it runs.
 
-Execution configuration determines how the planned workflow is carried out. The exoplanet example, for instance, uses:
+The Flow runtime defines the common execution semantics. An execution backend
+maps those semantics onto computing resources.
+
+For example, the same plan may be executed using a local backend or a Dask
+backend. The backend can change how partitions are scheduled and transported
+without changing the scientific workflow.
+
+The exoplanet example, for instance, uses:
 
 ```yaml
 execution:
@@ -397,25 +431,19 @@ The overall model can be summarised as:
 
 ```{mermaid}
 flowchart LR
-    subgraph Compile["Compilation"]
-        Author["author<br/>description"]
-        Contracts["registered<br/>contracts"]
-        Workflow["resolved<br/>workflow"]
+    Workflow["<b>workflow.yaml</b><br/>workflow description"]:::input
+    Contracts["<b>Specifications</b><br/>compile-time contracts"]:::flow
 
-        Author --> Workflow
-        Contracts --> Workflow
-    end
+    Compiler["<b>Compilation</b><br/>understand + resolve + validate"]:::flow
+    Plan["<b>Execution plan</b>"]:::plan
 
-    Plan["execution<br/>plan"]
+    Runtime["<b>Runtime</b><br/>execution semantics"]:::runtime
+    Implementations["<b>Implementations</b><br/>runtime behaviour"]:::transform
 
-    subgraph Execute["Execution"]
-        Runtime["runtime"]
-        Implementations["registered<br/>implementations"]
-
-        Runtime --> Implementations
-    end
-
-    Workflow --> Plan --> Runtime
+    Workflow --> Compiler
+    Contracts --> Compiler
+    Compiler --> Plan --> Runtime
+    Runtime --> Implementations
 ```
 
 Before the plan, Flow is primarily concerned with **understanding, resolving, and validating** the workflow.

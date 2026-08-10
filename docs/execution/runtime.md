@@ -2,7 +2,9 @@
 
 The Flow runtime executes a compiled execution plan.
 
-By the time runtime execution begins, the workflow has already been resolved and planned. The runtime does not need to interpret `author.yaml`, infer field dependencies, or decide which implementation an operation refers to.
+By the time runtime execution begins, the workflow has already been resolved
+and planned. The runtime does not need to interpret `workflow.yaml`, infer field
+dependencies, or determine which implementation an operation refers to.
 
 Instead, it receives an explicit plan describing:
 
@@ -16,19 +18,17 @@ Instead, it receives an explicit plan describing:
 
 ```{mermaid}
 flowchart LR
-    Plan["execution<br/>plan"]
-    Runtime["Flow<br/>runtime"]
-    Backend["execution<br/>backend"]
-    Implementations["registered<br/>implementations"]
-    Artifacts["products and<br/>artifacts"]
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Flow runtime</b><br/>execution semantics"]:::runtime
+    Backend["<b>Backend</b><br/>map work to resources"]:::capability
+    Implementations["<b>Registered implementations</b>"]:::capability
+    Artifacts["<b>Products + artifacts</b>"]:::artifact
 
-    Plan --> Runtime
-    Runtime --> Backend
-    Backend --> Implementations
-    Implementations --> Artifacts
+    Plan --> Runtime --> Backend --> Implementations --> Artifacts
 ```
 
-Flow is responsible for **orchestration**. Registered implementations remain responsible for the actual work performed on the data.
+Flow is responsible for **orchestration**. Registered implementations remain
+responsible for the actual work performed on the data.
 
 ---
 
@@ -67,7 +67,7 @@ Its responsibilities are instead approximately:
 
 1. determine when the node is ready to run
 2. obtain the required `stream` product
-3. resolve `workshop.tabular.filter`
+3. resolve the registered implementation for `workshop.tabular.filter`
 4. invoke its registered implementation with the planned parameters and runtime context
 5. receive the resulting `event_stream`
 6. make that product available to downstream nodes
@@ -106,7 +106,7 @@ backends:
     impl: hepflow.backends:Local
 ```
 
-The backend is responsible for carrying out the work described by the runtime.
+The runtime determines what work is ready to execute according to Flow's execution semantics. The backend maps that work onto the available computing resources.
 
 This allows Flow to support different execution systems without embedding their scheduling mechanisms into workflow operations.
 
@@ -114,11 +114,11 @@ Conceptually:
 
 ```{mermaid}
 flowchart TD
-    Runtime["Flow runtime"]
+    Runtime["<b>Flow runtime</b>"]:::runtime
 
-    Local["local backend"]
-    Distributed["distributed backend"]
-    Future["other backends"]
+    Local["<b>Local backend</b>"]:::capability
+    Distributed["<b>Distributed backend</b>"]:::capability
+    Future["<b>Other backends</b>"]:::capability
 
     Runtime --> Local
     Runtime --> Distributed
@@ -147,9 +147,9 @@ A chain of partition-scoped transforms can be evaluated independently for each:
 
 ```{mermaid}
 flowchart LR
-    P1["partition 1"] --> A1["PlanetRows"] --> B1["EarthSizedPlanets"] --> C1["PlanetTable"]
-    P2["partition 2"] --> A2["PlanetRows"] --> B2["EarthSizedPlanets"] --> C2["PlanetTable"]
-    P3["partition 3"] --> A3["PlanetRows"] --> B3["EarthSizedPlanets"] --> C3["PlanetTable"]
+    P1["<b>Partition 1</b>"]:::input --> A1["PlanetRows"]:::transform --> B1["EarthSizedPlanets"]:::transform --> C1["PlanetTable"]:::transform
+    P2["<b>Partition 2</b>"]:::input --> A2["PlanetRows"]:::transform --> B2["EarthSizedPlanets"]:::transform --> C2["PlanetTable"]:::transform
+    P3["<b>Partition 3</b>"]:::input --> A3["PlanetRows"]:::transform --> B3["EarthSizedPlanets"]:::transform --> C3["PlanetTable"]:::transform
 ```
 
 Each execution follows the same nodes and parameters, but operates on a different partition of the input data.
@@ -273,20 +273,17 @@ The runtime therefore needs to cross a scope boundary:
 
 ```{mermaid}
 flowchart TD
-    P1["partition product"]
-    P2["partition product"]
-    P3["partition product"]
+    P1["<b>Partition product</b>"]:::artifact
+    P2["<b>Partition product</b>"]:::artifact
+    P3["<b>Partition product</b>"]:::artifact
 
-    Merge["product handling"]
-
-    Global["global product"]
-
-    Sink["global sink"]
+    Merge["<b>Product handling</b><br/>merge / promote"]:::capability
+    Global["<b>Global product</b>"]:::artifact
+    Sink["<b>Global sink</b>"]:::sink
 
     P1 --> Merge
     P2 --> Merge
     P3 --> Merge
-
     Merge --> Global --> Sink
 ```
 
@@ -440,7 +437,7 @@ The precise runtime context contract is part of the extension API and is documen
 
 ## Runtime extensions
 
-Not all runtime behaviour belongs in the data-flow graph.
+Not all runtime behaviour belongs in the logical data-flow structure of the workflow.
 
 Execution hooks allow extensions to react to runtime lifecycle events.
 
@@ -507,7 +504,7 @@ execution_modifiers:
 
 The important distinction is that these modify **execution behaviour**, not workflow semantics.
 
-An analysis operation should not need to become a different kind of workflow node merely because its implementation is executed using different hardware or runtime preparation.
+The scientific workflow should not need to change merely because an implementation requires different hardware or runtime preparation.
 
 ---
 
@@ -578,12 +575,12 @@ Instead:
 
 ```{mermaid}
 flowchart TD
-    Flow["Flow runtime<br/><b>orchestration</b>"]
+    Flow["<b>Flow runtime</b><br/>orchestration"]:::runtime
 
-    Source["source implementation"]
-    Transform["transform implementation"]
-    Sink["sink implementation"]
-    Handler["product handler"]
+    Source["<b>Source implementation</b>"]:::source
+    Transform["<b>Transform implementation</b>"]:::transform
+    Sink["<b>Sink implementation</b>"]:::sink
+    Handler["<b>Product handler</b>"]:::capability
 
     Flow --> Source
     Flow --> Transform
@@ -601,31 +598,29 @@ A capability can be replaced with a new implementation — using a different lib
 
 The terms **runtime** and **backend** describe different layers.
 
-The runtime understands Flow concepts:
+The runtime understands Flow execution semantics:
 
-- nodes
-- products
-- dependencies
-- scopes
-- partitions
-- materialisation
-- hooks
+* nodes and dependencies
+* products and scopes
+* partitions
+* materialisation
+* lifecycle hooks
 
-The backend understands how work is executed:
+The backend understands how executable work is mapped onto resources:
 
-- directly in the current process
-- on local workers
-- through a distributed scheduler
-- in another execution environment
+* directly in the current process
+* on local workers
+* through a distributed scheduler
+* in another execution environment
 
 A useful approximation is:
 
 ```{mermaid}
-flowchart TD
-    Plan["execution plan"]
-    Runtime["Flow runtime<br/><b>what is ready to run?</b>"]
-    Backend["backend<br/><b>where/how should it run?</b>"]
-    Impl["implementation<br/><b>perform the work</b>"]
+flowchart LR
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Flow runtime</b><br/>what is ready to run?"]:::runtime
+    Backend["<b>Backend</b><br/>where / how does it run?"]:::capability
+    Impl["<b>Implementation</b><br/>perform the work"]:::transform
 
     Plan --> Runtime --> Backend --> Impl
 ```
@@ -663,31 +658,29 @@ Additional artifacts, reports, and diagnostics depend on the capabilities activa
 
 The most important runtime boundary is therefore:
 
-```text
-                     compilation
-                         │
-                         ▼
-                  ┌─────────────┐
-                  │    plan     │
-                  └─────────────┘
-                         │
-                         ▼
-                      runtime
-                         │
-             ┌───────────┼───────────┐
-             ▼           ▼           ▼
-         backend     operations    extensions
-             │           │           │
-             └───────────┼───────────┘
-                         ▼
-                 products / artifacts
+```{mermaid}
+flowchart TD
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Flow runtime</b><br/>orchestration"]:::runtime
+
+    Backend["<b>Backend</b><br/>execution resources"]:::capability
+    Operations["<b>Operations</b><br/>scientific computation"]:::capability
+    Extensions["<b>Extensions</b><br/>lifecycle behaviour"]:::capability
+
+    Outputs["<b>Products + artifacts</b>"]:::artifact
+
+    Plan --> Runtime
+    Runtime --> Backend
+    Runtime --> Operations
+    Runtime --> Extensions
+    Operations --> Outputs
 ```
 
 The runtime does not need to know how the plan was authored.
 
 Its job is to orchestrate the resolved computation represented by that plan.
 
-This is what makes the execution plan a meaningful interface between authoring, compilation, and execution.
+This is what makes the execution plan a meaningful interface between compilation and execution, independent of the workflow language that produced it.
 
 ---
 

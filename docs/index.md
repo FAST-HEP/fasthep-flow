@@ -10,18 +10,22 @@ Flow separates three concerns:
 
 ```{mermaid}
 flowchart LR
-    Author["workflow description<br/><b>authoring</b>"]
-    Compile["compiler<br/><b>normalise and plan</b>"]
-    Plan["execution plan"]
-    Flow["Flow<br/><b>orchestration</b>"]
-    Outputs["products and artifacts"]
+    Workflow["<b>workflow.yaml</b><br/>scientific workflow"]:::input
+    Compile["<b>Compilation</b><br/>normalise, analyse,<br/>validate, plan"]:::flow
+    Plan["<b>Execution plan</b><br/>backend-independent"]:::plan
+    Runtime["<b>Runtime</b><br/>orchestration"]:::runtime
+    Outputs["<b>Artifacts</b><br/>results + provenance"]:::artifact
 
-    Author --> Compile --> Plan --> Flow --> Outputs
+    Workflow --> Compile --> Plan --> Runtime --> Outputs
 ```
 
-The standard FAST-HEP authoring layer uses YAML, but Flow itself operates on the resulting execution plan. Other authoring or compilation tools can therefore produce compatible plans and use the same runtime.
+The standard FAST-HEP workflow language uses YAML, but Flow's runtime operates
+on the resulting execution plan. Alternative workflow languages, frontends, or
+compilation tools can therefore produce compatible plans and use the same
+runtime.
 
-Flow is developed as the orchestration layer of the [FAST-HEP](https://fast-hep.github.io/) toolkit, but its workflow model and runtime are intentionally independent of High Energy Physics.
+Flow is developed as the workflow compiler and runtime of the [FAST-HEP](https://fast-hep.github.io/)  toolkit, but its workflow model, compiler, and runtime are
+intentionally independent of High Energy Physics.
 
 ---
 
@@ -43,12 +47,13 @@ Flow compiles this description into an explicit graph and execution plan before 
 
 ```{mermaid}
 flowchart LR
-    Description["workflow description"]
-    Graph["dependency graph"]
-    Plan["execution plan"]
-    Runtime["runtime"]
+    Workflow["<b>workflow.yaml</b><br/>workflow description"]:::input
+    Normal["<b>Normalised workflow</b>"]:::flow
+    Graph["<b>Logical graph</b>"]:::flow
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Runtime</b>"]:::runtime
 
-    Description --> Graph --> Plan --> Runtime
+    Workflow --> Normal --> Graph --> Plan --> Runtime
 ```
 
 This explicit representation makes workflows easier to inspect, validate, debug, and execute in different computing environments.
@@ -64,23 +69,20 @@ Flow does not implement the scientific processing performed by a workflow.
 Instead, it orchestrates capabilities provided through explicit contracts.
 
 ```{mermaid}
-flowchart TD
-    Flow["Flow<br/><b>orchestration</b>"]
+flowchart LR
+    Source["<b>Source</b><br/>introduce data"]:::source
+    Transform["<b>Transform</b><br/>compute products"]:::transform
+    Observer["<b>Observer</b><br/>inspect"]:::observer
+    Sink["<b>Sink</b><br/>produce artifacts"]:::sink
 
-    Source["source<br/><b>introduce data</b>"]
-    Transform["transform<br/><b>process data</b>"]
-    Observer["observer<br/><b>inspect execution</b>"]
-    Sink["sink<br/><b>produce outputs</b>"]
-
-    Flow --> Source
-    Flow --> Transform
-    Flow --> Observer
-    Flow --> Sink
+    Source --> Transform --> Sink
+    Transform -.-> Observer
 ```
 
 Capabilities can be supplied by FAST-HEP packages, experiments, external projects, or individual analyses.
 
-Flow only needs to understand the contract exposed by a capability, not its internal implementation. This allows implementations to evolve independently as software libraries, data formats, algorithms, and computing hardware change.
+Flow reasons about capabilities through their registered contracts rather than their internal implementations.
+This allows implementations to evolve independently as software libraries, data formats, algorithms, and computing hardware change.
 
 For more detail, see {doc}`extending/operations-and-specs` and {doc}`extending/registries-and-profiles`.
 
@@ -88,7 +90,7 @@ For more detail, see {doc}`extending/operations-and-specs` and {doc}`extending/r
 
 ## Flow in FAST-HEP
 
-Within FAST-HEP, Flow provides the common workflow infrastructure while other packages supply domain-specific capabilities.
+Flow provides the common workflow compilation, planning, and runtime infrastructure while other packages supply domain-specific capabilities.
 
 For example:
 
@@ -120,7 +122,9 @@ Runnable HEP examples and step-by-step extension tutorials are available in the 
 
 Flow is under active development and has not yet reached its first stable release.
 
-The core architecture is settling, but parts of the user-facing authoring language and some runtime interfaces are still evolving. In particular, the authoring syntax is expected to become more concise while preserving the underlying workflow model.
+The core architecture is settling, but parts of the workflow language and some
+runtime interfaces are still evolving. In particular, the workflow syntax is
+expected to become more concise while preserving the underlying workflow model.
 
 Current behaviour and interfaces should therefore be checked against the reference documentation for the version being used.
 

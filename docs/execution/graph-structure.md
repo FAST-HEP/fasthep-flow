@@ -1,16 +1,16 @@
 # Graph structure
 
-An author workflow may look like a sequence of analysis stages, but the compiled workflow is a graph.
+A workflow description may look like a sequence of analysis stages, but its compiled structure is a graph.
 
 Operations can share upstream computation, branch into independent paths, participate only in particular contexts, and be expanded into variations without requiring the author to manually duplicate complete workflows.
 
 ```{mermaid}
 flowchart LR
-    Source["source"]
-    Common["common<br/>processing"]
-    A["path A"]
-    B["path B"]
-    C["path C"]
+    Source["<b>Source</b>"]:::source
+    Common["<b>Common processing</b>"]:::transform
+    A["<b>Path A</b>"]:::transform
+    B["<b>Path B</b>"]:::transform
+    C["<b>Path C</b>"]:::transform
 
     Source --> Common
     Common --> A
@@ -34,10 +34,10 @@ A simple workflow may form a linear chain:
 
 ```{mermaid}
 flowchart LR
-    Source["source"]
-    Define["derive fields"]
-    Select["select rows"]
-    Hist["summarise"]
+    Source["<b>Source</b>"]:::source
+    Define["<b>Derive fields</b>"]:::transform
+    Select["<b>Select rows</b>"]:::transform
+    Hist["<b>Summarise</b>"]:::transform
 
     Source --> Define --> Select --> Hist
 ```
@@ -48,17 +48,17 @@ The output of an operation may be consumed by several downstream operations:
 
 ```{mermaid}
 flowchart LR
-    Source["source"]
-    Common["common processing"]
-    A["analysis path A"]
-    B["analysis path B"]
+    Source["<b>Source</b>"]:::source
+    Common["<b>Common processing</b>"]:::transform
+    A["<b>Analysis path A</b>"]:::transform
+    B["<b>Analysis path B</b>"]:::transform
 
     Source --> Common
     Common --> A
     Common --> B
 ```
 
-Flow represents these relationships explicitly in the dependency graph and execution plan.
+Flow represents these relationships explicitly in the logical graph and execution plan.
 
 This allows common processing to be shared while downstream parts of the workflow evolve independently.
 
@@ -120,15 +120,15 @@ The compiled graph contains shared processing followed by two downstream paths:
 
 ```{mermaid}
 flowchart TD
-    Read["read.events<br/>source"]
-    Muons["MuonColumns<br/>transform"]
+    Read["<b>read.events</b>"]:::source
+    Muons["<b>MuonColumns</b>"]:::transform
 
-    MuonPt["MuonPt<br/>histogram"]
-    MuonRender["MuonPt<br/>render"]
+    MuonPt["<b>MuonPt</b><br/>histogram"]:::transform
+    MuonRender["<b>MuonPt</b><br/>render"]:::sink
 
-    MCColumns["MCLeptonColumns<br/>MC only"]
-    MCLeptonPt["MCLeptonPt<br/>MC only"]
-    MCRender["MCLeptonPt<br/>render"]
+    MCColumns["<b>MCLeptonColumns</b><br/>MC only"]:::transform
+    MCLeptonPt["<b>MCLeptonPt</b><br/>MC only"]:::transform
+    MCRender["<b>MCLeptonPt</b><br/>render"]:::sink
 
     Read --> Muons
 
@@ -171,7 +171,7 @@ Branching is therefore not a special execution mode. It follows naturally from t
 
 ## Dependencies and context determine the graph
 
-The compiled graph is determined by more than the order in which stages appear in `author.yaml`.
+The compiled graph is determined by more than the order in which stages appear in the workflow description.
 
 Flow combines information from:
 
@@ -180,7 +180,7 @@ Flow combines information from:
 - dataset and workflow context
 - conditions such as `applies_to`
 
-to determine which operations participate and how their data dependencies are connected.
+to determine which operations participate and how they are connected in the logical graph.
 
 An important distinction is:
 
@@ -211,7 +211,7 @@ This makes conditional workflow structure part of the declarative description ra
 
 ## Conditional participation
 
-`applies_to` provides the current author-level mechanism for restricting an operation to particular workflow contexts.
+`applies_to` provides the current workflow-level mechanism for restricting an operation to particular contexts.
 
 For example:
 
@@ -235,7 +235,7 @@ the workflow declares that the operation belongs only to that context.
 
 The operation can therefore remain focused on performing its computation, while Flow is responsible for deciding where it participates in the workflow.
 
-`applies_to` currently provides the basic mechanism for conditional participation. More expressive controls may be added as the author language evolves.
+`applies_to` currently provides the basic mechanism for conditional participation. More expressive controls may be added as the workflow language evolves.
 
 ---
 
@@ -296,7 +296,7 @@ Flow can use this information during compilation to construct the corresponding 
 
 ---
 
-## Weight variations
+### Weight variations
 
 A weight variation changes how downstream weighted computations are evaluated.
 
@@ -310,13 +310,13 @@ variation:
     EventWeight × TriggerEffWeight_up
 ```
 
-The analysis stages that consume the weight can then be evaluated for the variation without requiring separate copies of their author-level definitions.
+The analysis stages that consume the weight can then be evaluated for the variation without requiring separate copies of their workflow-level definitions.
 
 Uncertainty calculations are one important use case, but the underlying mechanism is simply a controlled modification to the inputs of downstream computation.
 
 ---
 
-## Field variations
+### Field variations
 
 A variation can replace one field with another.
 
@@ -345,25 +345,25 @@ Because Flow has planner-visible dependency information, the compiler can reason
 
 ```{mermaid}
 flowchart LR
-    Common["common<br/>processing"]
+    Common["<b>Common processing</b>"]:::transform
 
-    Nominal["Muon_Pt"]
-    Varied["Muon_Pt_scale_up"]
+    Nominal["<b>Muon_Pt</b><br/>nominal"]:::transform
+    Varied["<b>Muon_Pt_scale_up</b><br/>variation"]:::transform
 
-    HistN["downstream<br/>computation"]
-    HistV["varied downstream<br/>computation"]
+    HistN["<b>Downstream computation</b><br/>nominal"]:::transform
+    HistV["<b>Downstream computation</b><br/>varied"]:::transform
 
     Common --> Nominal --> HistN
     Common --> Varied --> HistV
 ```
 
-Unrelated parts of the workflow do not conceptually need to become separate author-level workflows simply because one field has changed.
+Unrelated parts of the workflow do not conceptually need to become separate workflow-level-description workflows simply because one field has changed.
 
 The exact execution structure and opportunities for sharing work are determined during compilation and planning.
 
 ---
 
-## Dataset variations
+### Dataset variations
 
 Variations can also replace input datasets.
 
@@ -391,7 +391,7 @@ Again, the author describes the difference rather than duplicating the complete 
 
 ---
 
-## Variations can be selective
+### Variations can be selective
 
 A variation does not necessarily apply to every dataset or every operation.
 
@@ -421,7 +421,7 @@ This follows the same broad principle as conditional stages: context and depende
 
 ---
 
-## Dependencies and variations work together
+### Dependencies and variations work together
 
 Dependency information makes variations substantially more useful.
 
@@ -429,11 +429,11 @@ Suppose a workflow contains two downstream paths:
 
 ```{mermaid}
 flowchart TD
-    Source["source"]
-    Define["derive fields"]
+    Source["<b>Source</b>"]:::source
+    Define["<b>Derive fields</b>"]:::transform
 
-    Muon["uses Muon_Pt"]
-    Other["does not use Muon_Pt"]
+    Muon["<b>Uses Muon_Pt</b>"]:::transform
+    Other["<b>Does not use Muon_Pt</b>"]:::transform
 
     Source --> Define
     Define --> Muon
@@ -460,7 +460,7 @@ How much work can actually be shared at runtime depends on the operation contrac
 
 ---
 
-## One description, many execution paths
+## One description, many workflow paths
 
 Dependencies, context, and variations play different but complementary roles:
 
@@ -475,20 +475,20 @@ variations
     describe controlled alternatives
 ```
 
-Together they allow a relatively compact author description to represent a much richer execution graph.
+Together they allow a relatively compact workflow description to represent a much richer execution graph.
 
 For example:
 
 ```{mermaid}
 flowchart TD
-    Common["shared processing"]
+    Common["<b>Shared processing</b>"]:::transform
 
-    Data["data path"]
-    MC["simulation path"]
+    Data["<b>Data path</b>"]:::transform
+    MC["<b>Simulation path</b>"]:::transform
 
-    Nominal["nominal"]
-    Up["variation up"]
-    Down["variation down"]
+    Nominal["<b>Nominal</b>"]:::transform
+    Up["<b>Variation up</b>"]:::transform
+    Down["<b>Variation down</b>"]:::transform
 
     Common --> Data
     Common --> MC
@@ -531,8 +531,8 @@ while still inspecting the concrete computation Flow intends to execute.
 This distinction is intentional:
 
 ```text
-author.yaml
-    concise description of intent
+workflow.yaml
+    concise workflow description
 
 compiled graph and plan
     explicit representation of the resulting computation
@@ -546,19 +546,19 @@ This is particularly useful when a small declaration expands into several execut
 
 Conditional participation and variations are resolved as part of workflow compilation.
 
-The runtime should not need to reinterpret the high-level author declarations or independently reconstruct their intended graph structure.
+The runtime should not need to reinterpret the high-level workflow declarations or independently reconstruct their intended graph structure.
 
 Instead:
 
 ```{mermaid}
 flowchart LR
-    Author["author workflow"]
-    Compiler["compiler"]
-    Graph["resolved<br/>workflow graph"]
-    Plan["execution<br/>plan"]
-    Runtime["runtime"]
+    Workflow["<b>workflow.yaml</b><br/>workflow description"]:::input
+    Compiler["<b>Compilation</b><br/>construct + resolve"]:::flow
+    Graph["<b>Resolved graph structure</b>"]:::flow
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Flow runtime</b>"]:::runtime
 
-    Author --> Compiler --> Graph --> Plan --> Runtime
+    Workflow --> Compiler --> Graph --> Plan --> Runtime
 ```
 
 By the time execution begins, the relevant structure is represented explicitly in the plan.
@@ -571,19 +571,19 @@ This preserves the boundary used throughout Flow:
 
 ## Syntax and examples
 
-This page describes graph structure as a Flow concept rather than providing the complete author-language syntax for branching, conditional participation, or variations.
+This page describes graph structure as a Flow concept rather than providing the complete workflow-language syntax for branching, conditional participation, or variations.
 
-The author language is still evolving, including work towards more compact ways of expressing workflows.
+The workflow language is still evolving, including work towards more compact ways of expressing workflows.
 
 The reference documentation will provide the authoritative syntax as these interfaces stabilise.
 
-Runnable examples belong in the FAST-HEP workshop, where the author description can be explored together with its compiled graph, execution plan, and outputs.
+Runnable examples belong in the FAST-HEP workshop, where the workflow description can be explored together with its compiled graph, execution plan, and outputs.
 
 ---
 
 ## Where next?
 
-For how author declarations become an execution graph, see {doc}`compilation`.
+For how workflow descriptions become an execution graph, see {doc}`compilation`.
 
 For the explicit representation consumed by the runtime, see {doc}`plan`.
 

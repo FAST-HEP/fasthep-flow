@@ -1,8 +1,11 @@
 # Workflow compilation
 
-Flow compiles an author description into an explicit execution plan before runtime processing begins.
+Flow compiles a workflow description into an explicit, backend-independent
+execution plan before runtime processing begins.
 
-The compilation process progressively removes authoring conveniences, resolves available capabilities, determines data dependencies, and constructs the representation consumed by the runtime.
+Compilation progressively assembles the workflow, constructs its logical graph,
+resolves capabilities and dependencies, analyses datasets, and creates the
+representation consumed by the runtime.
 
 A typical compilation produces:
 
@@ -16,28 +19,34 @@ compile/
 └── report.compile.yaml
 ```
 
-These artifacts expose different stages and views of the compiled workflow.
+These artifacts expose different representations and analyses produced during
+compilation.
 
 ```{mermaid}
 flowchart LR
-    Author["author.yaml"]
-    Normalised["normalized.yaml"]
-    IR["analysis.ir.yaml"]
-    Dependencies["dependency<br/>analysis"]
-    Plan["plan.yaml"]
+    Workflow["<b>workflow.yaml</b>"]:::input
+    Normalised["<b>Normalised<br/>workflow</b>"]:::flow
+    Graph["<b>Logical<br/>graph</b>"]:::flow
+    Analysis["<b>Compiler analysis</b><br/>dependencies + datasets"]:::flow
+    Plan["<b>Execution<br/>plan</b>"]:::plan
 
-    Author --> Normalised --> IR --> Dependencies --> Plan
+    Workflow --> Normalised --> Graph --> Analysis --> Plan
 ```
 
-The files are useful representations of the compilation process, but should not be interpreted as a guarantee that Flow will always internally consist of exactly these sequential compiler passes.
+The files are useful representations of the compilation process, but should
+not be interpreted as a guarantee that Flow will always internally consist of
+exactly these sequential compiler passes.
 
-The important boundary is the result: compilation turns a user-facing description into a resolved plan that can be executed without interpreting the original author workflow.
+The important boundary is the result: compilation turns a user-facing workflow
+description into a resolved plan that the runtime can execute without
+interpreting the original workflow language.
 
 ---
 
 ## Normalisation
 
-The first major step is to convert the author description into a canonical representation.
+The first major step is to assemble the workflow description into a canonical
+representation.
 
 Consider the beginning of the exoplanet workflow:
 
@@ -61,54 +70,56 @@ sources:
     stream_type: event_stream
 ```
 
-The author description deliberately leaves some information implicit.
+The workflow description deliberately leaves some information implicit.
 
-During normalisation, Flow resolves authoring conveniences such as:
+During normalisation, Flow assembles authoring conveniences such as:
 
 - defaults
 - included configuration
 - references
-- profiles
+- profile selections
 - execution defaults
 
-Profiles can themselves contribute configuration and capabilities. These contributions are composed into the workflow environment used by subsequent compilation stages.
-
-The resulting `normalized.yaml` is therefore more than a reformatted version of `author.yaml`. It is a canonical description of the workflow after its author-facing configuration has been resolved.
+The resulting `normalized.yaml` is a canonical description from which later
+compiler stages can construct and analyse the workflow.
 
 This distinction is useful:
 
 ```text
-author.yaml
+workflow.yaml
     user-facing description
 
 normalized.yaml
-    canonical resolved description
+    canonical assembled description
 ```
 
-Normalisation is still part of compilation. No analysis data need to be processed simply to establish this representation.
+Normalisation is still part of compilation. Scientific operations are not
+executed simply to establish this representation.
 
-It also provides an important boundary: the author language can evolve and provide different levels of convenience without requiring later compiler stages or the runtime to understand every authoring form directly.
+It provides an important boundary: the workflow language can evolve and offer
+different authoring conveniences without requiring later compiler stages or
+the runtime to understand every authoring form directly.
 
 ---
 
-## Building the workflow representation
+## Building the logical graph
 
-The normalised analysis is lowered into an intermediate workflow representation.
+The normalised workflow is lowered into an explicit logical graph.
 
-This representation makes the computational structure more explicit and is written to:
+This representation makes the computational and data-flow structure of the
+workflow explicit and is currently written to:
 
 ```text
 compile/analysis.ir.yaml
 ```
 
-At this point, author-facing concepts become graph-oriented workflow nodes.
+At this point, author-facing concepts become graph nodes with roles such as:
 
-Typical node roles include:
+* sources
+* transforms
+* observers
+* sinks
 
-- sources
-- transforms
-- observers
-- sinks
 
 A sequence such as:
 
@@ -129,16 +140,16 @@ becomes part of an explicit dependency graph:
 
 ```{mermaid}
 flowchart LR
-    Source["read.planets"]
-    Explode["stage.PlanetRows"]
-    Filter["stage.EarthSizedPlanets"]
-    Project["stage.PlanetTable"]
-    Write["write.PlanetTable.0"]
+    Source["<b>read.planets</b>"]:::source
+    Explode["<b>stage.PlanetRows</b>"]:::transform
+    Filter["<b>stage.EarthSizedPlanets</b>"]:::transform
+    Project["<b>stage.PlanetTable</b>"]:::transform
+    Write["<b>write.PlanetTable.0</b>"]:::sink
 
     Source --> Explode --> Filter --> Project --> Write
 ```
 
-The intermediate representation provides a common structure for subsequent compiler stages regardless of how the workflow was originally authored.
+The logical graph provides a common structure for subsequent compiler stages regardless of how the workflow was originally authored.
 
 For most users, the details of the intermediate representation are less important than the graph it describes. It is primarily useful for inspecting the compiler and for tooling built around Flow.
 
@@ -179,7 +190,7 @@ impl
     performs the work at runtime
 ```
 
-Specifications can expose more than field requirements. Depending on the capability, they may describe inputs, outputs, products, scopes, partitioning behaviour, or other properties required for planning.
+Specifications expose the parts of an operation's contract that the compiler needs to reason about. Depending on the capability, they may describe inputs, outputs, products, scopes, partitioning behaviour, or other properties required for planning.
 
 The precise operation contracts are described in {doc}`../extending/operations-and-specs`.
 
@@ -224,10 +235,10 @@ The resulting chain is approximately:
 
 ```{mermaid}
 flowchart LR
-    Params["operation<br/>parameters"]
-    Spec["operation<br/>spec"]
-    Requirement["field<br/>requirements"]
-    Source["source<br/>requirements"]
+    Params["<b>Operation parameters</b>"]:::capability
+    Spec["<b>Operation spec</b><br/>requirements"]:::flow
+    Requirement["<b>Field requirements</b>"]:::flow
+    Source["<b>Source projection</b><br/>required fields"]:::source
 
     Params --> Spec --> Requirement --> Source
 ```
@@ -236,7 +247,7 @@ Requirements from multiple downstream consumers are combined and propagated towa
 
 ---
 
-## Source requirements become explicit
+## Source projections become explicit
 
 The original author description of the source did not list any columns:
 
@@ -271,9 +282,9 @@ That distinction keeps data-format-specific behaviour outside the orchestration 
 
 ---
 
-## Datasets and partitions
+## Dataset analysis and partitioning
 
-Compilation also resolves the data over which the workflow will execute.
+Dependency analysis establishes what data are required. Dataset analysis establishes what data are available and provides the metadata needed to plan their execution.
 
 Dataset information becomes part of the plan context:
 
@@ -318,17 +329,20 @@ partition
     unit of data made available for execution
 ```
 
-Compilation determines the available work. How those partitions are scheduled and processed belongs to runtime execution.
+Compilation constructs the units of work available to the runtime. How those partitions are scheduled and processed belongs to runtime execution.
 
 Resolved dataset information is also written separately to `dataset_entries.json` for inspection.
 
 ---
 
-## Resolving the workflow environment
+## Resolving capabilities
 
-Compilation resolves the capabilities available to the workflow before constructing the final execution plan.
+Compilation resolves the capabilities required by the logical graph against the
+workflow's registry.
 
-Profiles can contribute sources, transforms, sinks, backends, functions, hooks, and other extension points. These contributions are composed into a registry that maps declarative names to concrete specifications and implementations.
+Profiles contribute registry layers and configuration. Together these layers
+determine the specifications available to the compiler and the implementations
+that can later be invoked by the runtime.
 
 For example:
 
@@ -349,16 +363,24 @@ registry:
       impl: hepflow.backends:Local
 ```
 
-This is how an author declaration such as:
+This is how an entry such as:
 
 ```yaml
 op: workshop.tabular.filter
 ```
+is resolved to both specification and implementation.
 
-becomes connected to both:
+```{mermaid}
+flowchart LR
+    Operation["<b>workshop.tabular.filter</b><br/>requested capability"]:::input
+    Registry["<b>Registry</b><br/>resolution"]:::capability
+    Spec["<b>Specification</b><br/>compile-time contract"]:::flow
+    Impl["<b>Implementation</b><br/>runtime behaviour"]:::runtime
 
-- the specification used during compilation
-- the implementation used during execution
+    Operation --> Registry
+    Registry --> Spec
+    Registry --> Impl
+```
 
 The resolved registry is included in the execution plan so that the runtime receives the same capability environment that was used to compile the workflow.
 
@@ -397,9 +419,9 @@ provenance:
       kind: profile
       path: package:fasthep_workshop.profiles/registry.yaml
 
-    - name: author
-      kind: author
-      path: examples/NASA/exoplanets/author.yaml
+    - name: workflow
+      kind: workflow
+      path: examples/NASA/exoplanets/workflow.yaml
 ```
 
 Registry changes record which capabilities were added or overwritten by each layer.
@@ -421,7 +443,7 @@ Work is ongoing to associate resolved workflow components with the package versi
 
 ## Constructing the execution plan
 
-The execution plan brings the results of compilation together into the representation consumed by the runtime.
+The execution plan is the resolved description of what should execute and forms the principal boundary between compilation and runtime.
 
 For example:
 
@@ -452,7 +474,7 @@ For example:
   materialize: never
 ```
 
-Several pieces of information that were implicit or distributed across the author description, specifications, and workflow environment are now explicit in one place.
+Several pieces of information that were implicit or distributed across the workflow description, specifications, and workflow environment are now explicit in one place.
 
 The runtime can see:
 
@@ -464,11 +486,11 @@ The runtime can see:
 - its partitioning behaviour
 - whether its result needs to be materialised
 
-The plan therefore describes considerably more than execution order.
+The plan describes **what should execute** while remaining independent of **where its partitions are eventually executed**.
 
 ---
 
-## Products connect nodes
+## Products connect graph nodes
 
 Inputs and outputs in the plan explicitly describe how products move between nodes.
 
@@ -556,17 +578,18 @@ Conceptually:
 
 ```{mermaid}
 flowchart LR
-    Compiler["Flow<br/>compilation"]
-    Hooks["compile<br/>hooks"]
-    Artifacts["additional<br/>information and artifacts"]
-    Plan["execution<br/>plan"]
+    Compiler["<b>Compilation</b>"]:::flow
+    Plan["<b>Execution plan</b>"]:::plan
+    Hooks["<b>Compile hooks</b><br/>inspect + augment"]:::capability
+    Artifacts["<b>Additional artifacts</b>"]:::artifact
 
-    Compiler --> Hooks
+    Compiler --> Plan
+    Compiler -.-> Hooks
+    Hooks -.-> Plan
     Hooks --> Artifacts
-    Hooks --> Plan
 ```
 
-Compile hooks provide an extension point around the compilation process while keeping the core workflow engine independent of domain-specific tooling.
+Compile hooks are not necessarily a single compiler stage. They can participate at defined points in compilation to inspect or augment compiler representations.
 
 ---
 
@@ -574,14 +597,14 @@ Compile hooks provide an extension point around the compilation process while ke
 
 Different artifacts answer different questions.
 
-| Question | Start with |
-|---|---|
-| What did my author workflow resolve to? | `normalized.yaml` |
-| What workflow nodes did Flow construct? | `analysis.ir.yaml` |
-| Why is a field being requested? | `deps.yaml` |
-| Which datasets and files were resolved? | `dataset_entries.json` |
-| What will the runtime actually receive? | `plan.yaml` |
-| Were there compilation diagnostics? | `report.compile.yaml` |
+| Question                                         | Start with             |
+| ------------------------------------------------ | ---------------------- |
+| What did my **workflow description** resolve to? | `normalized.yaml`      |
+| What **logical graph** did Flow construct?       | `analysis.ir.yaml`     |
+| Why is a field being requested?                  | `deps.yaml`            |
+| Which datasets and files were resolved?          | `dataset_entries.json` |
+| What will the runtime actually receive?          | `plan.yaml`            |
+| Were there compilation diagnostics?              | `report.compile.yaml`  |
 
 Additional files may be produced by compile hooks.
 
@@ -599,25 +622,32 @@ What will it execute?
 
 ## Compilation does not execute the analysis
 
-Compilation may perform supporting work, particularly through compile hooks, but it remains distinct from analysis execution.
+Compilation may perform supporting work, particularly through compile hooks,
+but it remains distinct from scientific workflow execution.
 
-Its purpose is to resolve, understand, validate, and plan the computation.
+Its purpose is to assemble, understand, resolve, validate, and plan the
+computation.
 
-The resulting plan contains the information needed for the runtime to carry out that computation without returning to the original author description:
+The resulting execution plan contains the information needed for the runtime to
+carry out that computation without returning to the original workflow
+description:
 
 ```{mermaid}
 flowchart LR
-    Author["author<br/>description"]
-    Compiler["Flow<br/>compiler"]
-    Plan["execution<br/>plan"]
-    Runtime["Flow<br/>runtime"]
+    Workflow["<b>workflow.yaml</b><br/>workflow description"]:::input
+    Compiler["<b>Flow compiler</b>"]:::flow
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Flow runtime</b>"]:::runtime
 
-    Author --> Compiler --> Plan --> Runtime
+    Workflow --> Compiler --> Plan --> Runtime
 ```
 
-This boundary also allows other authoring systems to target Flow.
+This boundary also allows other workflow languages and compilation systems to
+target Flow.
 
-`author.yaml` is the standard FAST-HEP authoring interface, but it is not a requirement of the runtime. Any tool capable of constructing a compatible execution plan can use Flow for orchestration.
+`workflow.yaml` is the standard FAST-HEP workflow language, but it is not a
+requirement of the runtime. Any tool capable of constructing a compatible
+execution plan can use Flow for execution.
 
 ---
 

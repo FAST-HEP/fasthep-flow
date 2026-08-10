@@ -1,50 +1,53 @@
 # Authoring workflows
 
-Flow workflows are typically described using an `author.yaml` file.
+Flow workflows are typically described using a `workflow.yaml` file.
 
-The author description is the **user-facing representation of a workflow**. It brings together the data, capabilities, and operations needed to describe what should be computed.
+The workflow description is the **user-facing representation of a workflow**.
+It brings together the data, capabilities, and operations needed to describe
+what should be computed.
 
-Flow then compiles that description into the more explicit representations used for planning and execution.
+Flow compiles that description into increasingly explicit representations used
+for analysis, planning, and execution.
 
 ```{mermaid}
 flowchart LR
-    Author["author.yaml<br/><b>workflow intent</b>"]
-    Model["author model"]
-    Compile["compilation"]
-    Plan["execution plan"]
+    Workflow["<b>workflow.yaml</b><br/>workflow description"]:::input
+    Normalised["<b>Normalised workflow</b>"]:::flow
+    Graph["<b>Logical graph</b>"]:::flow
+    Plan["<b>Execution plan</b>"]:::plan
 
-    Author --> Model --> Compile --> Plan
+    Workflow --> Normalised --> Graph --> Plan
 ```
 
-The YAML syntax is therefore an authoring interface rather than the runtime
-representation of Flow.
+The YAML syntax is therefore an authoring interface rather than Flow's runtime
+representation.
 
-For most users, `author.yaml` is the normal entry point. Internally, however,
-Flow executes a compiled plan rather than the YAML itself. This separation also
-allows other authoring tools to construct compatible plans without using
-`author.yaml`.
+For most users, `workflow.yaml` is the normal entry point. Internally, however,
+Flow executes the compiled plan rather than interpreting the YAML directly.
+This separation also allows alternative frontends and workflow generators to
+produce compatible plans without using `workflow.yaml`.
 
 ---
 
-## The author model
+## The workflow description
 
-An author workflow describes several related parts of a computation.
+A workflow description brings together several related parts of a computation.
 
 At a high level:
 
 ```{mermaid}
 flowchart TD
-    Author["author workflow"]
+    Workflow["<b>Workflow description</b>"]:::input
 
-    Use["use<br/><b>workflow environment</b>"]
-    Data["data<br/><b>available datasets</b>"]
-    Sources["sources<br/><b>introduce data</b>"]
-    Analysis["analysis<br/><b>process data</b>"]
+    Use["<b>use</b><br/>workflow environment"]:::capability
+    Data["<b>data</b><br/>available datasets"]:::capability
+    Sources["<b>sources</b><br/>introduce data"]:::capability
+    Analysis["<b>analysis</b><br/>scientific operations"]:::capability
 
-    Author --> Use
-    Author --> Data
-    Author --> Sources
-    Author --> Analysis
+    Workflow --> Use
+    Workflow --> Data
+    Workflow --> Sources
+    Workflow --> Analysis
 ```
 
 The exact syntax available within these sections may evolve, but their responsibilities are useful for understanding the workflow model:
@@ -57,7 +60,7 @@ The exact syntax available within these sections may evolve, but their responsib
 
 Other features can extend this model with additional configuration or execution behaviour.
 
-The important distinction is between describing the workflow and implementing the capabilities it uses.
+The important distinction is between **describing the workflow** and **implementing the capabilities it uses**.
 
 ---
 
@@ -65,7 +68,7 @@ The important distinction is between describing the workflow and implementing th
 
 The {doc}`../getting-started/index` example analyses a small NASA exoplanet catalogue.
 
-Its author description starts by selecting the profiles available to the workflow:
+Its workflow description starts by selecting the profiles available to the workflow:
 
 ```yaml
 use:
@@ -104,7 +107,7 @@ For example:
     expr: "(planet_radius > 0.8) & (planet_radius < 1.2)"
 ```
 
-The author description brings these pieces together, but does not implement them.
+The workflow description brings these pieces together, but does not implement them.
 
 `workshop.parquet` and `workshop.tabular.filter` are capabilities supplied by `fasthep-workshop`. Flow resolves and connects them during compilation.
 
@@ -125,7 +128,7 @@ use:
     - fasthep_workshop:registry
 ```
 
-the workshop profile makes operations such as the Parquet source and tabular transforms available to the author workflow.
+the workshop profile makes operations such as the Parquet source and tabular transforms available to the workflow.
 
 Profiles are composable. Packages, experiments, or individual projects can therefore build environments from smaller reusable profiles rather than requiring Flow to know about every available capability.
 
@@ -133,16 +136,14 @@ The relationship is roughly:
 
 ```{mermaid}
 flowchart LR
-    Profile["profile"]
-    Registry["registry"]
-    Contract["specification"]
-    Impl["implementation"]
-    Workflow["author workflow"]
+    Profile["<b>Profile</b><br/>compose environment"]:::input
+    Registry["<b>Registry</b><br/>resolve capabilities"]:::capability
+    Spec["<b>Specification</b><br/>compile-time contract"]:::flow
+    Impl["<b>Implementation</b><br/>runtime behaviour"]:::runtime
 
     Profile --> Registry
-    Registry --> Contract
+    Registry --> Spec
     Registry --> Impl
-    Workflow --> Profile
 ```
 
 The details of profile composition and registry resolution are covered in {doc}`../extending/registries-and-profiles`.
@@ -205,7 +206,7 @@ dataset definition without duplicating file or dataset metadata.
 
 `workshop.parquet` identifies a registered source capability.
 
-The author description does not contain the Python code required to read Parquet files. Instead, Flow resolves the source through the active registry and uses its specification to understand how it participates in the workflow.
+The workflow description does not contain the Python code required to read Parquet files. Instead, Flow resolves the source through the active registry and uses its specification to understand how it participates in the workflow.
 
 This same mechanism allows another package to provide a different source without changing Flow itself.
 
@@ -300,9 +301,9 @@ Conceptually:
 
 ```{mermaid}
 flowchart LR
-    Source["source<br/>triggerIsoMu24"]
-    Alias["field alias<br/>analysis_trigger"]
-    Selection["selection<br/>analysis_trigger == 1"]
+    Source["<b>source</b><br/>triggerIsoMu24"]:::source
+    Alias["<b>field alias</b><br/>analysis_trigger"]:::transform
+    Selection["<b>selection</b><br/>analysis_trigger == 1"]:::transform
 
     Source --> Alias --> Selection
 ```
@@ -352,12 +353,12 @@ expression and expose them as dependencies during compilation.
 
 ```{mermaid}
 flowchart LR
-    Expr["operation<br/><b>uses fields A, B</b>"]
-    Spec["operation spec"]
-    Deps["compiled<br/><b>dependencies</b>"]
-    Source["data source<br/><b>required fields: A, B</b>"]
+    Operation["<b>Operation</b><br/>uses fields A, B"]:::capability
+    Spec["<b>Operation spec</b><br/>exposes requirements"]:::flow
+    Compiler["<b>Dependency analysis</b>"]:::flow
+    Source["<b>Source projection</b><br/>fields A, B"]:::source
 
-    Expr --> Spec --> Deps --> Source
+    Operation --> Spec --> Compiler --> Source
 ```
 
 By default, Flow therefore requests only the fields required by the compiled
@@ -390,19 +391,20 @@ work.
 
 ## A common extension model
 
-Sources, analysis operations, and outputs all follow the same underlying idea:
-the author workflow refers to capabilities through contracts rather than
-embedding their implementations.
+Sources, transforms, observers, and sinks all follow the same underlying idea: the workflow refers to capabilities through contracts rather than embedding their implementations.
 
-A useful way to think about an author workflow is:
+A useful way to think about a workflow is:
 
 ```{mermaid}
 flowchart LR
-    Author["author.yaml<br/><b>what to connect</b>"]
-    Contracts["registered contracts<br/><b>what capabilities do</b>"]
-    Implementations["implementations<br/><b>how they do it</b>"]
+    Workflow["<b>workflow.yaml</b><br/>requested capability"]:::input
+    Registry["<b>Registry</b><br/>resolution"]:::capability
+    Spec["<b>Spec</b><br/>compile-time contract"]:::flow
+    Impl["<b>Implementation</b><br/>runtime behaviour"]:::runtime
 
-    Author --> Contracts --> Implementations
+    Workflow --> Registry
+    Registry --> Spec
+    Registry --> Impl
 ```
 
 This separation means an implementation can be replaced without requiring the workflow language or orchestration engine to be redesigned.
@@ -413,21 +415,21 @@ Conversely, projects can introduce entirely new capabilities through the same ex
 
 ---
 
-## From author description to execution
+## From workflow description to execution
 
-The author description is intentionally more convenient and partially implicit than the representation used by the runtime.
+The workflow description is intentionally more convenient and partially implicit than the representation used by the runtime.
 
 During compilation, Flow resolves that description into increasingly explicit forms:
 
 ```{mermaid}
 flowchart LR
-    Author["author description"]
-    Normalised["normalised workflow"]
-    Graph["workflow graph"]
-    Plan["execution plan"]
-    Runtime["runtime"]
+    Workflow["<b>Workflow description</b>"]:::input
+    Normalised["<b>Normalised workflow</b>"]:::flow
+    Graph["<b>Logical graph</b>"]:::flow
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Runtime</b>"]:::runtime
 
-    Author --> Normalised --> Graph --> Plan --> Runtime
+    Workflow --> Normalised --> Graph --> Plan --> Runtime
 ```
 
 This process resolves capabilities, validates their configuration, determines dependencies, and produces the plan used for execution.
@@ -438,22 +440,25 @@ The compilation process is covered in {doc}`../execution/index`.
 
 ---
 
-## Author syntax and the workflow model
+## Workflow syntax and the workflow model
 
-The current FAST-HEP authoring language uses YAML, but the YAML vocabulary should not be confused with the underlying workflow model.
+The standard Flow workflow language currently uses YAML, but its YAML syntax
+should not be confused with the underlying workflow and compiler
+representations.
 
-The author syntax is expected to continue evolving as Flow approaches its first stable release, including work to make common workflows more concise.
+The workflow syntax is expected to continue evolving as Flow approaches its
+first stable release, including work to make common workflows more concise.
 
 The underlying separation remains:
 
 ```text
-author syntax
+workflow.yaml
      │
      ▼
-author model
+normalised workflow
      │
      ▼
-compilation
+logical graph
      │
      ▼
 execution plan
@@ -462,7 +467,7 @@ execution plan
 This allows authoring conveniences to evolve without requiring corresponding changes to the execution model.
 
 ```{note}
-The examples in this section use the current author syntax. During the alpha
+The examples in this section use the current workflow syntax. During the alpha
 development period, consult the reference documentation for the exact fields
 supported by the version of Flow you are using.
 ```
@@ -471,9 +476,9 @@ supported by the version of Flow you are using.
 
 ## Syntax reference
 
-This section focuses on the **meaning and structure** of author workflows rather than documenting every accepted YAML field.
+This section focuses on the **meaning and structure** of workflow descriptions rather than documenting every accepted YAML field.
 
-The reference documentation will provide the exact author schema, including:
+The reference documentation will provide the exact workflow schema, including:
 
 - available fields
 - accepted types
@@ -487,7 +492,7 @@ Where practical, this reference will be generated from the same models used by F
 
 ## Where next?
 
-If you want to understand what Flow does with an author description, continue with {doc}`../execution/index`.
+If you want to understand what Flow does with a workflow description, continue with {doc}`../execution/index`.
 
 If you want to provide your own sources, transforms, sinks, or other capabilities, see {doc}`../extending/index`.
 

@@ -1,27 +1,31 @@
 # The execution plan
 
-The execution plan is the boundary between workflow compilation and runtime execution.
+The execution plan is the boundary between workflow compilation and runtime
+execution.
 
-Compilation turns an author-facing workflow into a resolved plan. The runtime consumes that plan and orchestrates the implementations described by it.
+Compilation turns a workflow description into a resolved, backend-independent
+plan. The runtime consumes that plan and orchestrates the implementations
+described by it.
 
 ```{mermaid}
 flowchart LR
-    Author["author<br/>description"]
-    Compiler["compiler"]
-    Plan["execution plan"]
-    Runtime["runtime"]
+    Workflow["<b>workflow.yaml</b><br/>workflow description"]:::input
+    Compiler["<b>Compiler</b>"]:::flow
+    Plan["<b>Execution plan</b><br/>backend-independent"]:::plan
+    Runtime["<b>Runtime</b>"]:::runtime
 
-    Author --> Compiler --> Plan --> Runtime
+    Workflow --> Compiler --> Plan --> Runtime
 ```
 
-The plan makes information that was distributed or implicit in the author description explicit:
+The plan makes information that was distributed or implicit in the workflow
+description explicit:
 
 - which nodes will execute
 - which implementations they use
 - how nodes are connected
 - which products flow between them
 - which datasets and partitions are available
-- which capabilities have been resolved
+- which implementations and capabilities have been resolved
 - which execution environment has been requested
 
 A serialised copy of the plan is normally written to:
@@ -41,20 +45,20 @@ The plan is more than a debugging artifact.
 It is the interface between the compiler and the runtime:
 
 ```text
-authoring
-    ↓
+workflow language
+      ↓
 compiler
-    ↓
+      ↓
 ┌──────────────────────┐
 │    execution plan    │
 └──────────────────────┘
-    ↓
+      ↓
 runtime
-    ↓
-operation implementations
+      ↓
+registered implementations
 ```
 
-The standard FAST-HEP author language is one way to produce this plan, but it is not required by the runtime.
+The standard FAST-HEP workflow language is one way to produce this plan, but it is not required by the runtime.
 
 Other authoring tools or compilers can construct compatible plans and use Flow for orchestration directly.
 
@@ -106,17 +110,18 @@ data_flow:
 
 These sections answer different questions:
 
-| Section | Purpose |
-|---|---|
-| `context` | resolved datasets and workflow-wide information |
-| `nodes` | executable workflow graph |
-| `partitions` | units of input data available for execution |
-| `registry` | resolved capabilities and implementations |
-| `provenance` | how the execution environment was assembled |
-| `execution` | requested backend and execution configuration |
-| `execution_hooks` | runtime lifecycle extensions |
-| `reports` | configured reporting behaviour |
-| `data_flow` | compiler-derived field dependencies |
+| Section           | Purpose                                                |
+| ----------------- | ------------------------------------------------------ |
+| `context`         | resolved datasets and workflow-wide information        |
+| `nodes`           | resolved graph nodes and their execution relationships |
+| `partitions`      | units of input data available for execution            |
+| `registry`        | resolved capabilities and implementations              |
+| `provenance`      | how the execution environment was assembled            |
+| `execution`       | requested backend and execution configuration          |
+| `execution_hooks` | runtime lifecycle extensions                           |
+| `reports`         | configured reporting behaviour                         |
+| `data_flow`       | compiler-derived field dependencies                    |
+
 
 The exact plan schema may evolve while Flow is under active development. This page focuses on the concepts represented by the plan rather than providing an exhaustive schema reference.
 
@@ -155,7 +160,7 @@ For example, the exoplanet workflow contains a filtering node:
   materialize: never
 ```
 
-This contains considerably more execution information than the original author declaration:
+This contains considerably more execution information than the original workflow declaration:
 
 ```yaml
 - id: EarthSizedPlanets
@@ -164,7 +169,7 @@ This contains considerably more execution information than the original author d
     expr: "(planet_radius > 0.8) & (planet_radius < 1.2)"
 ```
 
-The compiler has resolved the author declaration into an explicit runtime node.
+The compiler has resolved the workflow declaration into an explicit runtime node.
 
 ---
 
@@ -214,11 +219,11 @@ The complete exoplanet workflow therefore becomes:
 
 ```{mermaid}
 flowchart LR
-    Source["read.planets<br/>source"]
-    Explode["stage.PlanetRows<br/>transform"]
-    Filter["stage.EarthSizedPlanets<br/>transform"]
-    Project["stage.PlanetTable<br/>transform"]
-    Write["write.PlanetTable.0<br/>sink"]
+    Source["<b>read.planets</b><br/>source"]:::source
+    Explode["<b>stage.PlanetRows</b><br/>transform"]:::transform
+    Filter["<b>stage.EarthSizedPlanets</b><br/>transform"]:::transform
+    Project["<b>stage.PlanetTable</b><br/>transform"]:::transform
+    Write["<b>write.PlanetTable.0</b><br/>sink"]:::sink
 
     Source --> Explode --> Filter --> Project --> Write
 ```
@@ -354,7 +359,7 @@ params:
   limit: 15
 ```
 
-These parameters originate from the author workflow but may have been validated, normalised, expanded, or supplemented during compilation.
+These parameters originate from the workflow description but may have been validated, normalised, expanded, or supplemented during compilation.
 
 The runtime does not need to reconstruct the author-facing configuration. It receives the parameters required by the selected implementation directly from the plan.
 
@@ -399,11 +404,11 @@ A partition-scoped transform can potentially run independently across many parti
 
 ```{mermaid}
 flowchart TD
-    P1["partition 1"] --> T1["transform"]
-    P2["partition 2"] --> T2["transform"]
-    P3["partition 3"] --> T3["transform"]
+    P1["<b>Partition 1</b>"]:::source --> T1["<b>Transform</b>"]:::transform
+    P2["<b>Partition 2</b>"]:::source --> T2["<b>Transform</b>"]:::transform
+    P3["<b>Partition 3</b>"]:::source --> T3["<b>Transform</b>"]:::transform
 
-    T1 --> Global["global consumer"]
+    T1 --> Global["<b>Global consumer</b>"]:::sink
     T2 --> Global
     T3 --> Global
 ```
@@ -493,10 +498,10 @@ context:
 
   globals: {}
 
-  author_path: examples/NASA/exoplanets/author.yaml
+  workflow_path: examples/NASA/exoplanets/workflow.yaml
 ```
 
-This gives runtime components access to the resolved dataset definitions without requiring them to read the original author workflow.
+This gives runtime components access to the resolved dataset definitions without requiring them to read the original workflow.
 
 Context can also contain workflow-wide values needed by capabilities during execution.
 
@@ -707,11 +712,11 @@ For example:
 
 ```{mermaid}
 flowchart LR
-    Source["read.planets<br/>planet_radius"]
-    Explode["PlanetRows"]
-    Filter["EarthSizedPlanets"]
-    Project["PlanetTable"]
-    Write["console table"]
+    Source["<b>read.planets</b><br/>planet_radius"]:::source
+    Explode["<b>PlanetRows</b>"]:::transform
+    Filter["<b>EarthSizedPlanets</b>"]:::transform
+    Project["<b>PlanetTable</b>"]:::transform
+    Write["<b>console table</b>"]:::sink
 
     Source --> Explode
     Source --> Filter
@@ -747,17 +752,12 @@ The registered implementation remains responsible for the actual computation.
 
 ```{mermaid}
 flowchart LR
-    Plan["plan node"]
+    Plan["<b>Plan node</b>"]:::plan
+    Runtime["<b>Flow runtime</b>"]:::runtime
+    Impl["<b>Registered implementation</b>"]:::capability
+    Product["<b>Output product</b>"]:::artifact
 
-    Runtime["Flow runtime"]
-
-    Impl["registered<br/>implementation"]
-
-    Product["output<br/>product"]
-
-    Plan --> Runtime
-    Runtime --> Impl
-    Impl --> Product
+    Plan --> Runtime --> Impl --> Product
 ```
 
 This boundary is what allows analysis capabilities to be replaced or extended without embedding their behaviour in Flow itself.
@@ -769,14 +769,14 @@ This boundary is what allows analysis capabilities to be replaced or extended wi
 The standard route to a plan is:
 
 ```text
-author.yaml
+workflow.yaml
     ↓
 Flow compiler
     ↓
 plan.yaml
 ```
 
-But the runtime boundary is the plan, not `author.yaml`.
+But the runtime boundary is the plan, not `workflow.yaml`.
 
 Another system could instead produce:
 
@@ -792,7 +792,7 @@ Flow runtime
 
 This is an intentional architectural property.
 
-Flow provides a standard authoring and compilation path, but orchestration is not intrinsically tied to that author language.
+Flow provides a standard workflow language and compilation path, but runtime execution is not intrinsically tied to that language.
 
 It also means that future authoring conveniences can evolve without requiring equivalent changes to the runtime contract.
 
