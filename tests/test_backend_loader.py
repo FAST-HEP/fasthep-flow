@@ -5,15 +5,15 @@ from typing import Any
 import pytest
 
 from hepflow.backends.loaders import load_backend, normalize_backend_override
-from hepflow.compiler.lower_graph import lower_author_to_graph
-from hepflow.compiler.normalize import normalize_author
+from hepflow.compiler.lower_graph import lower_workflow_to_graph
+from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_execution_plan
 
 
-def test_local_default_backend_loads(toy_author: dict[str, Any]) -> None:
-    normalized = normalize_author(toy_author)
+def test_local_default_backend_loads(toy_workflow: dict[str, Any]) -> None:
+    normalized = normalize_workflow(toy_workflow)
     plan = build_execution_plan(
-        lower_author_to_graph(normalized),
+        lower_workflow_to_graph(normalized),
         registry=normalized["registry"],
     )
 
@@ -22,10 +22,10 @@ def test_local_default_backend_loads(toy_author: dict[str, Any]) -> None:
     assert backend.name == "local.default"
 
 
-def test_dask_local_backend_loads_without_running(toy_author: dict[str, Any]) -> None:
-    normalized = normalize_author(toy_author)
+def test_dask_local_backend_loads_without_running(toy_workflow: dict[str, Any]) -> None:
+    normalized = normalize_workflow(toy_workflow)
     plan = build_execution_plan(
-        lower_author_to_graph(normalized),
+        lower_workflow_to_graph(normalized),
         registry=normalized["registry"],
         execution={"backend": "dask", "strategy": "local", "config": {}},
     )
@@ -36,11 +36,11 @@ def test_dask_local_backend_loads_without_running(toy_author: dict[str, Any]) ->
 
 
 def test_dask_backend_default_strategy_loads_local(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(toy_author)
+    normalized = normalize_workflow(toy_workflow)
     plan = build_execution_plan(
-        lower_author_to_graph(normalized),
+        lower_workflow_to_graph(normalized),
         registry=normalized["registry"],
         execution={"backend": "dask", "config": {}},
     )
@@ -51,11 +51,11 @@ def test_dask_backend_default_strategy_loads_local(
 
 
 def test_dask_htcondor_backend_loads_without_running(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(toy_author)
+    normalized = normalize_workflow(toy_workflow)
     plan = build_execution_plan(
-        lower_author_to_graph(normalized),
+        lower_workflow_to_graph(normalized),
         registry=normalized["registry"],
         execution={"backend": "dask", "strategy": "htcondor", "config": {}},
     )
@@ -66,11 +66,11 @@ def test_dask_htcondor_backend_loads_without_running(
 
 
 def test_dask_slurm_backend_loads_without_running(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(toy_author)
+    normalized = normalize_workflow(toy_workflow)
     plan = build_execution_plan(
-        lower_author_to_graph(normalized),
+        lower_workflow_to_graph(normalized),
         registry=normalized["registry"],
         execution={"backend": "dask", "strategy": "slurm", "config": {}},
     )
@@ -81,11 +81,11 @@ def test_dask_slurm_backend_loads_without_running(
 
 
 def test_dask_unsupported_strategy_errors_clearly(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(toy_author)
+    normalized = normalize_workflow(toy_workflow)
     plan = build_execution_plan(
-        lower_author_to_graph(normalized),
+        lower_workflow_to_graph(normalized),
         registry=normalized["registry"],
         execution={"backend": "dask", "strategy": "pbs", "config": {}},
     )

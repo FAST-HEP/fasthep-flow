@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from hepflow.compiler.lower_graph import lower_author_to_graph
-from hepflow.compiler.normalize import normalize_author
+from hepflow.compiler.lower_graph import lower_workflow_to_graph
+from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.model.plan_applicability import active_plan_nodes_for_dataset
 from hepflow.runtime.engine import build_partition_context, execute_plan_partition
@@ -14,13 +14,13 @@ from hepflow.runtime.engine import build_partition_context, execute_plan_partiti
 
 @pytest.mark.parametrize("eventtype", ["data", "mc"])
 def test_stage_applies_to_eventtype_normalizes(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     eventtype: str,
 ) -> None:
-    author = deepcopy(toy_author)
-    author["analysis"]["stages"][0]["applies_to"] = {"eventtype": eventtype}
+    workflow = deepcopy(toy_workflow)
+    workflow["analysis"]["stages"][0]["applies_to"] = {"eventtype": eventtype}
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     assert normalized["analysis"]["stages"][0]["applies_to"] == {"eventtype": eventtype}
 
@@ -34,22 +34,22 @@ def test_stage_applies_to_eventtype_normalizes(
     ],
 )
 def test_stage_applies_to_rejects_unsupported_shapes(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     applies_to: Any,
     match: str,
 ) -> None:
-    author = deepcopy(toy_author)
-    author["analysis"]["stages"][0]["applies_to"] = applies_to
+    workflow = deepcopy(toy_workflow)
+    workflow["analysis"]["stages"][0]["applies_to"] = applies_to
 
     with pytest.raises(ValueError, match=match):
-        normalize_author(author)
+        normalize_workflow(workflow)
 
 
 def test_active_plan_nodes_omit_mc_only_nodes_for_data(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _applicability_author(toy_author)
-    _graph, plan = build_plan_from_normalized(normalize_author(author))
+    workflow = _applicability_workflow(toy_workflow)
+    _graph, plan = build_plan_from_normalized(normalize_workflow(workflow))
 
     data_nodes = [
         node.id
@@ -76,10 +76,10 @@ def test_active_plan_nodes_omit_mc_only_nodes_for_data(
 
 
 def test_runtime_skips_mc_only_linear_stage_for_data(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _applicability_author(toy_author)
-    _graph, plan = build_plan_from_normalized(normalize_author(author))
+    workflow = _applicability_workflow(toy_workflow)
+    _graph, plan = build_plan_from_normalized(normalize_workflow(workflow))
     data_partition = next(
         partition for partition in plan.partitions if partition.dataset == "data"
     )
@@ -111,10 +111,10 @@ def test_runtime_skips_mc_only_linear_stage_for_data(
 
 
 def test_active_plan_nodes_omit_data_only_nodes_for_mc(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _data_only_author(toy_author)
-    _graph, plan = build_plan_from_normalized(normalize_author(author))
+    workflow = _data_only_workflow(toy_workflow)
+    _graph, plan = build_plan_from_normalized(normalize_workflow(workflow))
 
     data_nodes = [
         node.id
@@ -141,16 +141,16 @@ def test_active_plan_nodes_omit_data_only_nodes_for_mc(
 
 
 def test_data_flow_routes_mc_only_branches_only_to_mc_datasets(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = deepcopy(toy_author)
-    author["data"] = {
+    workflow = deepcopy(toy_workflow)
+    workflow["data"] = {
         "datasets": [
             {"name": "data", "eventtype": "data", "files": ["data.root"]},
             {"name": "ttbar", "eventtype": "mc", "files": ["ttbar.root"]},
         ]
     }
-    author["analysis"]["stages"] = [
+    workflow["analysis"]["stages"] = [
         {
             "id": "MuonPt",
             "op": "toy.scale",
@@ -164,7 +164,7 @@ def test_data_flow_routes_mc_only_branches_only_to_mc_datasets(
         },
     ]
 
-    _graph, plan = build_plan_from_normalized(normalize_author(author))
+    _graph, plan = build_plan_from_normalized(normalize_workflow(workflow))
     source = plan.get_node("read.events")
 
     assert source.params["branches_by_dataset"] == {
@@ -175,16 +175,16 @@ def test_data_flow_routes_mc_only_branches_only_to_mc_datasets(
 
 
 def test_unsupported_applicability_bypass_raises_clear_error(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = deepcopy(toy_author)
-    author["data"] = {
+    workflow = deepcopy(toy_workflow)
+    workflow["data"] = {
         "datasets": [
             {"name": "data", "eventtype": "data", "files": ["data.root"]},
             {"name": "ttbar", "eventtype": "mc", "files": ["ttbar.root"]},
         ]
     }
-    author["analysis"]["stages"] = [
+    workflow["analysis"]["stages"] = [
         {
             "id": "MCOnlyHist",
             "op": "hep.hist",
@@ -209,20 +209,20 @@ def test_unsupported_applicability_bypass_raises_clear_error(
     ]
 
     with pytest.raises(ValueError, match="output is not an event_stream"):
-        build_plan_from_normalized(normalize_author(author))
+        build_plan_from_normalized(normalize_workflow(workflow))
 
 
 def test_run_end_sink_can_consume_data_and_mc_specific_products(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = deepcopy(toy_author)
-    author["data"] = {
+    workflow = deepcopy(toy_workflow)
+    workflow["data"] = {
         "datasets": [
             {"name": "data", "eventtype": "data", "files": ["data.root"]},
             {"name": "ttbar", "eventtype": "mc", "files": ["ttbar.root"]},
         ]
     }
-    author["analysis"]["stages"] = [
+    workflow["analysis"]["stages"] = [
         {
             "id": "DataProduct",
             "op": "toy.scale",
@@ -253,14 +253,14 @@ def test_run_end_sink_can_consume_data_and_mc_specific_products(
         },
     ]
 
-    _graph, plan = build_plan_from_normalized(normalize_author(author))
+    _graph, plan = build_plan_from_normalized(normalize_workflow(workflow))
 
     assert plan.get_node("render.Compare.0").params["when"] == "run_end"
 
 
-def test_hist_variations_add_explicit_variation_axis(toy_author: dict[str, Any]) -> None:
-    author = deepcopy(toy_author)
-    author["analysis"]["stages"] = [
+def test_hist_variations_add_explicit_variation_axis(toy_workflow: dict[str, Any]) -> None:
+    workflow = deepcopy(toy_workflow)
+    workflow["analysis"]["stages"] = [
         {
             "id": "PV_npvs",
             "op": "hep.hist",
@@ -287,7 +287,7 @@ def test_hist_variations_add_explicit_variation_axis(toy_author: dict[str, Any])
         }
     ]
 
-    graph = lower_author_to_graph(normalize_author(author))
+    graph = lower_workflow_to_graph(normalize_workflow(workflow))
     node = graph.nodes["stage.PV_npvs"]["payload"]
 
     assert node.params["storage"] == "weighted"
@@ -314,10 +314,10 @@ def test_hist_variations_add_explicit_variation_axis(toy_author: dict[str, Any])
 
 
 def test_render_variations_expand_to_explicit_render_nodes(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = deepcopy(toy_author)
-    author["analysis"]["stages"] = [
+    workflow = deepcopy(toy_workflow)
+    workflow["analysis"]["stages"] = [
         {
             "id": "PV_npvs",
             "op": "hep.hist",
@@ -355,7 +355,7 @@ def test_render_variations_expand_to_explicit_render_nodes(
         },
     ]
 
-    graph = lower_author_to_graph(normalize_author(author))
+    graph = lower_workflow_to_graph(normalize_workflow(workflow))
 
     assert "render.RenderPV_npvs_nominal.0" in graph.nodes
     assert "render.RenderPV_npvs_up.0" in graph.nodes
@@ -369,25 +369,25 @@ def test_render_variations_expand_to_explicit_render_nodes(
 
 
 def test_lowered_graph_records_applicability_metadata(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _applicability_author(toy_author)
-    graph = lower_author_to_graph(normalize_author(author))
+    workflow = _applicability_workflow(toy_workflow)
+    graph = lower_workflow_to_graph(normalize_workflow(workflow))
 
     payload = graph.nodes["stage.MCOnly"]["payload"]
 
     assert payload.meta["applies_to"] == {"eventtype": "mc"}
 
 
-def _applicability_author(toy_author: dict[str, Any]) -> dict[str, Any]:
-    author = deepcopy(toy_author)
-    author["data"] = {
+def _applicability_workflow(toy_workflow: dict[str, Any]) -> dict[str, Any]:
+    workflow = deepcopy(toy_workflow)
+    workflow["data"] = {
         "datasets": [
             {"name": "data", "eventtype": "data", "files": ["data.root"]},
             {"name": "ttbar", "eventtype": "mc", "files": ["ttbar.root"]},
         ]
     }
-    author["analysis"]["stages"] = [
+    workflow["analysis"]["stages"] = [
         {
             "id": "Common",
             "op": "toy.scale",
@@ -405,18 +405,18 @@ def _applicability_author(toy_author: dict[str, Any]) -> dict[str, Any]:
             "params": {"source": "scaled_pt", "output": "final_pt", "factor": 1},
         },
     ]
-    return author
+    return workflow
 
 
-def _data_only_author(toy_author: dict[str, Any]) -> dict[str, Any]:
-    author = deepcopy(toy_author)
-    author["data"] = {
+def _data_only_workflow(toy_workflow: dict[str, Any]) -> dict[str, Any]:
+    workflow = deepcopy(toy_workflow)
+    workflow["data"] = {
         "datasets": [
             {"name": "data", "eventtype": "data", "files": ["data.root"]},
             {"name": "ttbar", "eventtype": "mc", "files": ["ttbar.root"]},
         ]
     }
-    author["analysis"]["stages"] = [
+    workflow["analysis"]["stages"] = [
         {
             "id": "Common",
             "op": "toy.scale",
@@ -434,4 +434,4 @@ def _data_only_author(toy_author: dict[str, Any]) -> dict[str, Any]:
             "params": {"source": "scaled_pt", "output": "final_pt", "factor": 1},
         },
     ]
-    return author
+    return workflow

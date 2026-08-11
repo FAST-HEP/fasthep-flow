@@ -111,15 +111,15 @@ pixi run ci
 ## Minimal example
 
 ```python
-from hepflow.api import compile_author_file, run_author_file
+from hepflow.api import compile_workflow_file, run_workflow_file
 
-compile_author_file(
-    "analysis/author.yaml",
+compile_workflow_file(
+    "analysis/workflow.yaml",
     work_dir="build/example",
 )
 
-run_author_file(
-    "analysis/author.yaml",
+run_workflow_file(
+    "analysis/workflow.yaml",
     outdir="build/example",
 )
 ```

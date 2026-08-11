@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 import yaml
 
-from hepflow.api import normalise_author_file
+from hepflow.api import normalise_workflow_file
 from hepflow.compiler.profiles import expand_profile_names, load_profile_registry_layer
 from hepflow.registry.loaders import (
     load_runtime_spec_and_impl,
@@ -71,27 +71,33 @@ def test_unqualified_builtin_registry_profile_still_loads(tmp_path: Path) -> Non
     assert "local.default" in layer.registry["backends"]
 
 
-def test_profile_registry_is_copied_into_normalized_author(tmp_path: Path) -> None:
-    author = {
+def test_profile_registry_is_copied_into_normalized_workflow(tmp_path: Path) -> None:
+    workflow = {
         "version": "1.0",
         "use": {"profiles": ["tests.toy_components:registry"]},
         "sources": {"events": {"kind": "toy.source"}},
         "analysis": {"stages": []},
     }
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author), encoding="utf-8")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
 
-    normalized = normalise_author_file(author_path, outdir=tmp_path / "build")
+    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     assert normalized["use"]["profiles"] == ["tests.toy_components:registry"]
     assert "toy.write" in normalized["registry"]["sinks"]
     assert "registry_layers" in normalized["provenance"]
+    assert normalized["workflow_path"] == str(workflow_path)
+    assert normalized["provenance"]["registry_layers"][-1] == {
+        "name": "workflow",
+        "kind": "workflow",
+        "path": str(workflow_path),
+    }
 
 
 def test_hep_debug_profile_expands_to_hep_stack_with_diagnostics(
     tmp_path: Path,
 ) -> None:
-    author = {
+    workflow = {
         "version": "1.0",
         "use": {"profiles": ["hep_debug"]},
         "data": {
@@ -103,10 +109,10 @@ def test_hep_debug_profile_expands_to_hep_stack_with_diagnostics(
         "sources": {"events": {"kind": "root_tree", "tree": "events"}},
         "analysis": {"stages": []},
     }
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author), encoding="utf-8")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
 
-    normalized = normalise_author_file(author_path, outdir=tmp_path / "build")
+    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     registry = normalized["registry"]
     assert "root_tree" in registry["sources"]
@@ -121,7 +127,7 @@ def test_hep_debug_profile_expands_to_hep_stack_with_diagnostics(
 
 
 def test_hep_profile_excludes_runtime_diagnostics(tmp_path: Path) -> None:
-    author = {
+    workflow = {
         "version": "1.0",
         "use": {"profiles": ["hep"]},
         "data": {
@@ -133,10 +139,10 @@ def test_hep_profile_excludes_runtime_diagnostics(tmp_path: Path) -> None:
         "sources": {"events": {"kind": "root_tree", "tree": "events"}},
         "analysis": {"stages": []},
     }
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author), encoding="utf-8")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
 
-    normalized = normalise_author_file(author_path, outdir=tmp_path / "build")
+    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     hook_kinds = {
         hook["kind"] for hook in normalized["execution_hooks"]

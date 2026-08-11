@@ -21,7 +21,7 @@ class DatasetReport:
     eventtype: str
     files: tuple[str, ...]
     nevents: int | None = None
-    nevents_source: str = "missing"  # "author" | "inferred" | "missing"
+    nevents_source: str = "missing"  # "workflow" | "inferred" | "missing"
     total_entries: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -88,7 +88,7 @@ class CompileReport:
     work_dir: str = ""
     results_dir: str = ""
 
-    author_path: str | None = None
+    workflow_path: str | None = None
 
     primary_stream: str = ""
     streams: tuple[StreamReport, ...] = ()
@@ -111,7 +111,7 @@ class CompileReport:
         return {
             "schema_version": self.schema_version,
             "hepflow_version": self.hepflow_version,
-            "author_path": self.author_path,
+            "workflow_path": self.workflow_path,
             "work_dir": self.work_dir,
             "results_dir": self.results_dir,
             "primary_stream": self.primary_stream,

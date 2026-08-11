@@ -11,7 +11,7 @@ class RuntimeRegistry:
     Loaded runtime registry.
 
     Contains concrete, executable objects resolved from the symbolic registry
-    configuration stored in author/plan files.
+    configuration stored in workflow/plan files.
     """
 
     product_handlers: dict[str, ProductHandlerEntry] = field(default_factory=dict)

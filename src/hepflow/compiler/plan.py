@@ -13,7 +13,7 @@ from hepflow.compiler.execution import (
     normalize_global_execution,
     validate_stage_execution_resource_references,
 )
-from hepflow.compiler.lower_graph import lower_author_to_graph
+from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.model.graph import get_graph_node
 from hepflow.model.lifecycle import WHEN_ALIASES
 from hepflow.model.plan import (
@@ -136,7 +136,7 @@ def build_plan_from_normalized(
         execution["resources"],
         execution["pools"],
     )
-    graph = lower_author_to_graph(normalized)
+    graph = lower_workflow_to_graph(normalized)
     plan = build_execution_plan(
         graph,
         chunk_size=chunk_size,
@@ -149,8 +149,9 @@ def build_plan_from_normalized(
     if isinstance(variation, dict):
         plan.context["variation"] = dict(variation)
     plan.reports = list(normalized.get("reports") or [])
-    if isinstance(normalized.get("author_path"), str):
-        plan.context["author_path"] = str(normalized["author_path"])
+    workflow_path = normalized.get("workflow_path")
+    if isinstance(workflow_path, str):
+        plan.context["workflow_path"] = str(workflow_path)
     return graph, plan
 
 

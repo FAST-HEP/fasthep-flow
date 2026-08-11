@@ -8,16 +8,16 @@ import yaml
 
 import hepflow.api as api
 from hepflow.api import (
-    compile_author_file,
+    compile_workflow_file,
     make_plan_file,
-    normalise_author_file,
-    run_author_file,
+    normalise_workflow_file,
     run_plan_file,
+    run_workflow_file,
 )
 from hepflow.compiler.d2_graph import lowered_graph_to_d2
-from hepflow.compiler.includes import load_author_with_includes
-from hepflow.compiler.lower_graph import lower_author_to_graph
-from hepflow.compiler.normalize import normalize_author
+from hepflow.compiler.includes import load_workflow_with_includes
+from hepflow.compiler.lower_graph import lower_workflow_to_graph
+from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.utils import read_yaml
 
@@ -25,33 +25,33 @@ from hepflow.utils import read_yaml
 def test_public_api_exports_stable_facade_symbols() -> None:
     assert api.__all__ == [
         "InitResult",
-        "compile_author_file",
+        "compile_workflow_file",
         "diff_plan_files",
         "init_project",
-        "load_author_yaml",
         "load_plan_file",
+        "load_workflow_yaml",
         "make_plan_file",
-        "normalise_author_file",
-        "normalize_author_file",
+        "normalise_workflow_file",
+        "normalize_workflow_file",
         "provenance_artifact_text",
         "provenance_graph_text",
         "provenance_summary_text",
-        "run_author_file",
         "run_plan_file",
+        "run_workflow_file",
     ]
     for name in api.__all__:
         assert hasattr(api, name)
 
 
-def test_normalize_preserves_generic_toy_source(toy_author: dict[str, Any]) -> None:
-    normalized = normalize_author(toy_author)
+def test_normalize_preserves_generic_toy_source(toy_workflow: dict[str, Any]) -> None:
+    normalized = normalize_workflow(toy_workflow)
 
     assert normalized["sources"]["events"]["kind"] == "toy.source"
     assert normalized["sources"]["events"]["stream_type"] == "event_stream"
 
 
 def test_explicit_empty_sources_are_preserved_for_product_workflows() -> None:
-    normalized = normalize_author(
+    normalized = normalize_workflow(
         {
             "version": "1.0",
             "registry": _toy_product_registry(),
@@ -73,7 +73,7 @@ def test_explicit_empty_sources_are_preserved_for_product_workflows() -> None:
 
 
 def test_source_less_product_plan_preserves_datasets_and_spec_outputs() -> None:
-    author = normalize_author(
+    workflow = normalize_workflow(
         {
             "version": "1.0",
             "registry": _toy_product_registry(),
@@ -99,9 +99,9 @@ def test_source_less_product_plan_preserves_datasets_and_spec_outputs() -> None:
         }
     )
 
-    graph = lower_author_to_graph(author)
+    graph = lower_workflow_to_graph(workflow)
     graph_node = graph.nodes["stage.Product"]["payload"]
-    _, plan = build_plan_from_normalized(author)
+    _, plan = build_plan_from_normalized(workflow)
 
     assert graph_node.outputs == {"product": "toy_product"}
     assert plan.partitions == []
@@ -112,7 +112,7 @@ def test_source_less_product_plan_preserves_datasets_and_spec_outputs() -> None:
 
 
 def test_transform_stage_accepts_multiple_product_inputs() -> None:
-    author = normalize_author(
+    workflow = normalize_workflow(
         {
             "version": "1.0",
             "registry": _toy_product_registry(),
@@ -148,7 +148,7 @@ def test_transform_stage_accepts_multiple_product_inputs() -> None:
         }
     )
 
-    _, plan = build_plan_from_normalized(author)
+    _, plan = build_plan_from_normalized(workflow)
     compare = plan.get_node("stage.Compare")
 
     assert compare.outputs == {"pair": "toy_pair"}
@@ -157,10 +157,10 @@ def test_transform_stage_accepts_multiple_product_inputs() -> None:
 
 
 def test_top_level_sinks_errors_with_supported_syntax(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = dict(toy_author)
-    author["sinks"] = [
+    workflow = dict(toy_workflow)
+    workflow["sinks"] = [
         {
             "kind": "toy.write",
             "from": "stage.Scale",
@@ -172,7 +172,7 @@ def test_top_level_sinks_errors_with_supported_syntax(
         ValueError,
         match=r"Top-level 'sinks' is not supported.*analysis\.stages\[\]\.write",
     ):
-        normalize_author(author)
+        normalize_workflow(workflow)
 
 
 def test_include_handling_then_normalization(
@@ -183,8 +183,8 @@ def test_include_handling_then_normalization(
         yaml.safe_dump({"registry": toy_registry}, sort_keys=False),
         encoding="utf-8",
     )
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
         yaml.safe_dump(
             {
                 "include": ["registry.yaml"],
@@ -196,8 +196,8 @@ def test_include_handling_then_normalization(
         encoding="utf-8",
     )
 
-    loaded = load_author_with_includes(author_path)
-    normalized = normalize_author(loaded.doc)
+    loaded = load_workflow_with_includes(workflow_path)
+    normalized = normalize_workflow(loaded.doc)
 
     assert "toy.source" in normalized["registry"]["sources"]
 
@@ -218,8 +218,8 @@ def test_include_dataset_mapping_then_normalization(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
         yaml.safe_dump(
             {
                 "include": ["datasets.yaml"],
@@ -232,8 +232,8 @@ def test_include_dataset_mapping_then_normalization(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    loaded = load_author_with_includes(author_path)
-    normalized = normalize_author(loaded.doc)
+    loaded = load_workflow_with_includes(workflow_path)
+    normalized = normalize_workflow(loaded.doc)
 
     assert normalized["data"]["datasets"] == [
         {
@@ -247,9 +247,9 @@ def test_include_dataset_mapping_then_normalization(tmp_path: Path) -> None:
     ]
 
 
-def test_root_tree_source_preserves_reader_options(toy_author: dict[str, Any]) -> None:
-    author = {
-        **toy_author,
+def test_root_tree_source_preserves_reader_options(toy_workflow: dict[str, Any]) -> None:
+    workflow = {
+        **toy_workflow,
         "sources": {
             "events": {
                 "kind": "root_tree",
@@ -261,7 +261,7 @@ def test_root_tree_source_preserves_reader_options(toy_author: dict[str, Any]) -
         },
     }
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     assert normalized["sources"]["events"] == {
         "tree": "Events",
@@ -275,10 +275,10 @@ def test_root_tree_source_preserves_reader_options(toy_author: dict[str, Any]) -
 
 def test_lowering_and_plan_creation_write_graph_artifacts(
     tmp_path: Path,
-    toy_author_path: Path,
+    toy_workflow_path: Path,
 ) -> None:
     build_dir = tmp_path / "build"
-    normalise_author_file(toy_author_path, outdir=build_dir)
+    normalise_workflow_file(toy_workflow_path, outdir=build_dir)
     plan = make_plan_file(build_dir / "compile" / "normalized.yaml", outdir=build_dir)
 
     assert [node.id for node in plan.nodes] == [
@@ -309,7 +309,7 @@ def test_lowering_and_plan_creation_write_graph_artifacts(
 def test_opt_in_component_defaults_materialize_in_normalized_and_plan(
     tmp_path: Path,
 ) -> None:
-    author = {
+    workflow = {
         "version": "1.0",
         "use": {"profiles": ["tests.toy_components:registry"]},
         "sources": {"events": {"kind": "toy.source"}},
@@ -323,11 +323,11 @@ def test_opt_in_component_defaults_materialize_in_normalized_and_plan(
             ]
         },
     }
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
     build_dir = tmp_path / "build"
 
-    normalized = normalise_author_file(author_path, outdir=build_dir)
+    normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
     plan = make_plan_file(build_dir / "compile" / "normalized.yaml", outdir=build_dir)
 
     expected_sort = {"by": "pt", "order": "descending"}
@@ -346,7 +346,7 @@ def test_opt_in_component_defaults_materialize_in_normalized_and_plan(
 def test_stage_id_default_materializes_in_normalized_and_plan(
     tmp_path: Path,
 ) -> None:
-    author = {
+    workflow = {
         "version": "1.0",
         "use": {"profiles": ["tests.toy_components:registry"]},
         "sources": {"events": {"kind": "toy.source"}},
@@ -365,11 +365,11 @@ def test_stage_id_default_materializes_in_normalized_and_plan(
             ]
         },
     }
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
     build_dir = tmp_path / "build"
 
-    normalized = normalise_author_file(author_path, outdir=build_dir)
+    normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
     plan = make_plan_file(build_dir / "compile" / "normalized.yaml", outdir=build_dir)
 
     assert normalized["analysis"]["stages"][0]["params"] == {
@@ -397,7 +397,7 @@ def test_stage_id_default_materializes_in_normalized_and_plan(
 def test_param_template_default_materializes_in_normalized_and_plan(
     tmp_path: Path,
 ) -> None:
-    author = {
+    workflow = {
         "version": "1.0",
         "use": {"profiles": ["tests.toy_components:registry"]},
         "sources": {"events": {"kind": "toy.source"}},
@@ -416,11 +416,11 @@ def test_param_template_default_materializes_in_normalized_and_plan(
             ]
         },
     }
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
     build_dir = tmp_path / "build"
 
-    normalized = normalise_author_file(author_path, outdir=build_dir)
+    normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
     plan = make_plan_file(build_dir / "compile" / "normalized.yaml", outdir=build_dir)
 
     assert normalized["analysis"]["stages"][0]["params"] == {
@@ -450,16 +450,16 @@ def test_param_template_default_materializes_in_normalized_and_plan(
 
 
 def test_compile_graph_d2_uses_readable_observer_labels(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = dict(toy_author)
-    author["observers"] = [
+    workflow = dict(toy_workflow)
+    workflow["observers"] = [
         {
             "kind": "hep.schema_snapshot",
             "at": ["stage.Scale", "write.Scale.0"],
         }
     ]
-    graph = lower_author_to_graph(normalize_author(author))
+    graph = lower_workflow_to_graph(normalize_workflow(workflow))
 
     graph_d2 = lowered_graph_to_d2(graph)
 
@@ -472,25 +472,25 @@ def test_compile_graph_d2_uses_readable_observer_labels(
     assert "class: report" in graph_d2
 
 
-def test_lower_graph_normalizes_sink_when_alias(toy_author: dict[str, Any]) -> None:
-    toy_author = dict(toy_author)
-    graph = lower_author_to_graph(normalize_author(toy_author))
+def test_lower_graph_normalizes_sink_when_alias(toy_workflow: dict[str, Any]) -> None:
+    toy_workflow = dict(toy_workflow)
+    graph = lower_workflow_to_graph(normalize_workflow(toy_workflow))
 
     sink = graph.nodes["write.Scale.0"]["payload"]
     assert sink.params["when"] == "run_end"
 
 
 def test_output_layout_is_normalized_and_resolved_for_writer(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = dict(toy_author)
-    author["outputs"] = {
+    workflow = dict(toy_workflow)
+    workflow["outputs"] = {
         "small": {
             "tree": "events",
             "keep": ["Muon_Pt"],
         }
     }
-    author["analysis"] = {
+    workflow["analysis"] = {
         "stages": [
             {
                 "id": "Scale",
@@ -505,8 +505,8 @@ def test_output_layout_is_normalized_and_resolved_for_writer(
         ]
     }
 
-    normalized = normalize_author(author)
-    graph = lower_author_to_graph(normalized)
+    normalized = normalize_workflow(workflow)
+    graph = lower_workflow_to_graph(normalized)
 
     assert normalized["outputs"]["small"] == {
         "tree": "events",
@@ -522,9 +522,9 @@ def test_output_layout_is_normalized_and_resolved_for_writer(
     assert sink.meta["output_layout"] == "small"
 
 
-def test_writer_use_rejects_unknown_output_layout(toy_author: dict[str, Any]) -> None:
-    author = dict(toy_author)
-    author["analysis"] = {
+def test_writer_use_rejects_unknown_output_layout(toy_workflow: dict[str, Any]) -> None:
+    workflow = dict(toy_workflow)
+    workflow["analysis"] = {
         "stages": [
             {
                 "id": "Scale",
@@ -540,15 +540,15 @@ def test_writer_use_rejects_unknown_output_layout(toy_author: dict[str, Any]) ->
     }
 
     with pytest.raises(ValueError, match="unknown output layout 'missing'"):
-        lower_author_to_graph(normalize_author(author))
+        lower_workflow_to_graph(normalize_workflow(workflow))
 
 
 def test_public_api_compile_and_run_roundtrip(
-    toy_author_path: Path, tmp_path: Path
+    toy_workflow_path: Path, tmp_path: Path
 ) -> None:
     build_dir = tmp_path / "api-build"
 
-    plan = compile_author_file(toy_author_path, outdir=build_dir)
+    plan = compile_workflow_file(toy_workflow_path, outdir=build_dir)
     assert plan.get_node("stage.Scale").impl == "toy.scale"
 
     result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
@@ -557,7 +557,7 @@ def test_public_api_compile_and_run_roundtrip(
     assert (build_dir / "artifacts" / "files" / "output.json").exists()
 
     one_shot_dir = tmp_path / "one-shot"
-    result = run_author_file(toy_author_path, outdir=one_shot_dir)
+    result = run_workflow_file(toy_workflow_path, outdir=one_shot_dir)
     assert result.success is True
     assert (one_shot_dir / "compile" / "normalized.yaml").exists()
     assert (one_shot_dir / "compile" / "plan.yaml").exists()
@@ -565,12 +565,12 @@ def test_public_api_compile_and_run_roundtrip(
 
 
 def test_public_api_accepts_str_and_path_inputs_and_serializes_paths_as_strings(
-    toy_author_path: Path,
+    toy_workflow_path: Path,
     tmp_path: Path,
 ) -> None:
     build_dir = tmp_path / "mixed-paths"
 
-    normalized = normalise_author_file(str(toy_author_path), outdir=build_dir)
+    normalized = normalise_workflow_file(str(toy_workflow_path), outdir=build_dir)
     assert_no_path_objects(normalized)
 
     plan = make_plan_file(

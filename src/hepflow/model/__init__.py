@@ -1,11 +1,5 @@
 from __future__ import annotations
 
-from hepflow.model.author import (
-    SystematicApplicability,
-    SystematicsConfig,
-    SystematicVariation,
-    SystematicWeightRule,
-)
 from hepflow.model.component_spec import RuntimeComponentSpec
 from hepflow.model.execution import (
     ExecutionModifier,
@@ -16,6 +10,12 @@ from hepflow.model.hooks import ExecutionHook
 from hepflow.model.issues import FlowIssue, IssueLevel
 from hepflow.model.products import OperationResult, ProductRef
 from hepflow.model.resources import ResolvedResource
+from hepflow.model.workflow import (
+    SystematicApplicability,
+    SystematicsConfig,
+    SystematicVariation,
+    SystematicWeightRule,
+)
 
 ComponentSpec = RuntimeComponentSpec
 

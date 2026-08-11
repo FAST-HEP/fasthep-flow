@@ -39,7 +39,7 @@ def run_workflow_reports(
                 "build_paths": paths,
                 "registry": plan.registry,
                 "report_templates": dict(plan.registry.get("report_templates") or {}),
-                "author_dir": _author_dir(plan),
+                "workflow_dir": _workflow_dir(plan),
             },
         )
         results.extend(_rendered_report_records(report_id, rendered))
@@ -270,10 +270,10 @@ def _output_record(report_id: str, output: OutputResult) -> dict[str, Any]:
     }
 
 
-def _author_dir(plan: ExecutionPlan) -> str | None:
-    author_path = plan.context.get("author_path")
-    if isinstance(author_path, str) and author_path.strip():
-        return str(Path(author_path).parent)
+def _workflow_dir(plan: ExecutionPlan) -> str | None:
+    workflow_path = plan.context.get("workflow_path")
+    if isinstance(workflow_path, str) and workflow_path.strip():
+        return str(Path(workflow_path).parent)
     return None
 
 

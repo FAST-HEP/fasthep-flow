@@ -43,12 +43,12 @@ def _deep_merge(a: Any, b: Any) -> Any:
     return b
 
 
-def load_author_with_includes(
+def load_workflow_with_includes(
     root_path: str | Path,
     max_depth: int = 50,
 ) -> IncludeResult:
     """
-    Recursively resolve `include:` in an author.yaml-like document.
+    Recursively resolve `include:` in a workflow.yaml-like document.
 
     Conventions:
     - include can be a string path or a list of paths

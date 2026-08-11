@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 import yaml
 
-from hepflow.api import compile_author_file, run_plan_file
+from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
 from hepflow.runtime.engine import execute_plan_partition
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
@@ -176,14 +176,14 @@ def test_modifier_hook_failures_use_hook_dispatch_error(
 
 
 def test_runtime_executes_transform_with_modifier_hooks(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author = {
-        **toy_author,
-        "registry": _registry_with_modifiers(toy_author["registry"]),
+    workflow = {
+        **toy_workflow,
+        "registry": _registry_with_modifiers(toy_workflow["registry"]),
     }
-    stage = author["analysis"]["stages"][0]
+    stage = workflow["analysis"]["stages"][0]
     stage["params"] = {
         "source": "pt_plus",
         "output": "modified",
@@ -193,10 +193,10 @@ def test_runtime_executes_transform_with_modifier_hooks(
         "modifiers": [{"name": "toy.A", "params": {"A_field": "pt_plus"}}]
     }
 
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
     build_dir = tmp_path / "build"
-    compile_author_file(author_path, outdir=build_dir)
+    compile_workflow_file(workflow_path, outdir=build_dir)
 
     result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
 

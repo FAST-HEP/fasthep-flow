@@ -1,4 +1,3 @@
-# hepflow/model/author.py
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -275,7 +274,7 @@ class SystematicsConfig:
 
 
 @dataclass(frozen=True)
-class NormalizedAuthor:
+class NormalizedWorkflow:
     version: str
     data: DataBlock
     sources: dict[str, dict[str, Any]] = field(default_factory=dict)

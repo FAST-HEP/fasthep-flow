@@ -29,7 +29,7 @@ def default_profile_search_paths(root: Path) -> list[Path]:
     """Return profile search paths for future explicit profile loading.
 
     Future config provenance should merge in this order:
-    builtin defaults < selected profile configs < author.yaml < CLI overrides.
+    builtin defaults < selected profile configs < workflow.yaml < CLI overrides.
     Packaged builtin profile templates can be appended here once real profiles
     exist.
     """

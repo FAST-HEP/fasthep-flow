@@ -11,12 +11,17 @@ from hepflow.compiler.execution import (
 )
 from hepflow.compiler.profiles import normalize_profile_names
 from hepflow.model.applicability import normalize_node_applicability
-from hepflow.model.author import (
+from hepflow.model.defaults import (
+    DEFAULT_DATASET_EVENTTYPE,
+    DEFAULT_JOIN_ON_MISMATCH,
+    DEFAULT_STREAM_TYPE,
+)
+from hepflow.model.workflow import (
     DataBlock,
     DatasetSpec,
     FieldSpec,
     JoinInputSpec,
-    NormalizedAuthor,
+    NormalizedWorkflow,
     RootTreeSourceSpec,
     SystematicApplicability,
     SystematicsConfig,
@@ -25,11 +30,6 @@ from hepflow.model.author import (
     ZipJoinSpec,
     inject_default_events_source,
 )
-from hepflow.model.defaults import (
-    DEFAULT_DATASET_EVENTTYPE,
-    DEFAULT_JOIN_ON_MISMATCH,
-    DEFAULT_STREAM_TYPE,
-)
 from hepflow.registry.defaults import (
     default_expr_registry_config,
     default_runtime_registry_config,
@@ -37,7 +37,7 @@ from hepflow.registry.defaults import (
 )
 
 
-def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
+def normalize_workflow(doc: dict[str, Any]) -> dict[str, Any]:
     doc = _ensure_mapping(doc, "document")
     if "sinks" in doc:
         raise ValueError(
@@ -85,7 +85,7 @@ def normalize_author(doc: dict[str, Any]) -> dict[str, Any]:
         registry_cfg,
     )
 
-    norm = NormalizedAuthor(
+    norm = NormalizedWorkflow(
         version=version,
         data=data,
         sources=sources,

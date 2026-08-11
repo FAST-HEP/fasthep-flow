@@ -202,13 +202,13 @@ def validate_stage_execution_resource_references(
                 )
 
 
-def resolve_author_execution(
-    author: dict[str, Any],
+def resolve_workflow_execution(
+    workflow: dict[str, Any],
     *,
-    author_path: Path,
+    workflow_path: Path,
 ) -> dict[str, Any]:
-    project_root = author_path.parent
-    use_block = author.get("use") or {}
+    project_root = workflow_path.parent
+    use_block = workflow.get("use") or {}
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
 
@@ -246,10 +246,10 @@ def resolve_author_execution(
         )
     layers.append(
         {
-            "name": "author",
-            "kind": "author",
-            "path": str(author_path),
-            "execution": normalize_global_execution(author.get("execution")),
+            "name": "workflow",
+            "kind": "workflow",
+            "path": str(workflow_path),
+            "execution": normalize_global_execution(workflow.get("execution")),
         }
     )
 
@@ -262,13 +262,13 @@ def resolve_author_execution(
     }
 
 
-def resolve_author_execution_hooks(
-    author: dict[str, Any],
+def resolve_workflow_execution_hooks(
+    workflow: dict[str, Any],
     *,
-    author_path: Path,
+    workflow_path: Path,
 ) -> dict[str, Any]:
-    project_root = author_path.parent
-    use_block = author.get("use") or {}
+    project_root = workflow_path.parent
+    use_block = workflow.get("use") or {}
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
 
@@ -298,10 +298,10 @@ def resolve_author_execution_hooks(
         )
     layers.append(
         {
-            "name": "author",
-            "kind": "author",
-            "path": str(author_path),
-            "execution_hooks": list(author.get("execution_hooks") or []),
+            "name": "workflow",
+            "kind": "workflow",
+            "path": str(workflow_path),
+            "execution_hooks": list(workflow.get("execution_hooks") or []),
         }
     )
 

@@ -7,10 +7,10 @@ from typing import Any
 import pytest
 import yaml
 
-from hepflow.api import compile_author_file, run_plan_file
+from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.compiler.data_flow import parse_component_data_dependencies
-from hepflow.compiler.lower_graph import lower_author_to_graph
-from hepflow.compiler.normalize import normalize_author
+from hepflow.compiler.lower_graph import lower_workflow_to_graph
+from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_execution_plan
 from hepflow.model.data_flow import DataDependencyResult
 from hepflow.model.lifecycle import normalize_lifecycle_event
@@ -84,10 +84,10 @@ def test_component_spec_dependency_parser_adds_dynamic_symbols() -> None:
 
 
 def test_data_flow_infers_source_requirements_without_requiring_produced_data(
-    toy_author_path: Path,
+    toy_workflow_path: Path,
     tmp_path: Path,
 ) -> None:
-    plan = compile_author_file(toy_author_path, outdir=tmp_path / "build")
+    plan = compile_workflow_file(toy_workflow_path, outdir=tmp_path / "build")
 
     assert plan.data_flow["required_sources"]["events"]["branches"] == ["pt"]
     assert plan.data_flow["origins"]["scaled_pt"] == {
@@ -98,27 +98,27 @@ def test_data_flow_infers_source_requirements_without_requiring_produced_data(
 
 
 def test_data_flow_includes_sink_field_list_requirements(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author = deepcopy(toy_author)
-    author["outputs"] = {
+    workflow = deepcopy(toy_workflow)
+    workflow["outputs"] = {
         "small": {
             "tree": "events",
             "keep": ["eta", "scaled_pt"],
         }
     }
-    author["analysis"]["stages"][0]["write"] = [
+    workflow["analysis"]["stages"][0]["write"] = [
         {
             "kind": "toy.write",
             "path": "small.json",
             "use": "small",
         }
     ]
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
 
-    plan = compile_author_file(author_path, outdir=tmp_path / "build")
+    plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     sink = plan.get_node("write.Scale.0")
     assert sink.params["keep"] == ["eta", "scaled_pt"]
@@ -474,11 +474,11 @@ def test_template_outputs_support_prefix_suffixes_and_guards() -> None:
 
 def test_hook_context_result_symbols_are_visible_to_data_flow(
     tmp_path: Path,
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = dict(toy_author)
-    author["registry"] = {
-        **dict(author["registry"]),
+    workflow = dict(toy_workflow)
+    workflow["registry"] = {
+        **dict(workflow["registry"]),
         "hooks": {
             "toy.context": {
                 "spec": "tests.toy_components.hooks:TOY_CONTEXT_HOOK_SPEC",
@@ -486,20 +486,20 @@ def test_hook_context_result_symbols_are_visible_to_data_flow(
             }
         },
     }
-    author["execution_hooks"] = [
+    workflow["execution_hooks"] = [
         {
             "kind": "toy.context",
             "events": ["partition_start"],
         }
     ]
-    author["analysis"]["stages"][0]["params"] = {
+    workflow["analysis"]["stages"][0]["params"] = {
         "source": "toy_context",
         "output": "from_context",
     }
 
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
-    plan = compile_author_file(author_path, outdir=tmp_path / "build")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     assert "events" not in plan.data_flow["required_sources"]
     assert (
@@ -509,10 +509,10 @@ def test_hook_context_result_symbols_are_visible_to_data_flow(
 
 
 def test_component_spec_shaped_hook_loads_metadata(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
     registry = {
-        **dict(toy_author["registry"]),
+        **dict(toy_workflow["registry"]),
         "hooks": {
             "toy.context": {
                 "spec": "tests.toy_components.hooks:TOY_CONTEXT_HOOK_SPEC",
@@ -537,11 +537,11 @@ def test_component_spec_shaped_hook_loads_metadata(
 
 def test_hook_executes_lifecycle_event_and_records_summary(
     tmp_path: Path,
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = dict(toy_author)
-    author["registry"] = {
-        **dict(author["registry"]),
+    workflow = dict(toy_workflow)
+    workflow["registry"] = {
+        **dict(workflow["registry"]),
         "hooks": {
             "toy.context": {
                 "spec": "tests.toy_components.hooks:TOY_CONTEXT_HOOK_SPEC",
@@ -549,7 +549,7 @@ def test_hook_executes_lifecycle_event_and_records_summary(
             }
         },
     }
-    author["execution_hooks"] = [
+    workflow["execution_hooks"] = [
         {
             "kind": "toy.context",
             "events": [
@@ -562,20 +562,20 @@ def test_hook_executes_lifecycle_event_and_records_summary(
             "params": {"value": "from-hook"},
         }
     ]
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
     build_dir = tmp_path / "build"
-    compile_author_file(author_path, outdir=build_dir)
+    compile_workflow_file(workflow_path, outdir=build_dir)
     result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
 
     assert result.summary["hooks"]["enabled"][0]["kind"] == "toy.context"
     assert result.summary["hooks"]["enabled"][0]["calls"] > 0
 
 
-def test_invalid_hook_event_raises(toy_author: dict[str, Any]) -> None:
-    author = dict(toy_author)
-    author["registry"] = {
-        **dict(author["registry"]),
+def test_invalid_hook_event_raises(toy_workflow: dict[str, Any]) -> None:
+    workflow = dict(toy_workflow)
+    workflow["registry"] = {
+        **dict(workflow["registry"]),
         "hooks": {
             "toy.context": {
                 "spec": "tests.toy_components.hooks:TOY_CONTEXT_HOOK_SPEC",
@@ -583,18 +583,18 @@ def test_invalid_hook_event_raises(toy_author: dict[str, Any]) -> None:
             }
         },
     }
-    author["execution_hooks"] = [{"kind": "toy.context", "events": ["not_an_event"]}]
-    plan = compile_author_file_from_dict(author)
+    workflow["execution_hooks"] = [{"kind": "toy.context", "events": ["not_an_event"]}]
+    plan = compile_workflow_file_from_dict(workflow)
 
     with pytest.raises(ValueError, match="does not support event not_an_event"):
         HookManager.from_plan(plan)
 
 
-def compile_author_file_from_dict(author: dict[str, Any]):
+def compile_workflow_file_from_dict(workflow: dict[str, Any]):
 
-    normalized = normalize_author(author)
-    normalized["execution_hooks"] = author.get("execution_hooks", [])
-    graph = lower_author_to_graph(normalized)
+    normalized = normalize_workflow(workflow)
+    normalized["execution_hooks"] = workflow.get("execution_hooks", [])
+    graph = lower_workflow_to_graph(normalized)
     return build_execution_plan(
         graph,
         registry=normalized["registry"],

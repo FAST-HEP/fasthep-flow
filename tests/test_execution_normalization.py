@@ -6,13 +6,13 @@ from typing import Any
 import pytest
 import yaml
 
-from hepflow.api import compile_author_file
-from hepflow.compiler.normalize import normalize_author
+from hepflow.api import compile_workflow_file
+from hepflow.compiler.normalize import normalize_workflow
 from hepflow.model.execution import resolve_node_resource_intent
 
 
-def test_missing_execution_block_gives_defaults(toy_author: dict[str, Any]) -> None:
-    normalized = normalize_author(toy_author)
+def test_missing_execution_block_gives_defaults(toy_workflow: dict[str, Any]) -> None:
+    normalized = normalize_workflow(toy_workflow)
 
     assert normalized["execution"] == {
         "backend": "local",
@@ -26,10 +26,10 @@ def test_missing_execution_block_gives_defaults(toy_author: dict[str, Any]) -> N
 
 
 def test_global_execution_normalization_preserves_metadata(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = {
-        **toy_author,
+    workflow = {
+        **toy_workflow,
         "execution": {
             "backend": "dask",
             "strategy": "htcondor",
@@ -55,10 +55,10 @@ def test_global_execution_normalization_preserves_metadata(
         },
     }
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     assert normalized["execution"] == {
-        **author["execution"],
+        **workflow["execution"],
         "environment": {},
         "pools": {
             "default": {
@@ -121,21 +121,21 @@ def test_global_execution_normalization_preserves_metadata(
     ],
 )
 def test_invalid_global_execution_errors(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     execution: Any,
     message: str,
 ) -> None:
-    author = {**toy_author, "execution": execution}
+    workflow = {**toy_workflow, "execution": execution}
 
     with pytest.raises(ValueError, match=message):
-        normalize_author(author)
+        normalize_workflow(workflow)
 
 
 def test_stage_execution_prefer_fallback_modifiers_preserved(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _with_stage_execution(
-        _with_resources(toy_author),
+    workflow = _with_stage_execution(
+        _with_resources(toy_workflow),
         {
             "prefer": "gpu",
             "fallback": "default",
@@ -144,7 +144,7 @@ def test_stage_execution_prefer_fallback_modifiers_preserved(
         },
     )
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     assert normalized["analysis"]["stages"][0]["execution"] == {
         "require": None,
@@ -159,10 +159,10 @@ def test_stage_execution_prefer_fallback_modifiers_preserved(
 
 
 def test_stage_execution_expanded_modifiers_preserve_params_and_order(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _with_stage_execution(
-        toy_author,
+    workflow = _with_stage_execution(
+        toy_workflow,
         {
             "modifiers": [
                 {
@@ -174,7 +174,7 @@ def test_stage_execution_expanded_modifiers_preserve_params_and_order(
         },
     )
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     assert normalized["analysis"]["stages"][0]["execution"]["modifiers"] == [
         {"name": "gpu.preload", "params": {"fields": ["Jet_Pt", "Jet_Eta"]}},
@@ -182,10 +182,10 @@ def test_stage_execution_expanded_modifiers_preserve_params_and_order(
     ]
 
 
-def test_stage_execution_require_preserved(toy_author: dict[str, Any]) -> None:
-    author = _with_stage_execution(_with_resources(toy_author), {"require": "gpu"})
+def test_stage_execution_require_preserved(toy_workflow: dict[str, Any]) -> None:
+    workflow = _with_stage_execution(_with_resources(toy_workflow), {"require": "gpu"})
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     assert normalized["analysis"]["stages"][0]["execution"] == {
         "require": "gpu",
@@ -197,10 +197,10 @@ def test_stage_execution_require_preserved(toy_author: dict[str, Any]) -> None:
 
 
 def test_execution_resources_and_pools_normalize(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = {
-        **toy_author,
+    workflow = {
+        **toy_workflow,
         "execution": {
             "resources": {
                 "default": {"cpus": 1, "memory": "4GB"},
@@ -213,7 +213,7 @@ def test_execution_resources_and_pools_normalize(
         },
     }
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     assert normalized["execution"]["pools"] == {
         "default": {"resources": "default", "workers": 100, "config": {}},
@@ -222,11 +222,11 @@ def test_execution_resources_and_pools_normalize(
 
 
 def test_implicit_default_pool_from_config_workers(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = {**toy_author, "execution": {"config": {"workers": 4}}}
+    workflow = {**toy_workflow, "execution": {"config": {"workers": 4}}}
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     assert normalized["execution"]["resources"] == {"default": {}}
     assert normalized["execution"]["pools"] == {
@@ -267,23 +267,23 @@ def test_implicit_default_pool_from_config_workers(
     ],
 )
 def test_invalid_stage_execution_errors(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     execution: Any,
     message: str,
 ) -> None:
-    author = _with_stage_execution(toy_author, execution)
+    workflow = _with_stage_execution(toy_workflow, execution)
 
     with pytest.raises(ValueError, match=message):
-        normalize_author(author)
+        normalize_workflow(workflow)
 
 
 def test_execution_metadata_propagates_to_plan(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author = _with_stage_execution(
+    workflow = _with_stage_execution(
         {
-            **toy_author,
+            **toy_workflow,
             "execution": {
                 "backend": "dask",
                 "strategy": "htcondor",
@@ -301,13 +301,13 @@ def test_execution_metadata_propagates_to_plan(
         },
         {"prefer": "gpu", "fallback": "default", "modifiers": ["gpu.preload"]},
     )
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
 
-    plan = compile_author_file(author_path, outdir=tmp_path / "build")
+    plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
     plan_yaml = plan.to_dict()
 
-    assert plan_yaml["execution"]["resources"] == author["execution"]["resources"]
+    assert plan_yaml["execution"]["resources"] == workflow["execution"]["resources"]
     assert plan_yaml["execution"]["environment"] == {}
     assert plan_yaml["execution"]["pools"] == {
         "default": {"resources": "default", "workers": 100, "config": {}},
@@ -324,11 +324,11 @@ def test_execution_metadata_propagates_to_plan(
 
 
 def test_packed_pixi_worker_environment_spec_written_at_compile(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author = {
-        **toy_author,
+    workflow = {
+        **toy_workflow,
         "execution": {
             "backend": "dask",
             "strategy": "htcondor",
@@ -340,10 +340,10 @@ def test_packed_pixi_worker_environment_spec_written_at_compile(
             },
         },
     }
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
 
-    compile_author_file(author_path, outdir=tmp_path / "build")
+    compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     worker_env = yaml.safe_load(
         (tmp_path / "build" / "compile" / "worker_environment.json").read_text(
@@ -359,10 +359,10 @@ def test_packed_pixi_worker_environment_spec_written_at_compile(
 
 
 def test_stage_execution_unknown_resource_class_errors(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _with_stage_execution(
-        _with_resources(toy_author),
+    workflow = _with_stage_execution(
+        _with_resources(toy_workflow),
         {"prefer": "missing"},
     )
 
@@ -370,15 +370,15 @@ def test_stage_execution_unknown_resource_class_errors(
         ValueError,
         match=r"execution\.prefer references unknown resource class 'missing'",
     ):
-        normalize_author(author)
+        normalize_workflow(workflow)
 
 
 def test_stage_execution_resource_without_pool_errors_when_pools_defined(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _with_stage_execution(
+    workflow = _with_stage_execution(
         {
-            **toy_author,
+            **toy_workflow,
             "execution": {
                 "resources": {
                     "default": {"cpus": 1},
@@ -394,20 +394,20 @@ def test_stage_execution_resource_without_pool_errors_when_pools_defined(
         ValueError,
         match="no execution pool provides it",
     ):
-        normalize_author(author)
+        normalize_workflow(workflow)
 
 
 def test_node_resource_intent_resolves_gpu_resources(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author = _with_stage_execution(
-        _with_resources(toy_author),
+    workflow = _with_stage_execution(
+        _with_resources(toy_workflow),
         {"prefer": "gpu", "fallback": "default", "timeout": "10m"},
     )
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
-    plan = compile_author_file(author_path, outdir=tmp_path / "build")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     intent = resolve_node_resource_intent(plan, "stage.Scale")
 
@@ -427,13 +427,13 @@ def test_node_resource_intent_resolves_gpu_resources(
 
 
 def test_node_resource_intent_resolves_required_gpu_resources(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author = _with_stage_execution(_with_resources(toy_author), {"require": "gpu"})
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
-    plan = compile_author_file(author_path, outdir=tmp_path / "build")
+    workflow = _with_stage_execution(_with_resources(toy_workflow), {"require": "gpu"})
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     intent = resolve_node_resource_intent(plan, plan.get_node("stage.Scale"))
 
@@ -447,12 +447,12 @@ def test_node_resource_intent_resolves_required_gpu_resources(
 
 
 def test_node_resource_intent_lists_candidate_pools(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author = _with_stage_execution(
+    workflow = _with_stage_execution(
         {
-            **toy_author,
+            **toy_workflow,
             "execution": {
                 "resources": {
                     "default": {"cpus": 1},
@@ -466,9 +466,9 @@ def test_node_resource_intent_lists_candidate_pools(
         },
         {"prefer": "gpu", "fallback": "default"},
     )
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
-    plan = compile_author_file(author_path, outdir=tmp_path / "build")
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     intent = resolve_node_resource_intent(plan, "stage.Scale")
 
@@ -479,10 +479,10 @@ def test_node_resource_intent_lists_candidate_pools(
 
 
 def test_workflow_without_stage_execution_has_no_node_resource_intent(
-    toy_author_path: Path,
+    toy_workflow_path: Path,
     tmp_path: Path,
 ) -> None:
-    plan = compile_author_file(toy_author_path, outdir=tmp_path / "build")
+    plan = compile_workflow_file(toy_workflow_path, outdir=tmp_path / "build")
     node = plan.get_node("stage.Scale")
 
     assert "execution" not in node.meta
@@ -498,23 +498,23 @@ def test_workflow_without_stage_execution_has_no_node_resource_intent(
 
 
 def _with_stage_execution(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     execution: Any,
 ) -> dict[str, Any]:
-    author = {
-        **toy_author,
+    workflow = {
+        **toy_workflow,
         "analysis": {
-            **toy_author["analysis"],
-            "stages": [dict(toy_author["analysis"]["stages"][0])],
+            **toy_workflow["analysis"],
+            "stages": [dict(toy_workflow["analysis"]["stages"][0])],
         },
     }
-    author["analysis"]["stages"][0]["execution"] = execution
-    return author
+    workflow["analysis"]["stages"][0]["execution"] = execution
+    return workflow
 
 
-def _with_resources(toy_author: dict[str, Any]) -> dict[str, Any]:
+def _with_resources(toy_workflow: dict[str, Any]) -> dict[str, Any]:
     return {
-        **toy_author,
+        **toy_workflow,
         "execution": {
             "backend": "local",
             "strategy": "default",

@@ -6,17 +6,17 @@ from typing import Any
 
 import yaml
 
-from hepflow.api import compile_author_file, run_plan_file
+from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
 from hepflow.runtime.engine import _source_should_read_metadata_only
 
 
 def test_runtime_executes_toy_source_transform_and_final_sink(
-    toy_author_path: Path,
+    toy_workflow_path: Path,
     tmp_path: Path,
 ) -> None:
     build_dir = tmp_path / "build"
-    compile_author_file(toy_author_path, outdir=build_dir)
+    compile_workflow_file(toy_workflow_path, outdir=build_dir)
 
     result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
 
@@ -32,10 +32,10 @@ def test_runtime_executes_toy_source_transform_and_final_sink(
 
 def test_partition_dataset_and_run_end_sink_timing(
     tmp_path: Path,
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = {
-        **toy_author,
+    workflow = {
+        **toy_workflow,
         "data": {
             "datasets": [
                 {
@@ -46,18 +46,18 @@ def test_partition_dataset_and_run_end_sink_timing(
             ]
         },
     }
-    stage = author["analysis"]["stages"][0]
+    stage = workflow["analysis"]["stages"][0]
     stage["write"] = [
         {"kind": "toy.write", "path": "partition.json", "when": "partition"},
         {"kind": "toy.write", "path": "dataset.json", "when": "dataset"},
         {"kind": "toy.write", "path": "run.json", "when": "final"},
     ]
 
-    author_path = tmp_path / "author.yaml"
+    workflow_path = tmp_path / "workflow.yaml"
 
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
     build_dir = tmp_path / "build"
-    compile_author_file(author_path, outdir=build_dir, chunk_size=2)
+    compile_workflow_file(workflow_path, outdir=build_dir, chunk_size=2)
 
     result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
 

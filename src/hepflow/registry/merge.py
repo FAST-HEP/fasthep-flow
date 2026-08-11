@@ -29,7 +29,7 @@ def merge_registry_layers(
     """Merge registry layers and report key-level additions/overwrites.
 
     Merge order is controlled by caller and should be:
-    builtin defaults < selected profile configs < author.yaml < CLI overrides.
+    builtin defaults < selected profile configs < workflow.yaml < CLI overrides.
     """
     merged: dict[str, Any] = {section: {} for section in sections}
     owners: dict[tuple[str, str], str] = {}

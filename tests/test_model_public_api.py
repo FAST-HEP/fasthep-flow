@@ -17,7 +17,7 @@ def test_component_spec_public_alias_preserves_runtime_spec_path() -> None:
     assert ComponentSpec is RuntimeComponentSpec
 
 
-def test_component_author_import_surface_is_available() -> None:
+def test_component_workflow_import_surface_is_available() -> None:
     assert ComponentSpec.from_obj(
         {
             "name": "example.component",

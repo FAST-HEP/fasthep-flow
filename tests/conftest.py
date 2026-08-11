@@ -14,7 +14,7 @@ def toy_registry() -> dict[str, Any]:
 
 
 @pytest.fixture
-def toy_author(toy_registry: dict[str, Any]) -> dict[str, Any]:
+def toy_workflow(toy_registry: dict[str, Any]) -> dict[str, Any]:
     return {
         "version": "1.0",
         "registry": toy_registry,
@@ -44,7 +44,7 @@ def toy_author(toy_registry: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.fixture
-def toy_author_path(tmp_path: Path, toy_author: dict[str, Any]) -> Path:
-    path = tmp_path / "author.yaml"
-    path.write_text(yaml.safe_dump(toy_author, sort_keys=False), encoding="utf-8")
+def toy_workflow_path(tmp_path: Path, toy_workflow: dict[str, Any]) -> Path:
+    path = tmp_path / "workflow.yaml"
+    path.write_text(yaml.safe_dump(toy_workflow, sort_keys=False), encoding="utf-8")
     return path

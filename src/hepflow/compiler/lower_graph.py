@@ -17,9 +17,9 @@ from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.registry.loaders import load_object
 
 
-def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
+def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
     """
-    Lower an author document into an explicit directed graph.
+    Lower a workflow document into an explicit directed graph.
 
     Current scope:
       - sources -> reader nodes
@@ -36,30 +36,30 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
     """
     graph = new_graph()
     graph.graph["analysis_globals"] = dict(
-        (author.get("analysis") or {}).get("globals") or {}
+        (workflow.get("analysis") or {}).get("globals") or {}
     )
 
-    data_block = dict(author.get("data", {}))
+    data_block = dict(workflow.get("data", {}))
     datasets = list(data_block.get("datasets", []))
     graph.graph["datasets"] = [dict(dataset) for dataset in datasets]
     defaults = dict(data_block.get("defaults", {}))
 
-    style_defs = collect_styles(author)
-    output_defs = dict(author.get("outputs") or {})
+    style_defs = collect_styles(workflow)
+    output_defs = dict(workflow.get("outputs") or {})
 
-    sources = dict(author.get("sources", {}))
-    stages = list(author.get("analysis", {}).get("stages", []))
+    sources = dict(workflow.get("sources", {}))
+    stages = list(workflow.get("analysis", {}).get("stages", []))
     if not sources and not stages:
-        raise ValueError("No sources or analysis stages declared in author document")
+        raise ValueError("No sources or analysis stages declared in workflow document")
 
-    joins = dict(author.get("joins", {}))
+    joins = dict(workflow.get("joins", {}))
 
     stream_entry_nodes: dict[str, str] = {}
     stream_effective_nodes: dict[str, str] = {}
 
     for source_name, source_cfg_raw in sources.items():
         source_cfg = dict(source_cfg_raw)
-        branches = _branches_for_stream(author, source_name)
+        branches = _branches_for_stream(workflow, source_name)
         if branches:
             source_cfg["branches"] = branches
 
@@ -92,7 +92,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
 
     _insert_projection_nodes(
         graph=graph,
-        author=author,
+        workflow=workflow,
         stream_entry_nodes=stream_entry_nodes,
         stream_effective_nodes=stream_effective_nodes,
         stream_ids=sources.keys(),
@@ -139,7 +139,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
 
     _insert_projection_nodes(
         graph=graph,
-        author=author,
+        workflow=workflow,
         stream_entry_nodes=stream_entry_nodes,
         stream_effective_nodes=stream_effective_nodes,
         stream_ids=joins.keys(),
@@ -148,7 +148,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
     previous_stage_stream_source: str | None = None
 
     stage_nodes: dict[str, str] = {}
-    transform_specs = dict((author.get("registry") or {}).get("transforms") or {})
+    transform_specs = dict((workflow.get("registry") or {}).get("transforms") or {})
 
     for stage in stages:
         stage_id = stage["id"]
@@ -209,7 +209,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
         else:
             if previous_stage_stream_source is None:
                 previous_stage_stream_source = _resolve_initial_stage_stream(
-                    author=author,
+                    workflow=workflow,
                     stream_effective_nodes=stream_effective_nodes,
                 )
             add_graph_edge(
@@ -296,7 +296,7 @@ def lower_author_to_graph(author: dict[str, Any]) -> nx.DiGraph:
 
     _attach_top_level_observers(
         graph=graph,
-        observer_cfgs=list(author.get("observers") or []),
+        observer_cfgs=list(workflow.get("observers") or []),
     )
 
     if not nx.is_directed_acyclic_graph(graph):
@@ -330,7 +330,7 @@ def _make_source_node(
         outputs={"stream": stream_type},
         meta={
             "source_name": source_name,
-            "author_kind": kind,
+            "workflow_kind": kind,
         },
     )
 
@@ -346,7 +346,7 @@ def _make_stage_node(stage: dict[str, Any], *, registry: dict[str, Any]) -> Grap
 
     meta: dict[str, Any] = {
         "stage_id": stage_id,
-        "author_op": op,
+        "workflow_op": op,
     }
     execution = normalize_stage_execution(stage.get("execution"))
     if execution is not None:
@@ -488,7 +488,7 @@ def _make_render_stage_node(
 
     meta: dict[str, Any] = {
         "stage_id": stage_id,
-        "author_op": op,
+        "workflow_op": op,
     }
     execution = normalize_stage_execution(stage.get("execution"))
     if execution is not None:
@@ -584,14 +584,14 @@ def _canonicalize_hist_params(params: dict[str, Any]) -> dict[str, Any]:
 def _insert_projection_nodes(
     *,
     graph: nx.DiGraph,
-    author: dict[str, Any],
+    workflow: dict[str, Any],
     stream_entry_nodes: dict[str, str],
     stream_effective_nodes: dict[str, str],
     stream_ids,
 ) -> None:
     del stream_entry_nodes
     for stream_id in stream_ids:
-        aliases = _aliases_for_stream(author, str(stream_id))
+        aliases = _aliases_for_stream(workflow, str(stream_id))
         if not aliases:
             continue
         if stream_id not in stream_effective_nodes:
@@ -624,10 +624,10 @@ def _insert_projection_nodes(
 
 def _resolve_initial_stage_stream(
     *,
-    author: dict[str, Any],
+    workflow: dict[str, Any],
     stream_effective_nodes: dict[str, str],
 ) -> str:
-    primary_stream = author.get("primary_stream")
+    primary_stream = workflow.get("primary_stream")
     if primary_stream is not None:
         try:
             return stream_effective_nodes[str(primary_stream)]
@@ -777,7 +777,7 @@ def _make_inspect_node(
         meta={
             "parent_kind": parent_kind,
             "parent_name": parent_name,
-            "author_kind": kind,
+            "workflow_kind": kind,
         },
     )
 
@@ -813,7 +813,7 @@ def _make_write_node(
 
     meta: dict[str, Any] = {
         "stage_id": stage_id,
-        "author_kind": kind,
+        "workflow_kind": kind,
     }
     if layout_name is not None:
         meta["output_layout"] = layout_name
@@ -874,7 +874,7 @@ def _make_render_node(
         meta={
             "stage_id": stage_id,
             "style_ref": style_ref,
-            "author_op": render_op,
+            "workflow_op": render_op,
         },
     )
 
@@ -984,8 +984,8 @@ def _normalize_render(render: Any) -> list[dict[str, Any]]:
     raise TypeError(f"Unsupported render block type: {type(render)!r}")
 
 
-def _aliases_for_stream(author: dict[str, Any], stream_id: str) -> dict[str, str]:
-    fields = dict(author.get("fields", {}) or {})
+def _aliases_for_stream(workflow: dict[str, Any], stream_id: str) -> dict[str, str]:
+    fields = dict(workflow.get("fields", {}) or {})
     aliases: dict[str, str] = {}
 
     for alias, spec in fields.items():
@@ -1001,8 +1001,8 @@ def _aliases_for_stream(author: dict[str, Any], stream_id: str) -> dict[str, str
     return aliases
 
 
-def _branches_for_stream(author: dict[str, Any], stream_id: str) -> list[str]:
-    fields = dict(author.get("fields", {}) or {})
+def _branches_for_stream(workflow: dict[str, Any], stream_id: str) -> list[str]:
+    fields = dict(workflow.get("fields", {}) or {})
     branches: list[str] = []
 
     for _, spec in fields.items():

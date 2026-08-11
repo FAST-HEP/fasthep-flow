@@ -4,21 +4,21 @@ from typing import Any
 
 import pytest
 
-from hepflow.compiler.normalize import normalize_author
+from hepflow.compiler.normalize import normalize_workflow
 
 
 def test_missing_systematics_keeps_existing_normalized_shape(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(toy_author)
+    normalized = normalize_workflow(toy_workflow)
 
     assert "systematics" not in normalized
 
 
-def test_empty_systematics_normalizes_cleanly(toy_author: dict[str, Any]) -> None:
-    author = {**toy_author, "systematics": {}}
+def test_empty_systematics_normalizes_cleanly(toy_workflow: dict[str, Any]) -> None:
+    workflow = {**toy_workflow, "systematics": {}}
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     assert normalized["systematics"] == {
         "include_nominal": False,
@@ -27,9 +27,9 @@ def test_empty_systematics_normalizes_cleanly(toy_author: dict[str, Any]) -> Non
     }
 
 
-def test_simple_variation_normalizes(toy_author: dict[str, Any]) -> None:
-    author = {
-        **toy_author,
+def test_simple_variation_normalizes(toy_workflow: dict[str, Any]) -> None:
+    workflow = {
+        **toy_workflow,
         "systematics": {
             "include_nominal": True,
             "profiles": ["CMS_Run3_Defaults"],
@@ -46,7 +46,7 @@ def test_simple_variation_normalizes(toy_author: dict[str, Any]) -> None:
         },
     }
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     assert normalized["systematics"] == {
         "include_nominal": True,
@@ -66,9 +66,9 @@ def test_simple_variation_normalizes(toy_author: dict[str, Any]) -> None:
     }
 
 
-def test_dataset_applicability_normalizes(toy_author: dict[str, Any]) -> None:
-    author = {
-        **toy_author,
+def test_dataset_applicability_normalizes(toy_workflow: dict[str, Any]) -> None:
+    workflow = {
+        **toy_workflow,
         "systematics": {
             "variations": [
                 {
@@ -79,15 +79,15 @@ def test_dataset_applicability_normalizes(toy_author: dict[str, Any]) -> None:
         },
     }
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     variation = normalized["systematics"]["variations"][0]
     assert variation["applies_to"] == {"eventtypes": [], "datasets": ["ttbar"]}
 
 
-def test_weight_multiply_list_is_preserved(toy_author: dict[str, Any]) -> None:
-    author = {
-        **toy_author,
+def test_weight_multiply_list_is_preserved(toy_workflow: dict[str, Any]) -> None:
+    workflow = {
+        **toy_workflow,
         "systematics": {
             "variations": [
                 {
@@ -98,15 +98,15 @@ def test_weight_multiply_list_is_preserved(toy_author: dict[str, Any]) -> None:
         },
     }
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     variation = normalized["systematics"]["variations"][0]
     assert variation["weight"] == {"multiply": ["w1_up", "w2_up"]}
 
 
-def test_replace_mapping_is_preserved(toy_author: dict[str, Any]) -> None:
-    author = {
-        **toy_author,
+def test_replace_mapping_is_preserved(toy_workflow: dict[str, Any]) -> None:
+    workflow = {
+        **toy_workflow,
         "systematics": {
             "variations": [
                 {
@@ -117,15 +117,15 @@ def test_replace_mapping_is_preserved(toy_author: dict[str, Any]) -> None:
         },
     }
 
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     variation = normalized["systematics"]["variations"][0]
     assert variation["replace"] == {"Jet_Pt": "Jet_Pt_JESUp"}
 
 
-def test_duplicate_variation_names_error(toy_author: dict[str, Any]) -> None:
-    author = {
-        **toy_author,
+def test_duplicate_variation_names_error(toy_workflow: dict[str, Any]) -> None:
+    workflow = {
+        **toy_workflow,
         "systematics": {
             "variations": [
                 {"name": "trigger_eff_up"},
@@ -135,7 +135,7 @@ def test_duplicate_variation_names_error(toy_author: dict[str, Any]) -> None:
     }
 
     with pytest.raises(ValueError, match="duplicate systematics variation name"):
-        normalize_author(author)
+        normalize_workflow(workflow)
 
 
 @pytest.mark.parametrize(
@@ -168,9 +168,9 @@ def test_duplicate_variation_names_error(toy_author: dict[str, Any]) -> None:
     ],
 )
 def test_malformed_systematics_errors(
-    toy_author: dict[str, Any], systematics: Any, match: str
+    toy_workflow: dict[str, Any], systematics: Any, match: str
 ) -> None:
-    author = {**toy_author, "systematics": systematics}
+    workflow = {**toy_workflow, "systematics": systematics}
 
     with pytest.raises(ValueError, match=match):
-        normalize_author(author)
+        normalize_workflow(workflow)

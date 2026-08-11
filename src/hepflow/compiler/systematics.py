@@ -43,7 +43,7 @@ class ExpandedWorkflow:
 
 
 def expand_systematics(normalized: dict[str, Any]) -> list[ExpandedWorkflow]:
-    """Expand a normalized author workflow into variation-tagged copies."""
+    """Expand a normalized workflow into variation-tagged copies."""
     systematics = normalized.get("systematics")
     if systematics is None:
         return [_expanded_nominal(normalized)]

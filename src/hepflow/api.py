@@ -23,19 +23,21 @@ from hepflow.compiler.artifacts import (
 )
 from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.execution import (
-    resolve_author_execution,
-    resolve_author_execution_hooks,
+    resolve_workflow_execution,
+    resolve_workflow_execution_hooks,
 )
 from hepflow.compiler.graph_artifacts import write_graph_artifacts
-from hepflow.compiler.includes import load_author_with_includes
-from hepflow.compiler.normalize import normalize_author
+from hepflow.compiler.includes import load_workflow_with_includes
+from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.compiler.plan_diff import (
     diff_plans,
     format_plan_diff,
     load_plan_yaml,
 )
-from hepflow.compiler.registry_resolution import resolve_author_registry
+from hepflow.compiler.registry_resolution import (
+    resolve_workflow_registry,
+)
 from hepflow.compiler.systematics import make_systematic_plan_files
 from hepflow.model.plan import (
     ExecutionNode,
@@ -60,24 +62,24 @@ from hepflow.utils import read_yaml, write_yaml
 
 __all__ = [
     "InitResult",
-    "compile_author_file",
+    "compile_workflow_file",
     "diff_plan_files",
     "init_project",
-    "load_author_yaml",
     "load_plan_file",
+    "load_workflow_yaml",
     "make_plan_file",
-    "normalise_author_file",
-    "normalize_author_file",
+    "normalise_workflow_file",
+    "normalize_workflow_file",
     "provenance_artifact_text",
     "provenance_graph_text",
     "provenance_summary_text",
-    "run_author_file",
     "run_plan_file",
+    "run_workflow_file",
 ]
 
 
-def load_author_yaml(path: str | Path) -> dict[str, Any]:
-    return load_author_with_includes(str(path)).doc
+def load_workflow_yaml(path: str | Path) -> dict[str, Any]:
+    return load_workflow_with_includes(str(path)).doc
 
 
 def init_project(
@@ -96,27 +98,30 @@ def init_project(
     )
 
 
-def normalise_author_file(
-    author_path: str | Path,
+def normalise_workflow_file(
+    workflow_path: str | Path,
     *,
     outdir: str | Path,
 ) -> dict[str, Any]:
-    """Normalise an author YAML file and write ``compile/normalized.yaml``."""
-    author_file = Path(author_path)
+    """Normalise a workflow YAML file and write ``compile/normalized.yaml``."""
+    workflow_file = Path(workflow_path)
     out_path = Path(outdir)
     compile_dir(out_path).mkdir(parents=True, exist_ok=True)
 
-    author = load_author_yaml(str(author_file))
-    normalized = normalize_author(author)
+    workflow = load_workflow_yaml(str(workflow_file))
+    normalized = normalize_workflow(workflow)
 
-    registry_result = resolve_author_registry(author, author_path=author_file)
-    execution_result = resolve_author_execution(author, author_path=author_file)
-    hooks_result = resolve_author_execution_hooks(author, author_path=author_file)
+    registry_result = resolve_workflow_registry(workflow, workflow_path=workflow_file)
+    execution_result = resolve_workflow_execution(workflow, workflow_path=workflow_file)
+    hooks_result = resolve_workflow_execution_hooks(
+        workflow,
+        workflow_path=workflow_file,
+    )
 
     normalized["registry"] = registry_result.registry
     normalized["execution"] = execution_result["execution"]
     normalized["execution_hooks"] = hooks_result["execution_hooks"]
-    normalized["author_path"] = str(author_file)
+    normalized["workflow_path"] = str(workflow_file)
     normalized.setdefault("provenance", {}).update(registry_result.provenance)
     normalized.setdefault("provenance", {}).update(execution_result["provenance"])
     normalized.setdefault("provenance", {}).update(hooks_result["provenance"])
@@ -126,7 +131,7 @@ def normalise_author_file(
     return normalized
 
 
-normalize_author_file = normalise_author_file
+normalize_workflow_file = normalise_workflow_file
 
 
 def make_plan_file(
@@ -172,15 +177,15 @@ def make_plan_file(
     return plan
 
 
-def compile_author_file(
-    author_path: str | Path,
+def compile_workflow_file(
+    workflow_path: str | Path,
     *,
     outdir: str | Path,
     chunk_size: int | None = None,
 ) -> ExecutionPlan:
-    """Normalise an author YAML file, lower it, and write compile artifacts."""
+    """Normalise a workflow YAML file, lower it, and write compile artifacts."""
     out_path = Path(outdir)
-    normalise_author_file(author_path, outdir=out_path)
+    normalise_workflow_file(workflow_path, outdir=out_path)
     return make_plan_file(
         normalized_path(out_path),
         outdir=out_path,
@@ -312,8 +317,8 @@ def run_plan_file(
     return result
 
 
-def run_author_file(
-    author_path: str | Path,
+def run_workflow_file(
+    workflow_path: str | Path,
     *,
     outdir: str | Path,
     backend: str | None = None,
@@ -322,9 +327,9 @@ def run_author_file(
     workers: int | None = None,
     chunk_size: int | None = None,
 ) -> BackendResult:
-    """Compile and run an author YAML file in one call."""
+    """Compile and run a workflow YAML file in one call."""
     out_path = Path(outdir)
-    compile_author_file(author_path, outdir=out_path, chunk_size=chunk_size)
+    compile_workflow_file(workflow_path, outdir=out_path, chunk_size=chunk_size)
     normalized = read_yaml(str(normalized_path(out_path))) or {}
     if "systematics" in normalized:
         nominal_plan = out_path / "compile" / "nominal" / "plan.yaml"

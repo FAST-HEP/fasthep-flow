@@ -8,21 +8,21 @@ import pytest
 import yaml
 
 from hepflow.api import (
-    compile_author_file,
+    compile_workflow_file,
     make_plan_file,
-    run_author_file,
     run_plan_file,
+    run_workflow_file,
 )
-from hepflow.compiler.normalize import normalize_author
+from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.systematics import expand_systematics
 from hepflow.runtime.config import default_run_outdir_for_plan
 from hepflow.utils import read_yaml
 
 
 def test_no_systematics_expands_to_one_nominal_workflow(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(toy_author)
+    normalized = normalize_workflow(toy_workflow)
 
     expanded = expand_systematics(normalized)
 
@@ -48,10 +48,10 @@ def test_default_run_outdir_for_plan_handles_compile_layout() -> None:
 
 
 def test_include_nominal_expands_nominal_plus_variations(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
     normalized = _normalized_with_systematics(
-        toy_author,
+        toy_workflow,
         include_nominal=True,
         variations=[{"name": "trigger_eff_up", "group": "trigger", "direction": "up"}],
     )
@@ -63,10 +63,10 @@ def test_include_nominal_expands_nominal_plus_variations(
 
 
 def test_include_nominal_false_expands_variations_only(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
     normalized = _normalized_with_systematics(
-        toy_author,
+        toy_workflow,
         include_nominal=False,
         variations=[
             {"name": "trigger_eff_up"},
@@ -83,10 +83,10 @@ def test_include_nominal_false_expands_variations_only(
 
 
 def test_expanded_workflows_do_not_mutate_original(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
     normalized = _normalized_with_systematics(
-        toy_author,
+        toy_workflow,
         include_nominal=True,
         variations=[{"name": "trigger_eff_up"}],
     )
@@ -100,10 +100,10 @@ def test_expanded_workflows_do_not_mutate_original(
 
 
 def test_variation_metadata_attached_to_expanded_workflow(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
     normalized = _normalized_with_systematics(
-        toy_author,
+        toy_workflow,
         include_nominal=False,
         variations=[
             {
@@ -134,9 +134,9 @@ def test_variation_metadata_attached_to_expanded_workflow(
     }
 
 
-def test_nominal_workflow_weight_expr_is_unchanged(toy_author: dict[str, Any]) -> None:
-    author = _author_with_systematics(_author_with_weight_expr(toy_author))
-    normalized = normalize_author(author)
+def test_nominal_workflow_weight_expr_is_unchanged(toy_workflow: dict[str, Any]) -> None:
+    workflow = _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
+    normalized = normalize_workflow(workflow)
 
     nominal = expand_systematics(normalized)[0]
 
@@ -147,10 +147,10 @@ def test_nominal_workflow_weight_expr_is_unchanged(toy_author: dict[str, Any]) -
 
 
 def test_single_weight_multiplier_rewrites_stage_weight_expr(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _author_with_systematics(_author_with_weight_expr(toy_author))
-    normalized = normalize_author(author)
+    workflow = _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
+    normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
 
@@ -168,13 +168,13 @@ def test_single_weight_multiplier_rewrites_stage_weight_expr(
 
 
 def test_multiple_weight_multipliers_rewrite_stage_weight_expr(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _author_with_systematics(
-        _author_with_weight_expr(toy_author),
+    workflow = _workflow_with_systematics(
+        _workflow_with_weight_expr(toy_workflow),
         multipliers=["TriggerEffWeight_up", "ScaleFactor_up"],
     )
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
 
@@ -184,9 +184,9 @@ def test_multiple_weight_multipliers_rewrite_stage_weight_expr(
 
 
 def test_stages_without_weight_expr_are_not_weighted(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(_author_with_systematics(toy_author))
+    normalized = normalize_workflow(_workflow_with_systematics(toy_workflow))
 
     variation = expand_systematics(normalized)[1]
 
@@ -196,17 +196,17 @@ def test_stages_without_weight_expr_are_not_weighted(
 
 
 def test_weight_rewrite_only_updates_analysis_stages(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _author_with_systematics(_author_with_weight_expr(toy_author))
-    author["observers"] = [
+    workflow = _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
+    workflow["observers"] = [
         {
             "kind": "toy.observer",
             "at": ["stage.Scale"],
             "params": {"weight_expr": "ObserverWeight"},
         }
     ]
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
 
@@ -218,9 +218,9 @@ def test_weight_rewrite_only_updates_analysis_stages(
     )
 
 
-def test_field_replacement_rewrites_exact_sources(toy_author: dict[str, Any]) -> None:
-    author = _author_with_field_replacements(_author_with_field_params(toy_author))
-    normalized = normalize_author(author)
+def test_field_replacement_rewrites_exact_sources(toy_workflow: dict[str, Any]) -> None:
+    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
     params = variation.workflow["analysis"]["stages"][0]["params"]
@@ -229,9 +229,9 @@ def test_field_replacement_rewrites_exact_sources(toy_author: dict[str, Any]) ->
     assert params["axes"][0]["source"] == "Jet_Eta_JESUp"
 
 
-def test_field_replacement_rewrites_expressions(toy_author: dict[str, Any]) -> None:
-    author = _author_with_field_replacements(_author_with_field_params(toy_author))
-    normalized = normalize_author(author)
+def test_field_replacement_rewrites_expressions(toy_workflow: dict[str, Any]) -> None:
+    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
     params = variation.workflow["analysis"]["stages"][0]["params"]
@@ -247,10 +247,10 @@ def test_field_replacement_rewrites_expressions(toy_author: dict[str, Any]) -> N
 
 
 def test_field_replacement_avoids_longer_variable_names(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _author_with_field_replacements(_author_with_field_params(toy_author))
-    normalized = normalize_author(author)
+    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
     params = variation.workflow["analysis"]["stages"][0]["params"]
@@ -259,10 +259,10 @@ def test_field_replacement_avoids_longer_variable_names(
 
 
 def test_field_replacement_rewrites_selection_list(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _author_with_field_replacements(_author_with_field_params(toy_author))
-    normalized = normalize_author(author)
+    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
     params = variation.workflow["analysis"]["stages"][0]["params"]
@@ -275,10 +275,10 @@ def test_field_replacement_rewrites_selection_list(
 
 
 def test_field_replacement_leaves_labels_ids_and_paths_unchanged(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _author_with_field_replacements(_author_with_field_params(toy_author))
-    normalized = normalize_author(author)
+    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
     stage = variation.workflow["analysis"]["stages"][0]
@@ -292,10 +292,10 @@ def test_field_replacement_leaves_labels_ids_and_paths_unchanged(
 
 
 def test_field_replacement_does_not_mutate_original_workflow(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(
-        _author_with_field_replacements(_author_with_field_params(toy_author))
+    normalized = normalize_workflow(
+        _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
     )
     before = deepcopy(normalized)
 
@@ -305,10 +305,10 @@ def test_field_replacement_does_not_mutate_original_workflow(
 
 
 def test_nominal_workflow_field_params_are_unchanged(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _author_with_field_replacements(_author_with_field_params(toy_author))
-    normalized = normalize_author(author)
+    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    normalized = normalize_workflow(workflow)
 
     nominal = expand_systematics(normalized)[0]
     params = nominal.workflow["analysis"]["stages"][0]["params"]
@@ -319,9 +319,9 @@ def test_nominal_workflow_field_params_are_unchanged(
 
 
 def test_dataset_replacement_substitutes_existing_dataset(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(_author_with_dataset_replacement(toy_author))
+    normalized = normalize_workflow(_workflow_with_dataset_replacement(toy_workflow))
 
     variation = expand_systematics(normalized)[1]
     datasets = variation.workflow["data"]["datasets"]
@@ -352,13 +352,13 @@ def test_dataset_replacement_substitutes_existing_dataset(
 
 
 def test_dataset_replacement_missing_dataset_raises_clear_error(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = _author_with_dataset_replacement(toy_author)
-    author["systematics"]["variations"][0]["datasets"]["replace"] = {
+    workflow = _workflow_with_dataset_replacement(toy_workflow)
+    workflow["systematics"]["variations"][0]["datasets"]["replace"] = {
         "ttbar": "missing_dataset"
     }
-    normalized = normalize_author(author)
+    normalized = normalize_workflow(workflow)
 
     with pytest.raises(
         ValueError,
@@ -371,9 +371,9 @@ def test_dataset_replacement_missing_dataset_raises_clear_error(
 
 
 def test_nominal_workflow_dataset_replacement_is_unchanged(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(_author_with_dataset_replacement(toy_author))
+    normalized = normalize_workflow(_workflow_with_dataset_replacement(toy_workflow))
 
     nominal = expand_systematics(normalized)[0]
 
@@ -386,9 +386,9 @@ def test_nominal_workflow_dataset_replacement_is_unchanged(
 
 
 def test_dataset_replacement_only_affects_requested_dataset(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(_author_with_dataset_replacement(toy_author))
+    normalized = normalize_workflow(_workflow_with_dataset_replacement(toy_workflow))
 
     variation = expand_systematics(normalized)[1]
     datasets_by_name = {
@@ -400,9 +400,9 @@ def test_dataset_replacement_only_affects_requested_dataset(
 
 
 def test_dataset_replacement_keeps_logical_dataset_name(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(_author_with_dataset_replacement(toy_author))
+    normalized = normalize_workflow(_workflow_with_dataset_replacement(toy_workflow))
 
     variation = expand_systematics(normalized)[1]
 
@@ -413,9 +413,9 @@ def test_dataset_replacement_keeps_logical_dataset_name(
 
 
 def test_dataset_replacement_metadata_is_recorded(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(_author_with_dataset_replacement(toy_author))
+    normalized = normalize_workflow(_workflow_with_dataset_replacement(toy_workflow))
 
     variation = expand_systematics(normalized)[1]
 
@@ -428,9 +428,9 @@ def test_dataset_replacement_metadata_is_recorded(
 
 
 def test_dataset_replacement_removes_replacement_only_dataset(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    normalized = normalize_author(_author_with_dataset_replacement(toy_author))
+    normalized = normalize_workflow(_workflow_with_dataset_replacement(toy_workflow))
 
     variation = expand_systematics(normalized)[1]
 
@@ -440,10 +440,10 @@ def test_dataset_replacement_removes_replacement_only_dataset(
 
 
 def test_expanded_workflows_preserve_normalized_sections(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
     normalized = _normalized_with_systematics(
-        toy_author,
+        toy_workflow,
         include_nominal=False,
         variations=[{"name": "trigger_eff_up"}],
     )
@@ -472,14 +472,14 @@ def test_expanded_workflows_preserve_normalized_sections(
 
 
 def test_compile_writes_per_variation_plans_and_summary(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author = _author_with_systematics(toy_author)
-    author_path = _write_author(tmp_path, author)
+    workflow = _workflow_with_systematics(toy_workflow)
+    workflow_path = _write_workflow(tmp_path, workflow)
     build_dir = tmp_path / "build"
 
-    compile_author_file(author_path, outdir=build_dir)
+    compile_workflow_file(workflow_path, outdir=build_dir)
 
     assert not (build_dir / "compile" / "plan.yaml").exists()
     assert (build_dir / "compile" / "nominal" / "normalized.yaml").exists()
@@ -513,13 +513,13 @@ def test_compile_writes_per_variation_plans_and_summary(
 
 
 def test_each_variation_plan_contains_variation_metadata(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author_path = _write_author(tmp_path, _author_with_systematics(toy_author))
+    workflow_path = _write_workflow(tmp_path, _workflow_with_systematics(toy_workflow))
     build_dir = tmp_path / "build"
 
-    compile_author_file(author_path, outdir=build_dir)
+    compile_workflow_file(workflow_path, outdir=build_dir)
 
     nominal_plan = read_yaml(build_dir / "compile" / "nominal" / "plan.yaml")
     variation_plan = read_yaml(build_dir / "compile" / "trigger_eff_up" / "plan.yaml")
@@ -542,15 +542,15 @@ def test_each_variation_plan_contains_variation_metadata(
 
 
 def test_variation_plan_contains_rewritten_weight_expr(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author_path = _write_author(
-        tmp_path, _author_with_systematics(_author_with_weight_expr(toy_author))
+    workflow_path = _write_workflow(
+        tmp_path, _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
     )
     build_dir = tmp_path / "build"
 
-    compile_author_file(author_path, outdir=build_dir)
+    compile_workflow_file(workflow_path, outdir=build_dir)
 
     variation_plan = read_yaml(build_dir / "compile" / "trigger_eff_up" / "plan.yaml")
     stage_node = _plan_node(variation_plan, "stage.Scale")
@@ -560,15 +560,15 @@ def test_variation_plan_contains_rewritten_weight_expr(
 
 
 def test_nominal_plan_contains_original_weight_expr(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author_path = _write_author(
-        tmp_path, _author_with_systematics(_author_with_weight_expr(toy_author))
+    workflow_path = _write_workflow(
+        tmp_path, _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
     )
     build_dir = tmp_path / "build"
 
-    compile_author_file(author_path, outdir=build_dir)
+    compile_workflow_file(workflow_path, outdir=build_dir)
 
     nominal_plan = read_yaml(build_dir / "compile" / "nominal" / "plan.yaml")
     stage_node = _plan_node(nominal_plan, "stage.Scale")
@@ -576,15 +576,15 @@ def test_nominal_plan_contains_original_weight_expr(
 
 
 def test_variation_plan_contains_rewritten_field_params(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author_path = _write_author(
-        tmp_path, _author_with_field_replacements(_author_with_field_params(toy_author))
+    workflow_path = _write_workflow(
+        tmp_path, _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
     )
     build_dir = tmp_path / "build"
 
-    compile_author_file(author_path, outdir=build_dir)
+    compile_workflow_file(workflow_path, outdir=build_dir)
 
     variation_plan = read_yaml(build_dir / "compile" / "jes_up" / "plan.yaml")
     stage_node = _plan_node(variation_plan, "stage.Scale")
@@ -598,13 +598,13 @@ def test_variation_plan_contains_rewritten_field_params(
 
 
 def test_variation_plan_contains_dataset_replacement_metadata(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author_path = _write_author(tmp_path, _author_with_dataset_replacement(toy_author))
+    workflow_path = _write_workflow(tmp_path, _workflow_with_dataset_replacement(toy_workflow))
     build_dir = tmp_path / "build"
 
-    compile_author_file(author_path, outdir=build_dir)
+    compile_workflow_file(workflow_path, outdir=build_dir)
 
     variation_plan = read_yaml(build_dir / "compile" / "ttbar_hdamp_up" / "plan.yaml")
     datasets = variation_plan["context"]["datasets"]
@@ -623,11 +623,11 @@ def test_variation_plan_contains_dataset_replacement_metadata(
 
 
 def test_make_plan_file_expands_normalized_systematics(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author = _author_with_systematics(toy_author)
-    normalized = normalize_author(author)
+    workflow = _workflow_with_systematics(toy_workflow)
+    normalized = normalize_workflow(workflow)
     normalized_path = tmp_path / "normalized.yaml"
     normalized_path.write_text(
         yaml.safe_dump(normalized, sort_keys=False), encoding="utf-8"
@@ -641,12 +641,12 @@ def test_make_plan_file_expands_normalized_systematics(
 
 
 def test_run_plan_file_uses_variation_namespace_by_default(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author_path = _write_author(tmp_path, _author_with_systematics(toy_author))
+    workflow_path = _write_workflow(tmp_path, _workflow_with_systematics(toy_workflow))
     build_dir = tmp_path / "build"
-    compile_author_file(author_path, outdir=build_dir)
+    compile_workflow_file(workflow_path, outdir=build_dir)
 
     result = run_plan_file(build_dir / "compile" / "trigger_eff_up" / "plan.yaml")
 
@@ -672,13 +672,13 @@ def test_run_plan_file_uses_variation_namespace_by_default(
 
 
 def test_run_plan_file_explicit_outdir_overrides_variation_default(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author_path = _write_author(tmp_path, _author_with_systematics(toy_author))
+    workflow_path = _write_workflow(tmp_path, _workflow_with_systematics(toy_workflow))
     build_dir = tmp_path / "build"
     custom_dir = tmp_path / "custom"
-    compile_author_file(author_path, outdir=build_dir)
+    compile_workflow_file(workflow_path, outdir=build_dir)
 
     result = run_plan_file(
         build_dir / "compile" / "trigger_eff_up" / "plan.yaml",
@@ -692,25 +692,25 @@ def test_run_plan_file_explicit_outdir_overrides_variation_default(
 
 
 def test_no_systematics_workflows_still_compile_to_existing_plan_path(
-    toy_author_path: Path,
+    toy_workflow_path: Path,
     tmp_path: Path,
 ) -> None:
     build_dir = tmp_path / "build"
 
-    compile_author_file(toy_author_path, outdir=build_dir)
+    compile_workflow_file(toy_workflow_path, outdir=build_dir)
 
     assert (build_dir / "compile" / "plan.yaml").exists()
     assert not (build_dir / "compile" / "systematics.yaml").exists()
 
 
-def test_run_author_with_systematics_runs_nominal_if_present(
-    toy_author: dict[str, Any],
+def test_run_workflow_with_systematics_runs_nominal_if_present(
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author_path = _write_author(tmp_path, _author_with_systematics(toy_author))
+    workflow_path = _write_workflow(tmp_path, _workflow_with_systematics(toy_workflow))
     build_dir = tmp_path / "build"
 
-    result = run_author_file(author_path, outdir=build_dir)
+    result = run_workflow_file(workflow_path, outdir=build_dir)
 
     assert result.success is True
     assert (build_dir / "reports" / "nominal" / "run_summary.yaml").exists()
@@ -723,11 +723,11 @@ def test_run_author_with_systematics_runs_nominal_if_present(
 
 
 def test_running_two_variation_plans_writes_independent_summaries(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author = _author_with_systematics(toy_author, include_nominal=False)
-    author["systematics"]["variations"].append(
+    workflow = _workflow_with_systematics(toy_workflow, include_nominal=False)
+    workflow["systematics"]["variations"].append(
         {
             "name": "trigger_eff_down",
             "group": "trigger_eff",
@@ -735,9 +735,9 @@ def test_running_two_variation_plans_writes_independent_summaries(
             "weight": {"multiply": "TriggerEffWeight_down"},
         }
     )
-    author_path = _write_author(tmp_path, author)
+    workflow_path = _write_workflow(tmp_path, workflow)
     build_dir = tmp_path / "build"
-    compile_author_file(author_path, outdir=build_dir)
+    compile_workflow_file(workflow_path, outdir=build_dir)
 
     up = run_plan_file(build_dir / "compile" / "trigger_eff_up" / "plan.yaml")
     down = run_plan_file(build_dir / "compile" / "trigger_eff_down" / "plan.yaml")
@@ -751,27 +751,27 @@ def test_running_two_variation_plans_writes_independent_summaries(
     assert not (build_dir / "run_summary.yaml").exists()
 
 
-def test_run_author_with_systematics_without_nominal_raises_clear_message(
-    toy_author: dict[str, Any],
+def test_run_workflow_with_systematics_without_nominal_raises_clear_message(
+    toy_workflow: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    author_path = _write_author(
+    workflow_path = _write_workflow(
         tmp_path,
-        _author_with_systematics(toy_author, include_nominal=False),
+        _workflow_with_systematics(toy_workflow, include_nominal=False),
     )
 
     with pytest.raises(ValueError, match="no nominal variation was generated"):
-        run_author_file(author_path, outdir=tmp_path / "build")
+        run_workflow_file(workflow_path, outdir=tmp_path / "build")
 
 
-def _author_with_systematics(
-    toy_author: dict[str, Any],
+def _workflow_with_systematics(
+    toy_workflow: dict[str, Any],
     *,
     include_nominal: bool = True,
     multipliers: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
-        **toy_author,
+        **toy_workflow,
         "systematics": {
             "include_nominal": include_nominal,
             "variations": [
@@ -788,15 +788,15 @@ def _author_with_systematics(
     }
 
 
-def _author_with_weight_expr(toy_author: dict[str, Any]) -> dict[str, Any]:
-    author = deepcopy(toy_author)
-    author["analysis"]["stages"][0]["params"]["weight_expr"] = "EventWeight"
-    return author
+def _workflow_with_weight_expr(toy_workflow: dict[str, Any]) -> dict[str, Any]:
+    workflow = deepcopy(toy_workflow)
+    workflow["analysis"]["stages"][0]["params"]["weight_expr"] = "EventWeight"
+    return workflow
 
 
-def _author_with_field_replacements(toy_author: dict[str, Any]) -> dict[str, Any]:
+def _workflow_with_field_replacements(toy_workflow: dict[str, Any]) -> dict[str, Any]:
     return {
-        **toy_author,
+        **toy_workflow,
         "systematics": {
             "include_nominal": True,
             "variations": [
@@ -814,9 +814,9 @@ def _author_with_field_replacements(toy_author: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _author_with_field_params(toy_author: dict[str, Any]) -> dict[str, Any]:
-    author = deepcopy(toy_author)
-    author["analysis"]["stages"][0]["params"].update(
+def _workflow_with_field_params(toy_workflow: dict[str, Any]) -> dict[str, Any]:
+    workflow = deepcopy(toy_workflow)
+    workflow["analysis"]["stages"][0]["params"].update(
         {
             "source": "Jet_Pt",
             "variables": [
@@ -837,12 +837,12 @@ def _author_with_field_params(toy_author: dict[str, Any]) -> dict[str, Any]:
             "out": "Jet_Pt",
         }
     )
-    return author
+    return workflow
 
 
-def _author_with_dataset_replacement(toy_author: dict[str, Any]) -> dict[str, Any]:
-    author = deepcopy(toy_author)
-    author["data"] = {
+def _workflow_with_dataset_replacement(toy_workflow: dict[str, Any]) -> dict[str, Any]:
+    workflow = deepcopy(toy_workflow)
+    workflow["data"] = {
         "datasets": [
             {"name": "ttbar", "files": ["ttbar.root"], "nevents": 4},
             {
@@ -853,7 +853,7 @@ def _author_with_dataset_replacement(toy_author: dict[str, Any]) -> dict[str, An
             {"name": "wjets", "files": ["wjets.root"], "nevents": 3},
         ]
     }
-    author["systematics"] = {
+    workflow["systematics"] = {
         "include_nominal": True,
         "variations": [
             {
@@ -865,29 +865,29 @@ def _author_with_dataset_replacement(toy_author: dict[str, Any]) -> dict[str, An
             }
         ],
     }
-    return author
+    return workflow
 
 
 def _normalized_with_systematics(
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
     *,
     include_nominal: bool,
     variations: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    author = {
-        **toy_author,
+    workflow = {
+        **toy_workflow,
         "systematics": {
             "include_nominal": include_nominal,
             "variations": variations,
         },
     }
-    return normalize_author(author)
+    return normalize_workflow(workflow)
 
 
-def _write_author(tmp_path: Path, author: dict[str, Any]) -> Path:
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
-    return author_path
+def _write_workflow(tmp_path: Path, workflow: dict[str, Any]) -> Path:
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    return workflow_path
 
 
 def _plan_node(plan: dict[str, Any], node_id: str) -> dict[str, Any]:

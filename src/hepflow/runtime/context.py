@@ -8,10 +8,10 @@ from hepflow.runtime.provenance import ProvenanceRecorder, ensure_runtime_proven
 
 
 class ComponentContext(dict[str, Any]):
-    """Public component-author runtime context.
+    """Public component-workflow runtime context.
 
     The context remains dict-compatible for existing components, while exposing
-    the stable attribute surface component authors should prefer.
+    the stable attribute surface component workflows should prefer.
     """
 
     @property

@@ -19,13 +19,13 @@ from hepflow.registry.merge import (
 )
 
 
-def resolve_author_registry(
-    author: dict[str, Any],
+def resolve_workflow_registry(
+    workflow: dict[str, Any],
     *,
-    author_path: Path,
+    workflow_path: Path,
 ) -> RegistryMergeResult:
-    project_root = author_path.parent
-    use_block = author.get("use") or {}
+    project_root = workflow_path.parent
+    use_block = workflow.get("use") or {}
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
 
@@ -44,10 +44,11 @@ def resolve_author_registry(
             for name in profile_names
         ],
         RegistryLayer(
-            name="author",
-            kind="author",
-            registry=dict(author.get("registry") or {}),
-            path=str(author_path),
+            name="workflow",
+            kind="workflow",
+            registry=dict(workflow.get("registry") or {}),
+            path=str(workflow_path),
         ),
     ]
     return merge_registry_layers(layers)
+

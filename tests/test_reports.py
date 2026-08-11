@@ -7,13 +7,13 @@ from typing import Any
 import pytest
 
 from hepflow.build_layout import BuildPaths
-from hepflow.compiler.normalize import normalize_author
+from hepflow.compiler.normalize import normalize_workflow
 from hepflow.model.plan import ExecutionPlan
 from hepflow.runtime.reports import provenance_report_context, run_workflow_reports
 
 
-def test_reports_normalize_to_author_model() -> None:
-    normalized = normalize_author(
+def test_reports_normalize_to_workflow_model() -> None:
+    normalized = normalize_workflow(
         {
             "data": {
                 "datasets": [
@@ -95,7 +95,7 @@ def test_run_workflow_reports_dispatches_registered_operation(tmp_path: Path) ->
     plan = ExecutionPlan(
         context={
             "datasets": {"dy": {"name": "dy"}},
-            "author_path": str(tmp_path / "author.yaml"),
+            "workflow_path": str(tmp_path / "workflow.yaml"),
         },
         registry={
             "sinks": {

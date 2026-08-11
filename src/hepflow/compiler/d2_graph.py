@@ -100,11 +100,11 @@ def _node_short_title(payload: GraphNode, graph: nx.DiGraph | None = None) -> st
 def _node_type(payload: GraphNode) -> str:
     meta = dict(payload.meta or {})
     if payload.role == "source":
-        return _first_nonempty(meta.get("author_kind"), payload.impl)
+        return _first_nonempty(meta.get("workflow_kind"), payload.impl)
     if payload.role == "transform":
-        return _first_nonempty(meta.get("author_op"), payload.impl)
+        return _first_nonempty(meta.get("workflow_op"), payload.impl)
     if payload.role == "sink":
-        return _first_nonempty(meta.get("author_kind"), payload.impl)
+        return _first_nonempty(meta.get("workflow_kind"), payload.impl)
     return payload.impl
 
 

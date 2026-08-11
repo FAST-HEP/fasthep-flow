@@ -9,7 +9,7 @@ import networkx as nx
 import pytest
 import yaml
 
-from hepflow.api import compile_author_file
+from hepflow.api import compile_workflow_file
 from hepflow.build_layout import BuildPaths, ensure_build_layout
 from hepflow.compiler.artifacts import write_compile_artifacts
 from hepflow.compiler.compile_hooks import run_compile_hooks
@@ -59,22 +59,22 @@ def test_compile_hook_artifacts_are_written_as_json(tmp_path: Path) -> None:
 
 def test_after_compile_hook_runs_after_graph_artifacts_exist(
     tmp_path: Path,
-    toy_author: dict[str, Any],
+    toy_workflow: dict[str, Any],
 ) -> None:
-    author = dict(toy_author)
-    registry = dict(author["registry"])
+    workflow = dict(toy_workflow)
+    registry = dict(workflow["registry"])
     registry["compile_hooks"] = {
         "toy.graph_render": {
             "spec": "tests.toy_components.compile_hooks:GRAPH_RENDER_HOOK_SPEC",
             "impl": "tests.toy_components.compile_hooks:graph_render_hook",
         }
     }
-    author["registry"] = registry
-    author_path = tmp_path / "author.yaml"
-    author_path.write_text(yaml.safe_dump(author, sort_keys=False), encoding="utf-8")
+    workflow["registry"] = registry
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
     build_dir = tmp_path / "build"
 
-    compile_author_file(author_path, outdir=build_dir)
+    compile_workflow_file(workflow_path, outdir=build_dir)
 
     graph_render = json.loads(
         (build_dir / "compile" / "graph_render.json").read_text(encoding="utf-8")
