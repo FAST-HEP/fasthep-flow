@@ -6,19 +6,9 @@ Sources, transforms, observers, and sinks have different roles in the workflow g
 
 ```{mermaid}
 flowchart LR
-    Capability["registered capability"]
-
-    subgraph Specification["Specification"]
-        Spec["spec"]
-        Contract["Flow-visible contract"]
-        Spec --> Contract
-    end
-
-    subgraph Implementation["Implementation"]
-        Impl["impl"]
-        Behaviour["runtime behaviour"]
-        Impl --> Behaviour
-    end
+    Capability["<b>Registered capability</b>"]:::capability
+    Spec["<b>Specification</b><br/>compile-time contract"]:::flow
+    Impl["<b>Implementation</b><br/>runtime behaviour"]:::runtime
 
     Capability --> Spec
     Capability --> Impl
@@ -65,7 +55,7 @@ transforms:
     impl: fasthep_carpenter.operations.define:run_define_transform
 ```
 
-When an author writes:
+When the workflow contains:
 
 ```yaml
 - id: BasicVars
@@ -80,16 +70,16 @@ the registry gives Flow the corresponding contract and implementation:
 
 ```{mermaid}
 flowchart LR
-    Author["hep.define"]
-    Registry["registry"]
+    Operation["<b>hep.define</b><br/>requested capability"]:::input
+    Registry["<b>Registry</b><br/>resolution"]:::capability
 
-    Spec["DEFINE_SPEC"]
-    Compiler["compiler"]
+    Spec["<b>DEFINE_SPEC</b><br/>compile-time contract"]:::flow
+    Compiler["<b>Compiler</b>"]:::flow
 
-    Impl["run_define_transform"]
-    Runtime["runtime"]
+    Impl["<b>run_define_transform</b><br/>runtime behaviour"]:::runtime
+    Runtime["<b>Runtime</b>"]:::runtime
 
-    Author --> Registry
+    Operation --> Registry
     Registry --> Spec --> Compiler
     Registry --> Impl --> Runtime
 ```
@@ -192,10 +182,13 @@ The implementation remains free to choose the appropriate array library, express
 ```{note}
 Operation-specific syntax can remain inside `params`.
 
-The spec tells Flow which values represent expressions, fields, products, or other planner-visible information. An operation-specific concept does not need to become part of the core author language merely so that the compiler can reason about it.
+The spec tells Flow which values represent expressions, fields, products, or other planner-visible information.
+An operation-specific concept does not need to become part of the core workflow language merely so that the compiler can reason about it.
 ```
 
 ## Parameter-derived requirements and outputs
+
+Specs can often express parameter-derived dependencies declaratively, without requiring operation-specific compiler logic.
 
 Many operations use compact author parameters but still need explicit compiled
 dependencies. Flow provides reusable `requires.symbols` and `provides.symbols`
@@ -308,9 +301,9 @@ Flow can reason backwards:
 
 ```{mermaid}
 flowchart LR
-    Source["source<br/>Muon_Px, Muon_Py"]
-    Define["define<br/>Muon_Pt"]
-    Consumer["consumer<br/>Muon_Pt"]
+    Source["<b>Source</b><br/>Muon_Px, Muon_Py"]:::source
+    Define["<b>Define</b><br/>Muon_Pt"]:::transform
+    Consumer["<b>Consumer</b><br/>Muon_Pt"]:::transform
 
     Source --> Define --> Consumer
 ```
@@ -380,7 +373,7 @@ partition
 
 while another operation may require a dataset-level or global product.
 
-Flow can use the operation and product contracts to arrange the required scope transitions before invoking the implementation.
+Flow uses operation and product contracts to plan the required scope transitions so that implementations receive products at the scope they expect.
 
 The implementation can therefore remain focused on its local computation rather than orchestrating the surrounding workflow.
 
@@ -393,7 +386,7 @@ See {doc}`../execution/plan` and {doc}`../execution/runtime` for the execution m
 By the time an implementation runs, Flow has already resolved much of the surrounding structure:
 
 ```text
-author.yaml
+workflow.yaml
      ↓
 operation names + parameters
      ↓
@@ -417,7 +410,7 @@ This boundary makes implementations easier to replace and allows the compiler to
 ```{note}
 An alternative implementation may use a different library, algorithm, or execution technology.
 
-As long as it satisfies the contract Flow relies upon, those implementation choices do not need to become part of the author language.
+As long as it satisfies the contract Flow relies upon, those implementation choices do not need to become part of the workflow language.
 ```
 
 ---
@@ -430,7 +423,7 @@ The common operation model is specialised by the role an operation plays in the 
 |---|---|
 | {doc}`sources` | external data → product |
 | {doc}`transforms` | product → product |
-| {doc}`observers` | inspect an existing workflow point |
+| {doc}`observers` | inspect products or execution without becoming part of the main transformation path |
 | {doc}`sinks` | product → external output or artifact |
 
 The role-specific pages focus on what is distinctive about each operation rather than repeating the common spec/implementation model described here.
@@ -481,7 +474,7 @@ backends:
     impl: hepflow.backends:Dask
 ```
 
-Their interfaces may gain richer specifications as their contracts stabilise.
+Their contracts may gain richer planner-visible specifications as those interfaces stabilise.
 
 In particular, backend specifications are expected to provide a structured way to describe supported execution strategies and their configuration.
 
@@ -511,7 +504,8 @@ Compilation can determine information such as:
 
 These decisions can be recorded in compilation outputs such as the dependency description and execution plan.
 
-The spec is therefore not merely input validation. It is part of the information from which Flow constructs its interpretation of the authored workflow.
+The spec is therefore not merely input validation. It is part of the information from which Flow constructs its interpretation of the workflow description.
+A spec is therefore more than input validation: it is part of the compiler-visible semantics of an operation.
 
 ---
 

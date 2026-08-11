@@ -6,16 +6,16 @@ Unlike sources, transforms, observers, and sinks, they are not runtime operation
 
 Conceptually:
 
-```text
-author.yaml
-    ↓
-normalisation
-    ↓
-compilation ← compile hooks
-    ↓
-execution plan
-    ↓
-runtime
+```{mermaid}
+flowchart LR
+    Workflow["<b>workflow.yaml</b>"]:::input
+    Compile["<b>Compilation</b>"]:::flow
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Runtime</b>"]:::runtime
+    Hook["<b>Compile hooks</b><br/>compile-time extensions"]:::capability
+
+    Workflow --> Compile --> Plan --> Runtime
+    Hook -.-> Compile
 ```
 
 Compile hooks are useful when compilation needs additional information or when another package wants to inspect or augment the compilation process without adding that behaviour to Flow itself.
@@ -58,9 +58,9 @@ Compile hooks therefore use the same registry and profile infrastructure as othe
 
 ## Enriching compilation with external information
 
-Some information required for planning cannot be determined from `author.yaml` alone.
+Some information required for planning cannot be determined from the workflow description alone.
 
-For example, an author may provide a ROOT file:
+For example, a workflow may provide a ROOT file:
 
 ```text
 dataset
@@ -73,7 +73,7 @@ but information such as the number of entries may only become available by inspe
 A compile hook can perform this inspection during compilation:
 
 ```text
-author dataset
+workflow dataset
       ↓
 dataset metadata hook
       ↓
@@ -148,12 +148,12 @@ For example:
 compile/
 ├── ...
 └── graph/
-    └── workflow.svg
+    └── graph.svg
 ```
 
 or contribute metadata that is subsequently reflected in the compiled plan.
 
-This makes the compile directory useful not only as an implementation detail, but as a record of how the authored workflow was interpreted and prepared for execution.
+This makes the compilation outputs useful not only for Flow itself, but as a record of how the authored workflow was interpreted and prepared for execution.
 
 ```{note}
 The exact files produced by a compile hook belong to that extension's contract. Flow does not prescribe that every hook must produce an artifact.
@@ -168,7 +168,7 @@ Because compile hooks can inspect external state, they can affect the informatio
 For example:
 
 ```text
-author.yaml
+workflow.yaml
     +
 input-file metadata
     ↓
@@ -223,9 +223,12 @@ compile_hooks:
     impl: my_package.compile_hooks:run_my_hook
 ```
 
-The spec describes the configuration and compile-time contract visible to Flow, while the implementation performs the extension-specific work.
+The spec describes the configuration and compile-time contract visible to Flow,
+while the implementation performs the extension-specific work.
 
-The general spec/implementation model is described in {doc}`operations-and-specs`, and {doc}`registries-and-profiles` explains how external packages expose capabilities.
+{doc}`registries-and-profiles` describes how compile hooks are registered and
+made available to Flow. The detailed compile-hook contract is specific to this
+extension point.
 
 Step-by-step implementation examples belong in `fasthep-workshop`.
 
@@ -233,22 +236,32 @@ Step-by-step implementation examples belong in `fasthep-workshop`.
 
 ## Where next?
 
-Compile hooks complete the main set of Flow extension points covered in this section.
+Compile hooks provide the compile-time counterpart to execution modifiers.
+The remaining extension point, backends, connects runtime orchestration to execution infrastructure.
 
 Together they enter at different parts of the workflow lifecycle:
 
-```text
-                         compile hook
-                              ↓
-author workflow → compilation → execution plan → runtime
-                                                   ↑
-                                         execution modifier
+```{mermaid}
+flowchart LR
+    Workflow["<b>Workflow</b>"]:::input
+    Compile["<b>Compilation</b>"]:::flow
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Runtime</b>"]:::runtime
 
-                     runtime data flow
-                            ↓
-        source → transform → transform → sink
-                     ↓
-                  observer
+    Hook["<b>Compile hook</b>"]:::capability
+    Modifier["<b>Execution modifier</b>"]:::capability
+
+    Source["<b>Source</b>"]:::source
+    Transform["<b>Transform</b>"]:::transform
+    Observer["<b>Observer</b>"]:::observer
+    Sink["<b>Sink</b>"]:::sink
+
+    Workflow --> Compile --> Plan --> Runtime
+    Hook -.-> Compile
+    Modifier -.-> Runtime
+
+    Source --> Transform --> Sink
+    Transform -.-> Observer
 ```
 
 For related concepts:

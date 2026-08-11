@@ -12,15 +12,22 @@ Typical sinks include:
 
 Conceptually:
 
-```text
-source → transform → transform → sink
-                                  ↓
-                               artifact
+```{mermaid}
+flowchart LR
+    Source["<b>Source</b>"]:::source
+    Transform1["<b>Transform</b>"]:::transform
+    Transform2["<b>Transform</b>"]:::transform
+    Sink["<b>Sink</b>"]:::sink
+    Artifact["<b>Artifact</b>"]:::artifact
+
+    Source --> Transform1 --> Transform2 --> Sink
+    Sink --> Artifact
 ```
 
 Unlike a transform, a sink normally terminates a path rather than producing another product for downstream analysis operations.
 
-Sinks use the same {doc}`specification and implementation model <operations-and-specs>` as other Flow extensions. This page focuses on what is distinctive about their role in a workflow.
+Sinks use the same {doc}`specification and implementation model <operations-and-specs>` as sources, transforms, and observers.
+This page focuses on what is distinctive about their role in a workflow.
 
 ```{note}
 A sink does not have to write a file.
@@ -30,7 +37,7 @@ The defining property is that it **consumes a workflow product for an external e
 
 ---
 
-## Sinks in an author workflow
+## Sinks in a workflow
 
 Sinks are commonly attached to the stage whose product they should consume.
 
@@ -72,17 +79,15 @@ Compilation turns this into a separate sink node:
 
 ```{mermaid}
 flowchart LR
-    Filter["stage.EarthSizedPlanets"]
-    Project["stage.PlanetTable<br/><b>transform</b>"]
-    Table["write.PlanetTable.0<br/><b>sink</b><br/>workshop.console_table"]
-    Artifact["planets.txt"]
+    Filter["<b>stage.EarthSizedPlanets</b>"]:::transform
+    Project["<b>stage.PlanetTable</b>"]:::transform
+    Table["<b>write.PlanetTable.0</b><br/>workshop.console_table"]:::sink
+    Artifact["<b>planets.txt</b>"]:::artifact
 
-    Filter --> Project
-    Project --> Table
-    Table --> Artifact
+    Filter --> Project --> Table --> Artifact
 ```
 
-The sink is therefore explicit in the execution graph even though the author syntax keeps it close to the stage whose output it consumes.
+The sink is therefore explicit in the execution graph even though the workflow syntax keeps it close to the stage whose output it consumes.
 
 ```{note}
 Turning a histogram into a PNG file or a D2 graph into an SVG file follows the same principle: the sink consumes a workflow product and outputs one or more artifacts.
@@ -149,7 +154,7 @@ For integration with file-oriented backends such as Snakemake, it can neverthele
 
 ## Sinks can use dependency information
 
-Like other operations, sinks can declare which parts of their input they require.
+Like other data-flow operations, sink specifications can expose which parts of their input they require.
 
 For example:
 
@@ -182,7 +187,8 @@ This is another example of why sink configuration participates in compilation ra
 
 ## When sinks run
 
-Sinks can run at different points in the execution lifecycle. The author syntax expresses this through `when`.
+Sinks can consume products at different execution scopes. The workflow expresses
+the requested lifecycle through `when`.
 
 For example, an output may be produced for each dataset:
 
@@ -204,7 +210,7 @@ write:
     when: final
 ```
 
-The compiled plan resolves this author-facing lifecycle into the appropriate execution scope.
+Compilation resolves this workflow-level lifecycle into the corresponding execution scope.
 
 This distinction is important for outputs such as:
 
@@ -221,18 +227,22 @@ The sink contract tells Flow enough about its lifecycle and input requirements t
 
 ## Artifacts
 
-Persistent sink outputs can be tracked as workflow artifacts.
+A workflow product is a value passed between executable graph nodes. An artifact
+is an externally identifiable result of execution.
 
-A sink can therefore do more than call an arbitrary output function: its results can participate in the workflow's artifact and provenance model.
+Persistent outputs produced by sinks can be tracked as workflow artifacts and
+participate in the workflow's provenance model.
 
-Artifacts may be files, rendered outputs, exported data, or other externally identifiable results produced by a sink.
-
-This makes outputs easier to discover, validate, and associate with the workflow that produced them.
+Artifacts may include files, rendered outputs, exported data, or other
+persistent results. Tracking them makes outputs easier to discover, validate,
+and associate with the workflow execution that produced them.
 
 ```{note}
-If another analysis operation needs to consume the result directly as part of the data-flow graph, a sink is usually not the right abstraction.
+If another analysis operation needs to consume the result directly as part of
+the data-flow graph, a sink is usually not the right abstraction.
 
-A sink represents an output boundary. Use a transform when the result should continue through the analysis graph.
+A sink represents an output boundary. Use a transform when the result should
+continue through the analysis graph.
 ```
 
 ---
@@ -262,11 +272,11 @@ Sinks define output boundaries in the runtime data-flow graph.
 The remaining extension mechanisms act at different points in the workflow lifecycle:
 
 - {doc}`compile-hooks` extend the compilation process
-- {doc}`execution-modifiers` alter how a compiled workflow is executed
+- {doc}`execution-modifiers` adapt runtime preparation or execution behaviour
 
 For related concepts:
 
-- {doc}`operations-and-specs` — the common extension contract
+- {doc}`operations-and-specs` — the common data-flow operation contract
 - {doc}`transforms` — product-to-product computation
 - {doc}`observers` — inspecting workflow products
 - {doc}`../execution/plan` — how sinks appear in the compiled plan

@@ -19,7 +19,7 @@ A workflow therefore does not need to know which Python module implements every 
 
 ## Registries map names to capabilities
 
-Author workflows refer to capabilities by declarative names:
+Workflows refer to capabilities by declarative names:
 
 ```yaml
 - id: BasicVars
@@ -38,11 +38,11 @@ registry:
 
 ```{mermaid}
 flowchart LR
-    Author["author workflow<br/><code>hep.define</code>"]
-    Registry["resolved registry"]
-    Capability["fasthep-carpenter<br/>capability"]
+    Workflow["<b>Workflow</b><br/><code>hep.define</code>"]:::input
+    Registry["<b>Registry</b><br/>resolve name"]:::capability
+    Capability["<b>Capability</b><br/>provided by Carpenter"]:::transform
 
-    Author --> Registry --> Capability
+    Workflow --> Registry --> Capability
 ```
 
 The common relationship between specifications and implementations is described in {doc}`operations-and-specs`.
@@ -129,7 +129,7 @@ includes:
   - fasthep_render:registry
 ```
 
-An author can then request:
+A workflow can then request:
 
 ```yaml
 use:
@@ -153,14 +153,14 @@ Conceptually:
 
 ```{mermaid}
 flowchart TD
-    Basic["basic"]
-    HEP["hep"]
-    Debug["hep_debug"]
+    Basic["<b>basic</b>"]:::capability
+    HEP["<b>hep</b><br/>HEP environment"]:::flow
+    Debug["<b>hep_debug</b><br/>debug environment"]:::flow
 
-    Carpenter["Carpenter"]
-    Curator["Curator"]
-    Render["Render"]
-    Diagnostics["runtime diagnostics"]
+    Carpenter["<b>Carpenter</b>"]:::transform
+    Curator["<b>Curator</b>"]:::observer
+    Render["<b>Render</b>"]:::sink
+    Diagnostics["<b>Runtime diagnostics</b>"]:::observer
 
     Basic --> HEP
     Carpenter --> HEP
@@ -259,7 +259,7 @@ experimental profile
     hep.operation → implementation B
 ```
 
-The author can still write:
+The workflow can still use:
 
 ```yaml
 op: hep.operation
@@ -276,7 +276,7 @@ This can support:
 
 The replacement must still satisfy the contract Flow relies upon.
 
-The author configuration forms the final layer of the resolved environment, allowing reusable profiles to provide defaults while individual workflows retain control over their final configuration.
+The workflow configuration forms the final layer of the resolved environment, allowing reusable profiles to provide defaults while individual workflows retain control over their final configuration.
 
 ```{note}
 Compilation always stores the fully resolved registry.
@@ -306,9 +306,9 @@ provenance:
       kind: profile
       path: package:fasthep_workshop.profiles/registry.yaml
 
-    - name: author
-      kind: author
-      path: examples/NASA/exoplanets/author.yaml
+    - name: workflow
+      kind: workflow
+      path: examples/NASA/exoplanets/workflow.yaml
 ```
 
 Registry provenance can also record which layer introduced or replaced individual capabilities.
@@ -346,12 +346,12 @@ registry:
       impl: hepflow.backends:Local
 ```
 
-The runtime therefore does not need to rediscover the intended environment from the original author file.
+The runtime therefore does not need to rediscover the intended environment from the original workflow description.
 
 Conceptually:
 
 ```text
-author description
+workflow description
        +
 profiles
        +
@@ -397,7 +397,7 @@ includes:
   - my_package:diagnostics
 ```
 
-assembles capabilities and configuration into something an author can activate with one name.
+assembles capabilities and configuration into something a workflow can activate with one name.
 
 Many packages therefore expose a `registry` profile as their lowest-level capability bundle and additional profiles for more opinionated environments.
 

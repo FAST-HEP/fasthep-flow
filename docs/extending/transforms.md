@@ -20,13 +20,13 @@ Examples include:
 - restructuring data
 - calculating weights
 - constructing higher-level objects
-- producing histograms or other analysis products
+- turning an event stream into a histogram.
 
 Transforms use the common {doc}`operation contract <operations-and-specs>`. This page focuses on what is distinctive about their role in the workflow.
 
 ---
 
-## Transforms in an author workflow
+## Transforms in a workflow
 
 Transforms normally appear as stages under `analysis.stages`.
 
@@ -58,15 +58,15 @@ Compilation turns the stage into a transform node:
 
 ```{mermaid}
 flowchart LR
-    Previous["stage.PlanetRows"]
-    Filter["stage.EarthSizedPlanets<br/><b>transform</b>"]
-    Next["stage.PlanetTable"]
+    Previous["<b>stage.PlanetRows</b>"]:::transform
+    Filter["<b>stage.EarthSizedPlanets</b><br/>workshop.tabular.filter"]:::transform
+    Next["<b>stage.PlanetTable</b>"]:::transform
 
     Previous -->|stream| Filter
     Filter -->|stream| Next
 ```
 
-The execution plan contains the explicit product connections even though the author description remains compact.
+The execution plan contains the explicit product connections even though the workflow description remains compact.
 
 ---
 
@@ -123,17 +123,17 @@ For example:
         expr: "sqrt(Muon_Px ** 2 + Muon_Py ** 2)"
 ```
 
-`variables` and `expr` belong to the `hep.define` contract. They are not keywords in Flow's core author language.
+`variables` and `expr` belong to the `hep.define` contract. They are not keywords in Flow's core workflow language.
 
 Conceptually:
 
 ```text
-Flow syntax
+Flow-level syntax
     id
     op
     params
         ↓
-operation-specific syntax
+operation-specific configuration
 ```
 
 A different transform can therefore expose a completely different parameter vocabulary without extending the core workflow language.
@@ -154,7 +154,7 @@ See {doc}`operations-and-specs` for how specs map operation-specific parameters 
 ```{note}
 Keeping operation-specific concepts inside `params` is an important extension boundary.
 
-A concept does not need to become part of Flow's author syntax merely because the compiler needs to reason about it. The operation spec can expose the relevant semantics instead.
+A concept does not need to become part of Flow's workflow syntax merely because the compiler needs to reason about it. The operation spec can expose the relevant semantics instead.
 ```
 
 ---
@@ -255,11 +255,11 @@ A product can feed several downstream transforms:
 
 ```{mermaid}
 flowchart TD
-    Read["read.events"]
-    Common["stage.MuonColumns"]
-    Hist["stage.MuonPt"]
-    MC["stage.MCLeptonColumns"]
-    MCHist["stage.MCLeptonPt"]
+    Read["<b>read.events</b>"]:::source
+    Common["<b>stage.MuonColumns</b>"]:::transform
+    Hist["<b>stage.MuonPt</b>"]:::transform
+    MC["<b>stage.MCLeptonColumns</b>"]:::transform
+    MCHist["<b>stage.MCLeptonPt</b>"]:::transform
 
     Read --> Common
     Common --> Hist
@@ -277,10 +277,10 @@ This can represent structures such as:
 
 The important point is that these paths arise from **product and field dependencies**.
 
-The author describes what each operation needs and produces; compilation turns those relationships into graph connections.
+The workflow describes the requested operations; their specifications expose what they require and provide, and compilation turns those relationships into graph connections.
 
 ```{note}
-The order in which stages appear in `author.yaml` should not be confused with manually scheduling an execution sequence.
+The order in which stages appear in `workflow.yaml` should not be confused with manually scheduling an execution sequence.
 
 The compiled graph describes the actual dependencies between operations.
 ```
@@ -320,25 +320,17 @@ For a workflow containing both data and MC, the resulting paths may therefore di
 
 ```{mermaid}
 flowchart TD
-    Common["stage.MuonColumns"]
+    Common["<b>stage.MuonColumns</b>"]:::transform
+    MuonPt["<b>stage.MuonPt</b><br/>data + MC"]:::transform
+    MCLeptons["<b>stage.MCLeptonColumns</b><br/>MC only"]:::transform
+    MCLeptonPt["<b>stage.MCLeptonPt</b><br/>MC only"]:::transform
 
-    Data["data path"]
-    MC["MC path"]
-
-    MuonPt["stage.MuonPt"]
-    MCLeptons["stage.MCLeptonColumns"]
-    MCLeptonPt["stage.MCLeptonPt"]
-
-    Common --> Data
-    Common --> MC
-
-    Data --> MuonPt
-    MC --> MuonPt
-    MC --> MCLeptons
+    Common --> MuonPt
+    Common --> MCLeptons
     MCLeptons --> MCLeptonPt
 ```
 
-This allows one authored workflow to describe context-dependent graph structure without embedding those rules inside individual transform implementations.
+This allows one workflow to describe context-dependent graph structure without embedding those rules inside individual transform implementations.
 
 See {doc}`../execution/graph-structure` for conditional paths and other graph-level workflow structure.
 
@@ -366,7 +358,7 @@ analysis packages
 
 Once registered through an active profile, Flow can compile these capabilities in the same way.
 
-Flow therefore provides the orchestration mechanism without needing to become a catalogue of scientific operations.
+Flow therefore provides the compilation and orchestration machinery without needing to become a catalogue of scientific operations.
 
 The common operation contract is described in {doc}`operations-and-specs`, and {doc}`registries-and-profiles` explains how transform capabilities become available to a workflow.
 

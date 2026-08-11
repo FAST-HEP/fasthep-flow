@@ -1,21 +1,21 @@
 # Execution modifiers
 
-Execution modifiers adapt how a compiled workflow is executed.
+Execution modifiers are registered capabilities, but unlike data-flow operations
+they participate in the Flow lifecycle at execution rather than through the
+workflow graph.
 
 Unlike sources, transforms, observers, and sinks, they do not represent operations in the workflow's data-flow graph. Instead, they act on execution behaviour around that graph.
 
 Conceptually:
 
-```text
-author workflow
-      ↓
- compilation
-      ↓
-execution plan
-      ↓
-execution modifiers
-      ↓
-   runtime
+```{mermaid}
+flowchart LR
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Runtime</b>"]:::runtime
+    Modifier["<b>Execution modifiers</b><br/>execution-specific behaviour"]:::capability
+
+    Plan --> Runtime
+    Modifier -.-> Runtime
 ```
 
 This provides an extension point for execution concerns that should not become part of the scientific workflow description.
@@ -89,14 +89,13 @@ Conceptually:
 
 ```{mermaid}
 flowchart LR
-    Plan["compiled plan"]
-    Prepare["execution modifiers"]
-    Runtime["runtime"]
-    GPU["GPU execution"]
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Runtime</b>"]:::runtime
+    Modifier["<b>GPU modifiers</b><br/>preload, JIT"]:::capability
+    GPU["<b>GPU resources</b>"]:::runtime
 
-    Plan --> Prepare
-    Prepare --> Runtime
-    Runtime --> GPU
+    Plan --> Runtime --> GPU
+    Modifier -.-> Runtime
 ```
 
 The workflow graph remains a description of the computation, while the modifiers provide execution-specific behaviour around it.
@@ -188,22 +187,24 @@ compiled plan
 backend
       ↓
 local execution
-Dask
-external workflow system
+distributed scheduler
+external execution system
 ```
 
 Execution modifiers adapt aspects of **how operations are prepared or executed within that runtime**.
 
 Conceptually:
 
-```text
-compiled plan
-      ↓
-execution modifiers
-      ↓
-backend / runtime
-      ↓
-execution infrastructure
+```{mermaid}
+flowchart LR
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Flow runtime</b>"]:::runtime
+    Backend["<b>Backend</b>"]:::capability
+    Infra["<b>Execution<br/>infrastructure</b>"]:::runtime
+    Modifier["<b>Execution modifier</b>"]:::capability
+
+    Plan --> Runtime --> Backend --> Infra
+    Modifier -.-> Runtime
 ```
 
 This separation allows execution-specific capabilities to be composed without making them part of the scientific data-flow graph.
@@ -211,7 +212,7 @@ This separation allows execution-specific capabilities to be composed without ma
 ```{note}
 The exact boundary between execution modifiers and backends is intentionally narrow and may evolve as Flow's execution interfaces mature.
 
-A useful distinction is that a backend owns the execution strategy, while modifiers provide additional execution behaviour used within that strategy.
+A useful distinction is that a backend connects the runtime to an execution system, while modifiers provide additional behaviour used when preparing or executing operations.
 ```
 
 ---
@@ -252,7 +253,10 @@ Once exposed through an active registry/profile, Flow can make the modifier avai
 
 Unlike ordinary data-flow operations, execution modifiers do not need to appear as source, transform, observer, or sink nodes in the workflow graph.
 
-The common extension infrastructure is described in {doc}`operations-and-specs`, while {doc}`registries-and-profiles` explains how packages expose capabilities to Flow.
+
+{doc}`registries-and-profiles` explains how execution modifiers are registered
+and made available to Flow. The detailed execution-modifier interface is still
+evolving.
 
 ```{note}
 The execution-modifier API is still evolving. The examples here describe the current extension mechanism; the detailed contract will be documented alongside the corresponding extension tutorials as it stabilises.

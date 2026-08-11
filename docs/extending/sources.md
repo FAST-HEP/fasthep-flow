@@ -20,7 +20,7 @@ Sources use the common {doc}`operation contract <operations-and-specs>`. This pa
 
 ---
 
-## Sources in an author workflow
+## Sources in an workflow
 
 Sources are declared in the top-level `sources` section.
 
@@ -39,7 +39,7 @@ Here:
 
 ```text
 events
-    author-facing source name
+    workflow-visible source name
 
 workshop.toy_source
     registered source capability
@@ -60,9 +60,9 @@ Downstream operations consume the product produced by that node.
 
 ```{mermaid}
 flowchart LR
-    Source["read.events<br/><b>source</b>"]
-    Transform["stage.BasicVars<br/><b>transform</b>"]
-    Consumer["downstream operation"]
+    Source["<b>read.events</b><br/>source"]:::source
+    Transform["<b>stage.BasicVars</b><br/>transform"]:::transform
+    Consumer["<b>Downstream operation</b>"]:::transform
 
     Source -->|event stream| Transform
     Transform -->|event stream| Consumer
@@ -161,7 +161,7 @@ sources:
     stream_type: event_stream
 ```
 
-The author does not explicitly list the columns that should be read.
+The workflow does not explicitly list the columns that should be read.
 
 Instead, downstream operations refer to:
 
@@ -200,9 +200,9 @@ Conceptually:
 
 ```{mermaid}
 flowchart RL
-    Operations["downstream operations"]
-    Requirements["field requirements"]
-    Source["read.planets"]
+    Operations["<b>Downstream operations</b>"]:::transform
+    Requirements["<b>Field requirements</b>"]:::flow
+    Source["<b>read.planets</b>"]:::source
 
     Operations --> Requirements --> Source
 ```
@@ -212,14 +212,14 @@ The source implementation can then use these requirements to read only the requi
 ```{note}
 A source does not have to support efficient field projection to participate in Flow.
 
-When it does, dependency inference allows unnecessary I/O to be avoided without duplicating field lists throughout `author.yaml`.
+When it does, dependency inference allows unnecessary I/O to be avoided without duplicating field lists throughout `workflow.yaml`.
 ```
 
 ---
 
 ## Field aliases resolve back to sources
 
-Author workflows can provide analysis-facing names for source fields:
+Workflows can provide analysis-facing names for source fields:
 
 ```yaml
 fields:
@@ -281,17 +281,21 @@ This separation also accommodates sources such as synthetic generators that do n
 
 ---
 
-## Sources establish partitioned work
+## Sources participate in partition planning
 
-Sources also sit at the boundary where input data become units of execution.
+Sources also provide the information needed to turn input data into units of
+execution.
 
-Depending on the source, work may be partitioned by:
+Depending on the source contract, partitions may correspond to:
 
-- dataset
-- file
-- entry range
-- chunk
+- datasets
+- files
+- entry ranges
+- chunks
 - another source-specific unit
+
+Compilation uses this information to construct the partitions recorded in the
+execution plan.
 
 For example, the NASA workflow produces a partition resembling:
 
@@ -315,7 +319,7 @@ source
 partition products
 ```
 
-The exact partitioning behaviour depends on the source contract and execution environment.
+The available partitioning model depends on the source contract and compiler configuration; the execution backend later determines how those planned partitions are scheduled.
 
 See {doc}`../execution/plan` for how partitions are represented after compilation.
 

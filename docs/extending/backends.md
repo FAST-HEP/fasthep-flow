@@ -2,20 +2,20 @@
 
 Backends connect Flow's execution model to computing infrastructure.
 
-After compilation has produced an execution plan, the selected backend is responsible for mapping that plan onto an execution system.
+After compilation has produced an execution plan, the Flow runtime uses the selected backend to map execution onto an execution system.
 
 Conceptually:
 
-```text
-author.yaml
-    ↓
-compilation
-    ↓
-execution plan
-    ↓
-backend
-    ↓
-computing infrastructure
+```{mermaid}
+flowchart LR
+    Workflow["<b>workflow.yaml</b>"]:::input
+    Compile["<b>Compilation</b>"]:::flow
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Flow runtime</b>"]:::runtime
+    Backend["<b>Backend</b>"]:::capability
+    Infra["<b>Computing<br/>infrastructure</b>"]:::runtime
+
+    Workflow --> Compile --> Plan --> Runtime --> Backend --> Infra
 `````
 
 This makes backends different from operations in the data-flow graph. Sources, transforms, and sinks describe computation; a backend determines how that computation is carried out.
@@ -42,9 +42,9 @@ execution:
 
 Here:
 
-* `backend` selects the execution implementation
-* `strategy` selects how that backend should be used
-* `config` provides backend- and strategy-specific configuration
+- `backend` selects the execution implementation
+- `strategy` selects an execution strategy supported by that backend
+- `config` provides backend- and strategy-specific configuration
 
 This keeps infrastructure configuration separate from the analysis operations themselves.
 
@@ -73,12 +73,14 @@ The local backend executes a plan directly, while the Dask backend maps executio
 
 The important abstraction is not either particular implementation, but the boundary they establish:
 
-```text
-Flow execution plan
-        ↓
-backend interface
-        ↓
-execution system
+```{mermaid}
+flowchart LR
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Flow runtime</b>"]:::runtime
+    Backend["<b>Backend interface</b>"]:::capability
+    System["<b>Execution system</b>"]:::runtime
+
+    Plan --> Runtime --> Backend --> System
 ```
 
 A backend therefore provides the bridge between Flow's representation of computation and the infrastructure on which that computation runs.
@@ -89,15 +91,18 @@ A backend therefore provides the bridge between Flow's representation of computa
 
 Backends and {doc}`execution modifiers <execution-modifiers>` both participate in runtime execution, but have different responsibilities.
 
-```text
-execution modifier
-    adapts execution behaviour
+```{mermaid}
+flowchart LR
+    Runtime["<b>Flow runtime</b>"]:::runtime
+    Backend["<b>Backend</b><br/>maps work onto infrastructure"]:::capability
+    Modifier["<b>Execution modifier</b><br/>adapts execution behaviour"]:::capability
+    Infra["<b>Execution<br/>infrastructure</b>"]:::runtime
 
-backend
-    maps execution onto infrastructure
+    Runtime --> Backend --> Infra
+    Modifier -.-> Runtime
 ```
 
-For example, GPU-specific preparation may be implemented as an execution modifier, while the backend remains responsible for scheduling and executing the resulting work.
+For example, GPU-specific preparation may be implemented as an execution modifier, while the backend remains responsible for mapping and submitting the resulting work to the execution system.
 
 Keeping these concerns separate allows execution capabilities to be composed without introducing infrastructure details into the analysis graph.
 
@@ -107,7 +112,8 @@ Keeping these concerns separate allows execution capabilities to be composed wit
 
 The backend interface is currently under active development.
 
-The existing local and Dask backends live in Flow because their execution models are domain-agnostic. However, the intention is for backends to become fully externalisable capabilities.
+The existing local and Dask backends live in Flow because their execution models are domain-agnostic.
+However, the intention is for external packages to be able to provide backends through the same registry mechanism.
 
 This requires a more explicit contract for:
 
@@ -123,7 +129,6 @@ This page describes the current architectural role of backends rather than a sta
 The backend interface is expected to evolve, including a standard specification mechanism and a structured way for backends to expose execution strategies.
 ```
 
-Once that contract has stabilised, external packages should be able to provide additional execution backends without changes to Flow core.
 
 ---
 
@@ -133,8 +138,8 @@ Backends sit at the boundary between Flow's execution model and computing infras
 
 For related concepts:
 
-* {doc}`../execution/plan` — the execution representation consumed by backends
-* {doc}`../execution/runtime` — runtime execution
-* {doc}`../execution/environments` — environments in which operations execute
-* {doc}`execution-modifiers` — adapting runtime execution behaviour
-* {doc}`registries-and-profiles` — selecting capabilities and execution configuration
+- {doc}`../execution/plan` — the execution representation consumed by the runtime
+- {doc}`../execution/runtime` — runtime orchestration
+- {doc}`../execution/environments` — mapping execution onto computing resources
+- {doc}`execution-modifiers` — adapting runtime execution behaviour
+- {doc}`registries-and-profiles` — making backend capabilities available

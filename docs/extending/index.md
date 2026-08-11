@@ -2,9 +2,12 @@
 
 Flow is designed around replaceable capabilities.
 
-The workflow engine provides compilation, dependency reasoning, planning, and runtime orchestration. Domain- and application-specific behaviour can be supplied by external packages through registered extensions.
+Flow provides workflow compilation, dependency reasoning, planning, and runtime
+orchestration. Domain- and application-specific behaviour can be supplied by
+external packages through registered extensions.
 
-This separation allows packages, experiments, and individual analyses to add capabilities without modifying Flow itself.
+This separation allows packages, experiments, and individual analyses to add
+capabilities without modifying Flow itself.
 
 ---
 
@@ -14,29 +17,27 @@ Extensions participate at different points in the workflow lifecycle.
 
 ```{mermaid}
 flowchart LR
-    Author["author workflow"]
-    Compile["compilation"]
-    Plan["execution plan"]
-    Backend["backend"]
-    Infra["computing infrastructure"]
+    Workflow["<b>workflow.yaml</b><br/>workflow description"]:::input
+    Compile["<b>Compilation</b>"]:::flow
+    Plan["<b>Execution plan</b>"]:::plan
+    Runtime["<b>Flow runtime</b>"]:::runtime
+    Backend["<b>Backend</b>"]:::capability
+    Infra["<b>Computing resources</b>"]:::capability
 
-    Source["source"]
-    Transform["transform"]
-    Sink["sink"]
-    Observer["observer"]
+    Hook["<b>Compile hook</b>"]:::capability
+    Modifier["<b>Execution modifier</b>"]:::capability
 
-    Hook["compile hook"]
-    Modifier["execution modifier"]
+    Source["<b>Source</b>"]:::source
+    Transform["<b>Transform</b>"]:::transform
+    Observer["<b>Observer</b>"]:::observer
+    Sink["<b>Sink</b>"]:::sink
 
-    Author --> Compile
+    Workflow --> Compile --> Plan --> Runtime --> Backend --> Infra
+
     Hook -.-> Compile
-    Compile --> Plan
-    Plan --> Backend
-    Modifier -.-> Backend
-    Backend --> Infra
+    Modifier -.-> Runtime
 
-    Source --> Transform
-    Transform --> Sink
+    Source --> Transform --> Sink
     Transform -.-> Observer
 ```
 
@@ -50,7 +51,7 @@ The main extension points are:
 | {doc}`sinks` | consume products and produce artifacts or external outputs |
 | {doc}`compile-hooks` | extend the compilation process |
 | {doc}`execution-modifiers` | adapt runtime execution behaviour |
-| {doc}`backends` | map the execution plan onto computing infrastructure |
+| {doc}`backends` | map executable work onto computing infrastructure |
 
 The first four participate directly in the executable workflow graph. Compile hooks, execution modifiers, and backends extend the surrounding compilation and execution machinery.
 
@@ -90,12 +91,12 @@ Conceptually:
 
 ```{mermaid}
 flowchart LR
-    Author["author workflow<br/><code>hep.define</code>"]
-    Registry["resolved registry"]
-    Contract["capability contract"]
-    Impl["implementation"]
+    Workflow["<b>workflow.yaml</b><br/><code>hep.define</code>"]:::input
+    Registry["<b>Registry</b><br/>capability resolution"]:::capability
+    Contract["<b>Specification</b><br/>compile-time contract"]:::flow
+    Impl["<b>Implementation</b><br/>runtime behaviour"]:::runtime
 
-    Author --> Registry
+    Workflow --> Registry
     Registry --> Contract
     Registry --> Impl
 ```
@@ -166,7 +167,7 @@ registry:
       impl: my_extension.transforms.calculate:run_calculate
 ```
 
-An author can then use:
+An workflow can then use:
 
 ```yaml
 - id: CalculateSomething
@@ -175,7 +176,7 @@ An author can then use:
 
 without Flow itself knowing anything about the package's domain.
 
-This is the same mechanism used across FAST-HEP: Flow provides orchestration contracts, while packages such as `fasthep-carpenter`, `fasthep-curator`, and `fasthep-render` provide specialised capabilities.
+This is the same mechanism used across FAST-HEP: Flow provides compiler and runtime contracts, while packages such as `fasthep-carpenter`, `fasthep-curator`, and `fasthep-render` provide specialised capabilities.
 
 ```{note}
 Analysis repositories can use exactly the same mechanism for capabilities specific to an experiment, collaboration, or individual analysis. An extension does not need to become part of a general-purpose FAST-HEP package.
@@ -211,22 +212,22 @@ A useful starting question is **where the capability needs to participate**:
 Does it introduce data?
     → source
 
-Does it change a workflow product?
+Does it compute or transform a workflow product?
     → transform
 
-Does it inspect a runtime product?
+Does it inspect workflow products or execution?
     → observer
 
-Does it produce an external output or artifact?
+Does it consume products to produce an artifact or external output?
     → sink
 
-Does it extend compilation?
+Does it inspect or augment compilation?
     → compile hook
 
-Does it adapt runtime execution behaviour?
+Does it modify runtime preparation or execution behaviour?
     → execution modifier
 
-Does it map the plan onto computing infrastructure?
+Does it map executable work onto an execution system?
     → backend
 ```
 

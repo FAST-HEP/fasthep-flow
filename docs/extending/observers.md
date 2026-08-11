@@ -12,25 +12,35 @@ They are intended for capabilities such as:
 
 Conceptually:
 
-```text
-source → transform → transform → sink
-   ↓           ↓
-observer    observer
+```{mermaid}
+flowchart LR
+    Source["<b>Source</b>"]:::source
+    Transform1["<b>Transform</b>"]:::transform
+    Transform2["<b>Transform</b>"]:::transform
+    Sink["<b>Sink</b>"]:::sink
+
+    Observer1["<b>Observer</b>"]:::observer
+    Observer2["<b>Observer</b>"]:::observer
+
+    Source --> Transform1 --> Transform2 --> Sink
+    Source -.-> Observer1
+    Transform1 -.-> Observer2
 ```
 
 The main data flow continues independently of the observer.
 
-Observers use the same {doc}`specification and implementation model <operations-and-specs>` as other Flow extensions. This page focuses on what is distinctive about their role in a workflow.
+Observers use the same {doc}`specification and implementation model <operations-and-specs>` as other Flow extensions sources, transforms, and sinks.
+This page focuses on what is distinctive about their role in a workflow.
 
 ```{note}
 The distinction between an observer and a transform is semantic.
 
-A transform participates in the data-flow chain; an observer instead inspects an existing point.
+A transform participates in the data-flow chain; an observer inspects an existing workflow point without providing a product to the main transformation path.
 ```
 
 ---
 
-## Observers in an author workflow
+## Observers in a workflow
 
 Observers are declared separately from analysis stages.
 
@@ -49,15 +59,17 @@ This asks the observer to inspect the workflow at two points:
 
 ```{mermaid}
 flowchart LR
-    Source["read.events"]
-    Selection["stage.TriggerSelection"]
-    Next["downstream operations"]
+    Source["<b>read.events</b>"]:::source
+    Selection["<b>stage.TriggerSelection</b>"]:::transform
+    Next["<b>Downstream operations</b>"]:::transform
 
-    Source --> Selection
-    Selection --> Next
+    Before["<b>Schema snapshot</b>"]:::observer
+    After["<b>Schema snapshot</b>"]:::observer
 
-    Source -.-> Before["schema snapshot"]
-    Selection -.-> After["schema snapshot"]
+    Source --> Selection --> Next
+
+    Source -.-> Before
+    Selection -.-> After
 ```
 
 The `at` parameter identifies the compiled workflow points where the observer should run. The same observer can therefore inspect a product at several stages of its evolution.
@@ -85,7 +97,7 @@ Other observers might collect:
 - diagnostic summaries
 - metadata
 
-These results can contribute to reports or diagnostic artifacts without becoming ordinary analysis products consumed by downstream transforms.
+Observers may produce diagnostic records, metadata, or artifacts, but these do not become products on the main data-flow path consumed by downstream transforms.
 
 This makes observers particularly useful for optional information that should **accompany an analysis rather than become part of the analysis data itself**.
 
@@ -99,7 +111,7 @@ If downstream analysis operations need to consume the result as part of their co
 
 Observers are registered extensions just like sources and transforms.
 
-Once an observer has been provided by an active profile, an author can use its registered name:
+Once an observer has been provided by an active profile, a workflow can use its registered name:
 
 ```yaml
 observers:
