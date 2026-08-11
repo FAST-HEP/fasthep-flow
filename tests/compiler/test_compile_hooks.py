@@ -138,7 +138,7 @@ def test_dataset_entries_artifact_remains_declaration_only(tmp_path: Path) -> No
 
 
 def test_flow_compile_hook_logic_does_not_import_uproot() -> None:
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     checked = [
         root / "src" / "hepflow" / "compiler" / "compile_hooks.py",
         root / "src" / "hepflow" / "compiler" / "artifacts.py",
