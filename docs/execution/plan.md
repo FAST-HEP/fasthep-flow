@@ -60,16 +60,16 @@ registered implementations
 
 The standard FAST-HEP workflow language is one way to produce this plan, but it is not required by the runtime.
 
-Other authoring tools or compilers can construct compatible plans and use Flow for orchestration directly.
+Other worklfow tools or compilers can construct compatible plans and use Flow for orchestration directly.
 
 This separation allows:
 
-- authoring syntax to evolve independently of runtime execution
-- alternative authoring systems to target Flow
+- workflow syntax to evolve independently of runtime execution
+- alternative workflow systems to target Flow
 - plans to be inspected before execution
 - runtime behaviour to operate on an explicit contract rather than the original YAML
 
-The plan should therefore be thought of as a runtime-oriented representation of the workflow rather than another form of the author description.
+The plan should therefore be thought of as a runtime-oriented representation of the workflow rather than another form of the workflow description.
 
 ---
 
@@ -606,9 +606,9 @@ provenance:
       kind: profile
       path: package:fasthep_workshop.profiles/registry.yaml
 
-    - name: author
-      kind: author
-      path: examples/NASA/exoplanets/author.yaml
+    - name: workflow
+      kind: workflow
+      path: examples/NASA/exoplanets/workflow.yaml
 ```
 
 The provenance section can also record which registry entries were added or overwritten by each layer.
@@ -781,7 +781,7 @@ But the runtime boundary is the plan, not `workflow.yaml`.
 Another system could instead produce:
 
 ```text
-alternative authoring system
+alternative workflow system
     ↓
 alternative compiler
     ↓
@@ -794,7 +794,7 @@ This is an intentional architectural property.
 
 Flow provides a standard workflow language and compilation path, but runtime execution is not intrinsically tied to that language.
 
-It also means that future authoring conveniences can evolve without requiring equivalent changes to the runtime contract.
+It also means that future workflow conveniences can evolve without requiring equivalent changes to the runtime contract.
 
 ---
 

@@ -121,7 +121,7 @@ JIT compilation
 runtime setup
 ```
 
-Those steps are important for execution, but they are not necessarily meaningful parts of the authored analysis.
+Those steps are important for execution, but they are not necessarily meaningful parts of the analysis.
 
 Without a separate execution extension mechanism, authors could be forced to describe something resembling:
 
@@ -219,7 +219,7 @@ A useful distinction is that a backend connects the runtime to an execution syst
 
 ## Execution modifiers are not graph variations
 
-Flow also supports author-level mechanisms that can expand or branch the execution graph, such as variations and context-dependent paths.
+Flow also supports workflow-level mechanisms that can expand or branch the execution graph, such as variations and context-dependent paths.
 
 Those are part of the workflow language and are described in {doc}`../execution/graph-structure`.
 

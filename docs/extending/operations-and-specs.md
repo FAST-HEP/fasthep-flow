@@ -190,7 +190,7 @@ An operation-specific concept does not need to become part of the core workflow 
 
 Specs can often express parameter-derived dependencies declaratively, without requiring operation-specific compiler logic.
 
-Many operations use compact author parameters but still need explicit compiled
+Many operations use compact workflow parameters but still need explicit compiled
 dependencies. Flow provides reusable `requires.symbols` and `provides.symbols`
 rules for common parameter-derived patterns, so operation modules do not need
 custom dependency parsers for ordinary field expansion.
@@ -214,7 +214,7 @@ Useful output rules include:
 | `count` | A collection prefix provides the deterministic count field `n<prefix>`. |
 | `template` | A deterministic output name is composed from parameters. |
 
-For example, an object-selection operation can expose compact author params:
+For example, an object-selection operation can expose compact workflow params:
 
 ```yaml
 params:

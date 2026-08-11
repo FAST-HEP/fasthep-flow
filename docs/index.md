@@ -58,7 +58,7 @@ flowchart LR
 
 This explicit representation makes workflows easier to inspect, validate, debug, and execute in different computing environments.
 
-For the user-facing authoring model, see {doc}`authoring/index`.
+For the user-facing workflow model, see {doc}`authoring/index`.
 
 ---
 

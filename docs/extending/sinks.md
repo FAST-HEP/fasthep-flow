@@ -251,7 +251,7 @@ continue through the analysis graph.
 
 Sinks are registered extensions just like sources, transforms, and observers.
 
-Once provided by an active profile, an author can use the registered sink through `write`:
+Once provided by an active profile, a workflow can use the registered sink through `write`:
 
 ```yaml
 write:

@@ -57,7 +57,7 @@ pixi install
 From the workshop repository, run:
 
 ```console
-pixi run --environment dev fasthep run examples/NASA/exoplanets/author.yaml \
+pixi run --environment dev fasthep run examples/NASA/exoplanets/workflow.yaml \
     --outdir build/examples/NASA/exoplanets
 ```
 
@@ -95,7 +95,7 @@ build/examples/NASA/exoplanets/
 The workflow itself is described in:
 
 ```text
-examples/NASA/exoplanets/author.yaml
+examples/NASA/exoplanets/workflow.yaml
 ```
 
 Rather than containing Python implementations, it describes the capabilities that should be connected together.
@@ -122,7 +122,7 @@ The workflow describes **what should happen**. It does not contain the implement
 
 ## Where do the operations come from?
 
-Near the beginning of `author.yaml`, the workflow activates profiles:
+Near the beginning of `workflow.yaml`, the workflow activates profiles:
 
 ```yaml
 use:
@@ -162,7 +162,7 @@ This distinction is central to the architecture.
 
 | Flow | Workshop extension |
 |---|---|
-| author workflow processing | Parquet source |
+| workflow processing | Parquet source |
 | profile and registry resolution | tabular transforms |
 | dependency graph construction | console-table sink |
 | execution planning | operation implementations |
@@ -194,7 +194,7 @@ This explicit representation provides a foundation for:
 * provenance
 * alternative execution environments
 
-We will look more closely at how the author description becomes this graph and execution plan in {doc}`../execution/index`.
+We will look more closely at how the workflow description becomes this graph and execution plan in {doc}`../execution/index`.
 
 ## Where next?
 

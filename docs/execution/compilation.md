@@ -72,7 +72,7 @@ sources:
 
 The workflow description deliberately leaves some information implicit.
 
-During normalisation, Flow assembles authoring conveniences such as:
+During normalisation, Flow assembles conveniences such as:
 
 - defaults
 - included configuration
@@ -97,8 +97,8 @@ Normalisation is still part of compilation. Scientific operations are not
 executed simply to establish this representation.
 
 It provides an important boundary: the workflow language can evolve and offer
-different authoring conveniences without requiring later compiler stages or
-the runtime to understand every authoring form directly.
+different conveniences without requiring later compiler stages or
+the runtime to understand every form directly.
 
 ---
 
@@ -249,7 +249,7 @@ Requirements from multiple downstream consumers are combined and propagated towa
 
 ## Source projections become explicit
 
-The original author description of the source did not list any columns:
+The original workflow description of the source did not list any columns:
 
 ```yaml
 sources:

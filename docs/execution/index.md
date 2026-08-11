@@ -98,13 +98,13 @@ Depending on the workflow, this can include assembling:
 The result is a single normalised workflow from which later compiler stages can
 construct and analyse the logical graph.
 
-Normalisation does not execute scientific operations. It makes the author's
+Normalisation does not execute scientific operations. It makes the workflow's
 description explicit enough for subsequent compiler stages to reason about it.
 
 This also allows the workflow language to evolve independently of the logical
 graph, execution plan, and runtime.
 
-For example, an author workflow may simply request:
+For example, a workflow may simply request:
 
 ```yaml
 use:
@@ -117,7 +117,7 @@ The normalised representation contains the resulting registry entries, including
 
 The normalised workflow is therefore no longer just what the user wrote. It represents the environment in which the workflow will be compiled.
 
-This distinction also allows the author language to evolve independently of later compilation and runtime representations.
+This distinction also allows the workflow language to evolve independently of later compilation and runtime representations.
 
 ---
 
@@ -173,7 +173,7 @@ The operation and specification contracts are described further in {doc}`../exte
 
 Dependency analysis is particularly useful for columnar data.
 
-The author description of the exoplanet source does not explicitly list which Parquet columns should be read:
+The workflow description of the exoplanet source does not explicitly list which Parquet columns should be read:
 
 ```yaml
 sources:
@@ -311,9 +311,9 @@ data_flow: ...
 provenance: ...
 ```
 
-Once a plan has been produced, the runtime does not need to interpret the original author description.
+Once a plan has been produced, the runtime does not need to interpret the original workflow description.
 
-This also means that Flow's runtime does not fundamentally require the standard FAST-HEP author language. Another tool can construct a compatible execution plan and use Flow to execute it.
+This also means that Flow's runtime does not fundamentally require the standard FAST-HEP workflow language. Another tool can construct a compatible execution plan and use Flow to execute it.
 
 ---
 
@@ -412,7 +412,7 @@ The compilation artifacts provide several ways to understand what Flow actually 
 
 They can help answer questions such as:
 
-- What did the author description normalise to?
+- What did the workflow description normalise to?
 - Which implementation was selected for an operation?
 - Why is a particular field being read?
 - Which operations consume that field?
@@ -450,7 +450,7 @@ Before the plan, Flow is primarily concerned with **understanding, resolving, an
 
 After the plan, Flow is primarily concerned with **executing the resolved computation**.
 
-Keeping this boundary explicit allows the author language, operation implementations, and execution environments to evolve independently.
+Keeping this boundary explicit allows the workflow language, operation implementations, and execution environments to evolve independently.
 
 ---
 

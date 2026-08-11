@@ -24,7 +24,7 @@ Flow constructs this structure during compilation using several kinds of informa
 - **context** determines where operations participate
 - **variations** describe controlled alternatives to parts of the workflow
 
-The author describes the intended computation; the compiler turns that description into an explicit graph.
+The workflow describes the intended computation; the compiler turns that description into an explicit graph.
 
 ---
 
@@ -253,7 +253,7 @@ common transformation
   └── path B
 ```
 
-The author does not need to describe two independent copies of the common transformation merely because the workflow later diverges.
+The workflow does not need to describe two independent copies of the common transformation merely because the workflow later diverges.
 
 The graph can represent the common node once and connect multiple consumers to its output.
 
@@ -387,7 +387,7 @@ analysis  ←───┤
 
 This is useful whenever the same computation should be evaluated against alternative inputs.
 
-Again, the author describes the difference rather than duplicating the complete analysis.
+Again, the workflow describes the difference rather than duplicating the complete analysis.
 
 ---
 
@@ -508,7 +508,7 @@ This becomes particularly useful for workflows containing:
 - validation workflows
 - many output products
 
-The author describes the structure and differences that matter. Flow expands those declarations into an explicit graph that can be inspected and executed.
+The workflow describes the structure and differences that matter. Flow expands those declarations into an explicit graph that can be inspected and executed.
 
 ---
 
@@ -518,7 +518,7 @@ Concise authoring does not mean that the resulting computation is hidden.
 
 Flow exposes compilation artifacts describing the graph, dependencies, and execution plan produced from the workflow.
 
-This means an author can write something conceptually compact:
+This means a workflow can use something conceptually compact:
 
 ```text
 shared workflow
