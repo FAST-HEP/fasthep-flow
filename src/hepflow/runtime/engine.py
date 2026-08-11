@@ -909,6 +909,8 @@ def _collect_inputs(
 ) -> dict[str, Any]:
     inputs: dict[str, Any] = {}
     for ref in input_refs:
+        if ref.input_name == "dependency":
+            continue
         active_ref = ref
         if (
             (ref.node_id, ref.output_name) not in value_store
@@ -941,6 +943,8 @@ def _collect_input_products(
     bindings = dict(ctx.get("product_bindings") or {})
     products: dict[str, dict[str, Any]] = {}
     for ref in input_refs:
+        if ref.input_name == "dependency":
+            continue
         active_ref = ref
         if plan is not None:
             dataset = ctx.get("dataset")

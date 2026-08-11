@@ -54,6 +54,15 @@ def add_graph_edge(
     if downstream not in graph:
         raise KeyError(f"Unknown downstream node: {downstream}")
 
+    if graph.has_edge(upstream, downstream):
+        existing = graph.edges[upstream, downstream]
+        existing_output = str(existing.get("output") or "stream")
+        existing_input_name = str(existing.get("input_name") or "stream")
+        if (existing_output, existing_input_name) == ("stream", "dependency"):
+            existing["output"] = output
+            existing["input_name"] = input_name
+        return
+
     graph.add_edge(
         upstream,
         downstream,

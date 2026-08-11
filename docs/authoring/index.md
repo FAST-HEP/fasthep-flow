@@ -372,6 +372,92 @@ This separation between **workflow-visible behaviour** and **implementation** is
 
 See {doc}`../extending/operations-and-specs` for the operation contracts themselves.
 
+### Explicit stage dependencies with `needs`
+
+Analysis stages have an implicit dependency on the previous stage by default.
+This preserves the sequential structure of existing workflows without requiring
+every dependency to be written explicitly.
+
+The `needs` field can override this implicit ordering:
+
+* no `needs` — depend implicitly on the previous analysis stage
+* `needs: [StageA, StageB]` — depend explicitly on those stages instead
+* `needs: []` — add no stage-ordering dependency
+
+For example, a workflow can expose two independent analysis branches and join
+them again later:
+
+```yaml
+- id: DiMuonRegion
+  op: hep.selection.flag
+  needs:
+    - DiMuonSelection
+    - Recoil_diMuon_CR_jec_Nominal
+  params:
+    ...
+
+- id: DiElectronRegion
+  op: hep.selection.flag
+  needs:
+    - DiElectronSelection
+    - Recoil_diElectron_CR_jec_Nominal
+  params:
+    ...
+
+- id: FilterChannel
+  op: hep.selection.cutflow
+  needs:
+    - DiMuonRegion
+    - DiElectronRegion
+```
+
+This produces a logical graph with two independent branches:
+
+```{mermaid}
+flowchart LR
+    MuSel["<b>DiMuonSelection</b>"]:::transform
+    MuRecoil["<b>Recoil_diMuon_CR_jec_Nominal</b>"]:::transform
+    ElSel["<b>DiElectronSelection</b>"]:::transform
+    ElRecoil["<b>Recoil_diElectron_CR_jec_Nominal</b>"]:::transform
+
+    MuRegion["<b>DiMuonRegion</b>"]:::transform
+    ElRegion["<b>DiElectronRegion</b>"]:::transform
+
+    Filter["<b>FilterChannel</b>"]:::transform
+
+    MuSel --> MuRegion
+    MuRecoil --> MuRegion
+
+    ElSel --> ElRegion
+    ElRecoil --> ElRegion
+
+    MuRegion --> Filter
+    ElRegion --> Filter
+```
+
+The muon and electron branches can proceed independently and only converge at
+`FilterChannel`.
+
+`needs` expresses **ordering only**. It does not select an output product or
+bind an input port. Use `from` when an operation consumes a specific upstream
+product:
+
+```yaml
+from:
+  - node: HistA
+    port: hist
+    as: reference
+```
+
+Other dependencies are unaffected by `needs`. Operation specifications, `from`
+bindings, source bindings, and parameter-derived field requirements still
+contribute to the compiled graph.
+
+Explicit stage dependencies make independent branches visible in the logical
+graph and allow them to be scheduled independently where the execution
+environment supports it.
+
+
 ---
 
 ## Outputs leave the workflow

@@ -462,6 +462,11 @@ def _normalize_analysis_execution(analysis: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(stage_raw, dict):
             raise ValueError(f"analysis.stages[{idx}] must be a mapping")
         stage = dict(stage_raw)
+        if "needs" in stage:
+            stage["needs"] = _normalize_stage_needs(
+                stage.get("needs"),
+                where=f"analysis.stages[{idx}].needs",
+            )
         if "applies_to" in stage:
             applicability = normalize_node_applicability(
                 stage.get("applies_to"),
@@ -479,7 +484,55 @@ def _normalize_analysis_execution(analysis: dict[str, Any]) -> dict[str, Any]:
                 stage.pop("execution", None)
         stages.append(stage)
     analysis["stages"] = stages
+    _validate_stage_needs(stages)
     return analysis
+
+
+def _normalize_stage_needs(raw: Any, *, where: str) -> list[str]:
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        raise ValueError(f"{where} must be a list of stage ids")
+
+    needs: list[str] = []
+    seen: set[str] = set()
+    for idx, item in enumerate(raw):
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"{where}[{idx}] must be a non-empty stage id string")
+        stage_id = item.strip()
+        if stage_id in seen:
+            raise ValueError(f"{where} contains duplicate stage id {stage_id!r}")
+        seen.add(stage_id)
+        needs.append(stage_id)
+    return needs
+
+
+def _validate_stage_needs(stages: list[Any]) -> None:
+    stage_ids: list[str] = []
+    for stage in stages:
+        if not isinstance(stage, dict):
+            continue
+        raw_stage_id = stage.get("id")
+        if not isinstance(raw_stage_id, str) or not raw_stage_id.strip():
+            continue
+        stage_ids.append(raw_stage_id.strip())
+
+    known = set(stage_ids)
+    for idx, stage in enumerate(stages):
+        if not isinstance(stage, dict) or "needs" not in stage:
+            continue
+        stage_id = str(stage.get("id") or f"<stage {idx}>")
+        for needed in list(stage.get("needs") or []):
+            if needed == stage_id:
+                raise ValueError(
+                    f"analysis.stages[{idx}].needs references its own stage id "
+                    f"{stage_id!r}"
+                )
+            if needed not in known:
+                raise ValueError(
+                    f"analysis.stages[{idx}].needs references unknown stage id "
+                    f"{needed!r}"
+                )
 
 
 def _ensure_mapping(x: Any, where: str) -> dict[str, Any]:

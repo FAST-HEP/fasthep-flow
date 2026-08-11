@@ -150,24 +150,42 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
     stage_nodes: dict[str, str] = {}
     transform_specs = dict((workflow.get("registry") or {}).get("transforms") or {})
 
+    pending_needs_edges: list[tuple[str, str, str]] = []
+
     for stage in stages:
         stage_id = stage["id"]
         op = stage["op"]
 
         if str(op).startswith("hep.render."):
             for render_stage in _expand_render_variation_stages(stage):
-                _lower_render_stage(
+                render_node = _lower_render_stage(
                     graph=graph,
                     stage=render_stage,
                     style_defs=style_defs,
                     stage_nodes=stage_nodes,
                     stream_effective_nodes=stream_effective_nodes,
                 )
+                stage_nodes[str(render_stage["id"])] = render_node.id
+                if "needs" in render_stage:
+                    for needed_stage_id in list(render_stage.get("needs") or []):
+                        pending_needs_edges.append(
+                            (
+                                str(needed_stage_id),
+                                render_node.id,
+                                str(render_stage["id"]),
+                            )
+                        )
             continue
 
         stage_node = _make_stage_node(stage, registry=transform_specs)
         add_graph_node(graph, stage_node)
         stage_nodes[stage_id] = stage_node.id
+
+        if "needs" in stage:
+            for needed_stage_id in list(stage.get("needs") or []):
+                pending_needs_edges.append(
+                    (str(needed_stage_id), stage_node.id, stage_id)
+                )
 
         explicit_from = stage.get("from", stage.get("in"))
         if isinstance(explicit_from, list):
@@ -207,18 +225,19 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                 input_name="stream",
             )
         else:
-            if previous_stage_stream_source is None:
-                previous_stage_stream_source = _resolve_initial_stage_stream(
-                    workflow=workflow,
-                    stream_effective_nodes=stream_effective_nodes,
+            if "needs" not in stage:
+                if previous_stage_stream_source is None:
+                    previous_stage_stream_source = _resolve_initial_stage_stream(
+                        workflow=workflow,
+                        stream_effective_nodes=stream_effective_nodes,
+                    )
+                add_graph_edge(
+                    graph,
+                    previous_stage_stream_source,
+                    stage_node.id,
+                    output="stream",
+                    input_name="stream",
                 )
-            add_graph_edge(
-                graph,
-                previous_stage_stream_source,
-                stage_node.id,
-                output="stream",
-                input_name="stream",
-            )
 
         if "stream" in stage_node.outputs:
             previous_stage_stream_source = stage_node.id
@@ -294,6 +313,12 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                 input_name="target",
             )
 
+    _add_needs_edges(
+        graph=graph,
+        pending_edges=pending_needs_edges,
+        stage_nodes=stage_nodes,
+    )
+
     _attach_top_level_observers(
         graph=graph,
         observer_cfgs=list(workflow.get("observers") or []),
@@ -303,6 +328,26 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
         raise ValueError("Lowered graph contains a cycle")
 
     return graph
+
+
+def _add_needs_edges(
+    *,
+    graph: nx.DiGraph,
+    pending_edges: list[tuple[str, str, str]],
+    stage_nodes: dict[str, str],
+) -> None:
+    for needed_stage_id, downstream_node_id, stage_id in pending_edges:
+        if needed_stage_id not in stage_nodes:
+            raise ValueError(
+                f"Stage '{stage_id}' needs unknown stage id '{needed_stage_id}'"
+            )
+        add_graph_edge(
+            graph,
+            stage_nodes[needed_stage_id],
+            downstream_node_id,
+            output="stream",
+            input_name="dependency",
+        )
 
 
 def _make_source_node(
