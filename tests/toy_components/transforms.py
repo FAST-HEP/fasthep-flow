@@ -94,6 +94,31 @@ TOY_TEMPLATE_OUTPUT_SPEC = {
     },
 }
 
+TOY_MAPPING_CONFIG_SPEC = {
+    "name": "toy.mapping_config",
+    "kind": "transform",
+    "input": {"name": "stream", "required": True},
+    "params": {
+        "config": {
+            "type": "mapping",
+            "required": True,
+            "load": {"formats": ["yaml", "json"]},
+        },
+        "label": {"type": "string", "required": False},
+    },
+    "result": {"stream": "event_stream"},
+}
+
+TOY_STRING_CONFIG_SPEC = {
+    "name": "toy.string_config",
+    "kind": "transform",
+    "input": {"name": "stream", "required": True},
+    "params": {
+        "config": {"type": "string", "required": True},
+    },
+    "result": {"stream": "event_stream"},
+}
+
 TOY_PRODUCT_SPEC = {
     "name": "toy.product",
     "kind": "transform",
@@ -193,6 +218,27 @@ def run_toy_template_output(
 ) -> dict[str, Any]:
     del ctx, params
     return {"stream": {**stream, output: list(stream.get(source, []))}}
+
+
+def run_toy_mapping_config(
+    *,
+    stream: dict[str, Any],
+    config: dict[str, Any],
+    label: str | None = None,
+    ctx: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    del label, ctx
+    return {"stream": {**stream, "config": config}}
+
+
+def run_toy_string_config(
+    *,
+    stream: dict[str, Any],
+    config: str,
+    ctx: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    del ctx
+    return {"stream": {**stream, "config": config}}
 
 
 def run_toy_product(

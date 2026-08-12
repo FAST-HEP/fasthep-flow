@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -449,6 +450,185 @@ def test_param_template_default_materializes_in_normalized_and_plan(
     }
 
 
+def test_file_backed_mapping_param_accepts_inline_mapping(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _mapping_config_workflow(
+        tmp_path,
+        {"version": 1, "fields": {"pt": {"dtype": "float32"}}},
+    )
+
+    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+    assert normalized["analysis"]["stages"][0]["params"]["config"] == {
+        "version": 1,
+        "fields": {"pt": {"dtype": "float32"}},
+    }
+
+
+def test_file_backed_mapping_param_loads_yaml(tmp_path: Path) -> None:
+    (tmp_path / "config.yaml").write_text(
+        yaml.safe_dump({"version": 1, "fields": {"pt": {}}}, sort_keys=False),
+        encoding="utf-8",
+    )
+    workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
+
+    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+    assert normalized["analysis"]["stages"][0]["params"]["config"] == {
+        "version": 1,
+        "fields": {"pt": {}},
+    }
+
+
+def test_file_backed_mapping_param_loads_json(tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text(
+        json.dumps({"version": 1, "fields": {"pt": {}}}),
+        encoding="utf-8",
+    )
+    workflow_path = _mapping_config_workflow(tmp_path, "config.json")
+
+    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+    assert normalized["analysis"]["stages"][0]["params"]["config"] == {
+        "version": 1,
+        "fields": {"pt": {}},
+    }
+
+
+def test_inline_and_external_mapping_params_normalize_identically(
+    tmp_path: Path,
+) -> None:
+    payload = {"version": 1, "fields": {"pt": {"dtype": "float32"}}}
+    external_dir = tmp_path / "external"
+    external_dir.mkdir()
+    (external_dir / "config.yaml").write_text(
+        yaml.safe_dump(payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    inline = normalise_workflow_file(
+        _mapping_config_workflow(tmp_path / "inline", payload),
+        outdir=tmp_path / "inline-build",
+    )
+    external = normalise_workflow_file(
+        _mapping_config_workflow(external_dir, "config.yaml"),
+        outdir=tmp_path / "external-build",
+    )
+
+    assert inline["analysis"]["stages"][0]["params"]["config"] == external[
+        "analysis"
+    ]["stages"][0]["params"]["config"]
+
+
+def test_file_backed_mapping_param_resolves_relative_to_workflow(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    (project / "configs").mkdir(parents=True)
+    (project / "configs" / "mapping.yaml").write_text(
+        yaml.safe_dump({"version": 1, "fields": {"eta": {}}}, sort_keys=False),
+        encoding="utf-8",
+    )
+    workflow_path = _mapping_config_workflow(project, "configs/mapping.yaml")
+
+    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+    assert normalized["analysis"]["stages"][0]["params"]["config"]["fields"] == {
+        "eta": {}
+    }
+
+
+def test_file_backed_mapping_param_reports_malformed_yaml(tmp_path: Path) -> None:
+    (tmp_path / "broken.yaml").write_text("fields: [\n", encoding="utf-8")
+    workflow_path = _mapping_config_workflow(tmp_path, "broken.yaml")
+
+    with pytest.raises(ValueError, match=r"toy.mapping_config.*params.config.*broken"):
+        normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+
+def test_file_backed_mapping_param_reports_malformed_json(tmp_path: Path) -> None:
+    (tmp_path / "broken.json").write_text("{", encoding="utf-8")
+    workflow_path = _mapping_config_workflow(tmp_path, "broken.json")
+
+    with pytest.raises(ValueError, match=r"toy.mapping_config.*params.config.*broken"):
+        normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+
+def test_file_backed_mapping_param_reports_missing_file(tmp_path: Path) -> None:
+    workflow_path = _mapping_config_workflow(tmp_path, "missing.yaml")
+
+    with pytest.raises(FileNotFoundError, match=r"toy.mapping_config.*params.config"):
+        normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+
+def test_file_backed_mapping_param_reports_unsupported_format(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "config.toml").write_text("[fields]\n", encoding="utf-8")
+    workflow_path = _mapping_config_workflow(tmp_path, "config.toml")
+
+    with pytest.raises(ValueError, match="unsupported file format"):
+        normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+
+@pytest.mark.parametrize("payload", [["pt"], "pt"])
+def test_file_backed_mapping_param_rejects_loaded_non_mapping(
+    tmp_path: Path,
+    payload: Any,
+) -> None:
+    (tmp_path / "config.yaml").write_text(
+        yaml.safe_dump(payload, sort_keys=False),
+        encoding="utf-8",
+    )
+    workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
+
+    with pytest.raises(ValueError, match=r"expected mapping.*config.yaml"):
+        normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+
+def test_file_backed_mapping_param_rejects_inline_non_mapping(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _mapping_config_workflow(tmp_path, ["pt"])
+
+    with pytest.raises(ValueError, match=r"toy.mapping_config.*params.config"):
+        normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+
+def test_ordinary_string_params_are_never_auto_loaded(tmp_path: Path) -> None:
+    (tmp_path / "config.yaml").write_text(
+        yaml.safe_dump({"loaded": True}, sort_keys=False),
+        encoding="utf-8",
+    )
+    workflow_path = _string_config_workflow(tmp_path, "config.yaml")
+
+    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+    assert normalized["analysis"]["stages"][0]["params"]["config"] == "config.yaml"
+
+
+def test_file_backed_mapping_param_materializes_in_normalized_and_plan(
+    tmp_path: Path,
+) -> None:
+    payload = {"version": 1, "fields": {"pt": {}}}
+    (tmp_path / "config.yaml").write_text(
+        yaml.safe_dump(payload, sort_keys=False),
+        encoding="utf-8",
+    )
+    workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
+    build_dir = tmp_path / "build"
+
+    normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
+    plan = make_plan_file(build_dir / "compile" / "normalized.yaml", outdir=build_dir)
+
+    assert read_yaml(build_dir / "compile" / "normalized.yaml")["analysis"]["stages"][
+        0
+    ]["params"]["config"] == payload
+    assert normalized["analysis"]["stages"][0]["params"]["config"] == payload
+    assert plan.get_node("stage.Config").params["config"] == payload
+
+
 def test_compile_graph_d2_uses_readable_observer_labels(
     toy_workflow: dict[str, Any],
 ) -> None:
@@ -605,6 +785,48 @@ def assert_no_path_objects(value: object) -> None:
     if isinstance(value, list | tuple):
         for item in value:
             assert_no_path_objects(item)
+
+
+def _mapping_config_workflow(base_dir: Path, config: Any) -> Path:
+    base_dir.mkdir(parents=True, exist_ok=True)
+    workflow = {
+        "version": "1.0",
+        "use": {"profiles": ["tests.toy_components:registry"]},
+        "sources": {"events": {"kind": "toy.source"}},
+        "analysis": {
+            "stages": [
+                {
+                    "id": "Config",
+                    "op": "toy.mapping_config",
+                    "params": {"config": config},
+                }
+            ]
+        },
+    }
+    path = base_dir / "workflow.yaml"
+    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def _string_config_workflow(base_dir: Path, config: str) -> Path:
+    base_dir.mkdir(parents=True, exist_ok=True)
+    workflow = {
+        "version": "1.0",
+        "use": {"profiles": ["tests.toy_components:registry"]},
+        "sources": {"events": {"kind": "toy.source"}},
+        "analysis": {
+            "stages": [
+                {
+                    "id": "Config",
+                    "op": "toy.string_config",
+                    "params": {"config": config},
+                }
+            ]
+        },
+    }
+    path = base_dir / "workflow.yaml"
+    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    return path
 
 
 def _toy_product_registry() -> dict[str, Any]:

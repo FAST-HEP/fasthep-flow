@@ -16,6 +16,12 @@ registry:
     toy.template_output:
       spec: tests.toy_components.transforms:TOY_TEMPLATE_OUTPUT_SPEC
       impl: tests.toy_components.transforms:run_toy_template_output
+    toy.mapping_config:
+      spec: tests.toy_components.transforms:TOY_MAPPING_CONFIG_SPEC
+      impl: tests.toy_components.transforms:run_toy_mapping_config
+    toy.string_config:
+      spec: tests.toy_components.transforms:TOY_STRING_CONFIG_SPEC
+      impl: tests.toy_components.transforms:run_toy_string_config
   sinks:
     toy.write:
       spec: tests.toy_components.sinks:TOY_WRITE_SPEC

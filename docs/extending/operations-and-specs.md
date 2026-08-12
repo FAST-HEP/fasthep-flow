@@ -186,6 +186,56 @@ The spec tells Flow which values represent expressions, fields, products, or oth
 An operation-specific concept does not need to become part of the core workflow language merely so that the compiler can reason about it.
 ```
 
+## File-backed parameters
+
+Some operation parameters are large structured mappings that are useful to keep
+in a separate YAML or JSON file. Operation specs can opt in to compile-time file
+loading with a `load` declaration on the parameter:
+
+```python
+ALIGN_SCHEMA_SPEC = {
+    "name": "hep.align_schema",
+    "kind": "transform",
+    "input": {"name": "stream", "kind": "event_stream", "required": True},
+    "params": {
+        "schema": {
+            "type": "mapping",
+            "required": True,
+            "load": {"formats": ["yaml", "json"]},
+        },
+    },
+    "result": {"stream": "event_stream"},
+}
+```
+
+With that contract, workflow authors can either provide the mapping inline:
+
+```yaml
+params:
+  schema:
+    fields:
+      Muon_pt:
+        dtype: float32
+```
+
+or refer to an external file:
+
+```yaml
+params:
+  schema: schemas/reference.yaml
+```
+
+Flow resolves relative paths against the workflow file, loads YAML or JSON
+according to the declared formats, validates that `type: mapping` parameters
+produce mappings, and writes the loaded value into the normalized workflow and
+compiled plan. The operation implementation should therefore accept the
+resolved mapping directly; it should not reopen the original file at runtime.
+
+Loading is explicit. A string parameter is not treated as a file path unless its
+own parameter spec declares `load`, and `load` changes only parameter
+materialization. Dependencies inferred from operation inputs, `requires`, and
+`provides` still come from the rest of the operation spec.
+
 ## Parameter-derived requirements and outputs
 
 Specs can often express parameter-derived dependencies declaratively, without requiring operation-specific compiler logic.
