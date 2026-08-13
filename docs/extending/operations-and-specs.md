@@ -190,7 +190,7 @@ An operation-specific concept does not need to become part of the core workflow 
 
 Some operation parameters are large structured mappings that are useful to keep
 in a separate YAML or JSON file. Operation specs can opt in to compile-time file
-loading with a `load` declaration on the parameter:
+loading with the `flow.load_mapping` parameter compile hook:
 
 ```python
 ALIGN_SCHEMA_SPEC = {
@@ -201,7 +201,12 @@ ALIGN_SCHEMA_SPEC = {
         "schema": {
             "type": "mapping",
             "required": True,
-            "load": {"formats": ["yaml", "json"]},
+            "hooks": [
+                {
+                    "name": "flow.load_mapping",
+                    "formats": ["yaml", "yml", "json"],
+                }
+            ],
         },
     },
     "result": {"stream": "event_stream"},
@@ -227,14 +232,14 @@ params:
 
 Flow resolves relative paths against the workflow file, loads YAML or JSON
 according to the declared formats, validates that `type: mapping` parameters
-produce mappings, and writes the loaded value into the normalized workflow and
-compiled plan. The operation implementation should therefore accept the
+produce mappings after hooks run, and writes the loaded value into the compiled
+execution plan. The operation implementation should therefore accept the
 resolved mapping directly; it should not reopen the original file at runtime.
 
 Loading is explicit. A string parameter is not treated as a file path unless its
-own parameter spec declares `load`, and `load` changes only parameter
-materialization. Dependencies inferred from operation inputs, `requires`, and
-`provides` still come from the rest of the operation spec.
+own parameter spec declares the `flow.load_mapping` hook, and the hook changes
+only parameter materialization. Dependencies inferred from operation inputs,
+`requires`, and `provides` still come from the rest of the operation spec.
 
 ## Parameter compile hooks
 

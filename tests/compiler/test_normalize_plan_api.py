@@ -458,9 +458,13 @@ def test_file_backed_mapping_param_accepts_inline_mapping(
         {"version": 1, "fields": {"pt": {"dtype": "float32"}}},
     )
 
-    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+    normalized, plan = _compiled_mapping_config(tmp_path, workflow_path)
 
     assert normalized["analysis"]["stages"][0]["params"]["config"] == {
+        "version": 1,
+        "fields": {"pt": {"dtype": "float32"}},
+    }
+    assert plan.get_node("stage.Config").params["config"] == {
         "version": 1,
         "fields": {"pt": {"dtype": "float32"}},
     }
@@ -473,11 +477,27 @@ def test_file_backed_mapping_param_loads_yaml(tmp_path: Path) -> None:
     )
     workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
 
-    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+    normalized, plan = _compiled_mapping_config(tmp_path, workflow_path)
 
-    assert normalized["analysis"]["stages"][0]["params"]["config"] == {
+    assert normalized["analysis"]["stages"][0]["params"]["config"] == "config.yaml"
+    assert plan.get_node("stage.Config").params["config"] == {
         "version": 1,
         "fields": {"pt": {}},
+    }
+
+
+def test_file_backed_mapping_param_loads_yml(tmp_path: Path) -> None:
+    (tmp_path / "config.yml").write_text(
+        yaml.safe_dump({"version": 1, "fields": {"eta": {}}}, sort_keys=False),
+        encoding="utf-8",
+    )
+    workflow_path = _mapping_config_workflow(tmp_path, "config.yml")
+
+    _normalized, plan = _compiled_mapping_config(tmp_path, workflow_path)
+
+    assert plan.get_node("stage.Config").params["config"] == {
+        "version": 1,
+        "fields": {"eta": {}},
     }
 
 
@@ -488,9 +508,10 @@ def test_file_backed_mapping_param_loads_json(tmp_path: Path) -> None:
     )
     workflow_path = _mapping_config_workflow(tmp_path, "config.json")
 
-    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+    normalized, plan = _compiled_mapping_config(tmp_path, workflow_path)
 
-    assert normalized["analysis"]["stages"][0]["params"]["config"] == {
+    assert normalized["analysis"]["stages"][0]["params"]["config"] == "config.json"
+    assert plan.get_node("stage.Config").params["config"] == {
         "version": 1,
         "fields": {"pt": {}},
     }
@@ -507,18 +528,19 @@ def test_inline_and_external_mapping_params_normalize_identically(
         encoding="utf-8",
     )
 
-    inline = normalise_workflow_file(
+    _inline_normalized, inline_plan = _compiled_mapping_config(
+        tmp_path,
         _mapping_config_workflow(tmp_path / "inline", payload),
-        outdir=tmp_path / "inline-build",
     )
-    external = normalise_workflow_file(
+    external_normalized, external_plan = _compiled_mapping_config(
+        tmp_path,
         _mapping_config_workflow(external_dir, "config.yaml"),
-        outdir=tmp_path / "external-build",
     )
 
-    assert inline["analysis"]["stages"][0]["params"]["config"] == external[
-        "analysis"
-    ]["stages"][0]["params"]["config"]
+    assert external_normalized["analysis"]["stages"][0]["params"]["config"] == "config.yaml"
+    assert inline_plan.get_node("stage.Config").params["config"] == external_plan.get_node(
+        "stage.Config"
+    ).params["config"]
 
 
 def test_file_backed_mapping_param_resolves_relative_to_workflow(
@@ -532,9 +554,9 @@ def test_file_backed_mapping_param_resolves_relative_to_workflow(
     )
     workflow_path = _mapping_config_workflow(project, "configs/mapping.yaml")
 
-    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+    _normalized, plan = _compiled_mapping_config(tmp_path, workflow_path)
 
-    assert normalized["analysis"]["stages"][0]["params"]["config"]["fields"] == {
+    assert plan.get_node("stage.Config").params["config"]["fields"] == {
         "eta": {}
     }
 
@@ -543,23 +565,23 @@ def test_file_backed_mapping_param_reports_malformed_yaml(tmp_path: Path) -> Non
     (tmp_path / "broken.yaml").write_text("fields: [\n", encoding="utf-8")
     workflow_path = _mapping_config_workflow(tmp_path, "broken.yaml")
 
-    with pytest.raises(ValueError, match=r"toy.mapping_config.*params.config.*broken"):
-        normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+    with pytest.raises(RuntimeError, match=r"flow\.load_mapping.*broken"):
+        _compiled_mapping_config(tmp_path, workflow_path)
 
 
 def test_file_backed_mapping_param_reports_malformed_json(tmp_path: Path) -> None:
     (tmp_path / "broken.json").write_text("{", encoding="utf-8")
     workflow_path = _mapping_config_workflow(tmp_path, "broken.json")
 
-    with pytest.raises(ValueError, match=r"toy.mapping_config.*params.config.*broken"):
-        normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+    with pytest.raises(RuntimeError, match=r"flow\.load_mapping.*broken"):
+        _compiled_mapping_config(tmp_path, workflow_path)
 
 
 def test_file_backed_mapping_param_reports_missing_file(tmp_path: Path) -> None:
     workflow_path = _mapping_config_workflow(tmp_path, "missing.yaml")
 
-    with pytest.raises(FileNotFoundError, match=r"toy.mapping_config.*params.config"):
-        normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+    with pytest.raises(RuntimeError, match=r"flow\.load_mapping.*missing"):
+        _compiled_mapping_config(tmp_path, workflow_path)
 
 
 def test_file_backed_mapping_param_reports_unsupported_format(
@@ -568,8 +590,8 @@ def test_file_backed_mapping_param_reports_unsupported_format(
     (tmp_path / "config.toml").write_text("[fields]\n", encoding="utf-8")
     workflow_path = _mapping_config_workflow(tmp_path, "config.toml")
 
-    with pytest.raises(ValueError, match="unsupported file format"):
-        normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+    with pytest.raises(RuntimeError, match="unsupported file format"):
+        _compiled_mapping_config(tmp_path, workflow_path)
 
 
 @pytest.mark.parametrize("payload", [["pt"], "pt"])
@@ -584,7 +606,7 @@ def test_file_backed_mapping_param_rejects_loaded_non_mapping(
     workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
 
     with pytest.raises(ValueError, match=r"expected mapping.*config.yaml"):
-        normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+        _compiled_mapping_config(tmp_path, workflow_path)
 
 
 def test_file_backed_mapping_param_rejects_inline_non_mapping(
@@ -592,8 +614,8 @@ def test_file_backed_mapping_param_rejects_inline_non_mapping(
 ) -> None:
     workflow_path = _mapping_config_workflow(tmp_path, ["pt"])
 
-    with pytest.raises(ValueError, match=r"toy.mapping_config.*params.config"):
-        normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
+    with pytest.raises(RuntimeError, match=r"flow\.load_mapping.*got list"):
+        _compiled_mapping_config(tmp_path, workflow_path)
 
 
 def test_ordinary_string_params_are_never_auto_loaded(tmp_path: Path) -> None:
@@ -619,13 +641,29 @@ def test_file_backed_mapping_param_materializes_in_normalized_and_plan(
     workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
     build_dir = tmp_path / "build"
 
-    normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
-    plan = make_plan_file(build_dir / "compile" / "normalized.yaml", outdir=build_dir)
+    normalized, plan = _compiled_mapping_config(tmp_path, workflow_path, outdir=build_dir)
 
     assert read_yaml(build_dir / "compile" / "normalized.yaml")["analysis"]["stages"][
         0
-    ]["params"]["config"] == payload
-    assert normalized["analysis"]["stages"][0]["params"]["config"] == payload
+    ]["params"]["config"] == "config.yaml"
+    assert normalized["analysis"]["stages"][0]["params"]["config"] == "config.yaml"
+    assert plan.get_node("stage.Config").params["config"] == payload
+    hook = plan.get_node("stage.Config").meta["compile_hooks"]["config"][0]
+    assert hook["hook"] == "flow.load_mapping"
+    assert hook["input"] == "config.yaml"
+    assert hook["output_kind"] == "mapping"
+    assert "sha256" in hook
+
+
+def test_runtime_plan_does_not_require_original_mapping_file(tmp_path: Path) -> None:
+    payload = {"version": 1, "fields": {"pt": {}}}
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
+
+    _normalized, plan = _compiled_mapping_config(tmp_path, workflow_path)
+    config_path.unlink()
+
     assert plan.get_node("stage.Config").params["config"] == payload
 
 
@@ -806,6 +844,18 @@ def _mapping_config_workflow(base_dir: Path, config: Any) -> Path:
     path = base_dir / "workflow.yaml"
     path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
     return path
+
+
+def _compiled_mapping_config(
+    tmp_path: Path,
+    workflow_path: Path,
+    *,
+    outdir: Path | None = None,
+) -> tuple[dict[str, Any], Any]:
+    build_dir = outdir or tmp_path / f"build-{workflow_path.parent.name}"
+    normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
+    plan = make_plan_file(build_dir / "compile" / "normalized.yaml", outdir=build_dir)
+    return normalized, plan
 
 
 def _string_config_workflow(base_dir: Path, config: str) -> Path:

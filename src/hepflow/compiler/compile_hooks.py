@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import warnings
+from pathlib import Path
 from typing import Any
 
 from hepflow.build_layout import BuildPaths
@@ -83,6 +84,7 @@ def run_param_compile_hooks(
             spec=spec,
             registry=registry,
             input_fields_by_context=input_fields_by_context,
+            workflow_dir=_workflow_dir(plan),
         )
         for param_name, records in provenance_by_param.items():
             _record_param_hook_provenance(
@@ -93,6 +95,13 @@ def run_param_compile_hooks(
                 spec_name=spec.name,
                 emit_warnings=warn,
             )
+        _validate_final_params(
+            node_id=node.id,
+            node_meta=node.meta,
+            spec_name=spec.name,
+            params=node.params,
+            schema=spec.params,
+        )
 
 
 def _active_contexts(
@@ -114,6 +123,91 @@ def _active_contexts(
             for dataset_name, dataset in sorted(dict(plan.context.get("datasets") or {}).items())
         ]
     return [(None, None, {node.id for node in plan.nodes})]
+
+
+def _workflow_dir(plan: ExecutionPlan) -> str | None:
+    workflow_path = plan.context.get("workflow_path")
+    if not isinstance(workflow_path, str) or not workflow_path.strip():
+        return None
+    return str(Path(workflow_path).parent)
+
+
+def _validate_final_params(
+    *,
+    node_id: str,
+    node_meta: dict[str, Any],
+    spec_name: str,
+    params: dict[str, Any],
+    schema: dict[str, Any],
+) -> None:
+    for param_name, param_schema in dict(schema or {}).items():
+        if not isinstance(param_schema, dict):
+            continue
+        if param_schema.get("required") is True and param_name not in params:
+            raise ValueError(
+                f"{spec_name} node {node_id} parameter {param_name!r} is required"
+            )
+        if param_name not in params:
+            continue
+        value = params[param_name]
+        if value is None and param_schema.get("required") is not True:
+            continue
+        expected_type = param_schema.get("type")
+        if isinstance(expected_type, str) and expected_type:
+            _validate_param_type(
+                value,
+                expected_type=expected_type,
+                spec_name=spec_name,
+                node_id=node_id,
+                node_meta=node_meta,
+                param_name=str(param_name),
+            )
+        allowed = param_schema.get("allowed")
+        if isinstance(allowed, list) and value not in allowed:
+            raise ValueError(
+                f"{spec_name} node {node_id} parameter {param_name!r} must be "
+                f"one of {allowed!r}, got {value!r}"
+            )
+
+
+def _validate_param_type(
+    value: Any,
+    *,
+    expected_type: str,
+    spec_name: str,
+    node_id: str,
+    node_meta: dict[str, Any],
+    param_name: str,
+) -> None:
+    ok = True
+    if expected_type == "mapping":
+        ok = isinstance(value, dict)
+    elif expected_type == "string":
+        ok = isinstance(value, str)
+    elif expected_type == "list[string]":
+        ok = isinstance(value, list) and all(isinstance(item, str) for item in value)
+    elif expected_type == "list[mapping]":
+        ok = isinstance(value, list) and all(isinstance(item, dict) for item in value)
+    if ok:
+        return
+    source = _param_source_suffix(node_meta=node_meta, param_name=param_name)
+    raise ValueError(
+        f"{spec_name} node {node_id} parameter {param_name!r} expected "
+        f"{expected_type}{source}, got {type(value).__name__}"
+    )
+
+
+def _param_source_suffix(*, node_meta: dict[str, Any], param_name: str) -> str:
+    records = dict(node_meta.get("compile_hooks") or {}).get(param_name)
+    if not isinstance(records, list):
+        return ""
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        path = record.get("resolved_path")
+        if isinstance(path, str) and path:
+            return f" loaded from {path}"
+    return ""
 
 
 def _record_param_hook_provenance(

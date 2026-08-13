@@ -200,7 +200,12 @@ TOY_MAPPING_CONFIG_SPEC = {
         "config": {
             "type": "mapping",
             "required": True,
-            "load": {"formats": ["yaml", "json"]},
+            "hooks": [
+                {
+                    "name": "flow.load_mapping",
+                    "formats": ["yaml", "yml", "json"],
+                }
+            ],
         },
         "label": {"type": "string", "required": False},
     },

@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+import yaml
 
+from hepflow.compiler.hooks.load_mapping import load_mapping
 from hepflow.compiler.hooks.model import ParamCompileHookContext
 from hepflow.compiler.hooks.registry import resolve_compile_hook
 from hepflow.compiler.hooks.runner import run_single_parameter_hook
@@ -41,6 +43,69 @@ def test_parameter_hook_runner_accepts_mapping_result() -> None:
 
     assert result.value == ["a", "mapped"]
     assert result.provenance == {"hook": "toy.mapping_result"}
+
+
+def test_load_mapping_inline_mapping_records_noop_provenance() -> None:
+    result = load_mapping(
+        value={"fields": {"pt": {}}},
+        options={"formats": ["yaml"]},
+        context=ParamCompileHookContext(),
+    )
+
+    assert result.value == {"fields": {"pt": {}}}
+    assert result.provenance == {
+        "hook": "flow.load_mapping",
+        "input_kind": "mapping",
+        "output_kind": "mapping",
+    }
+
+
+def test_load_mapping_rejects_extension_not_declared(tmp_path) -> None:
+    path = tmp_path / "config.yml"
+    path.write_text(yaml.safe_dump({"fields": {}}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unsupported file format"):
+        load_mapping(
+            value="config.yml",
+            options={"formats": ["yaml"]},
+            context=ParamCompileHookContext(workflow_dir=str(tmp_path)),
+        )
+
+
+def test_load_mapping_can_feed_later_hook(tmp_path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump({"fields": {}}), encoding="utf-8")
+    registry = {
+        "compile_hooks": {
+            "flow.load_mapping": {
+                "kind": "parameter",
+                "impl": "hepflow.compiler.hooks.load_mapping:load_mapping",
+            },
+            "toy.mapping_result": {
+                "kind": "parameter",
+                "impl": "tests.compiler.test_compile_hook_registry:mapping_hook",
+            },
+        }
+    }
+
+    loaded = run_single_parameter_hook(
+        value="config.yaml",
+        hook_options={"name": "flow.load_mapping", "formats": ["yaml"]},
+        context=ParamCompileHookContext(workflow_dir=str(tmp_path)),
+        registry=registry,
+        param_name="config",
+        spec_name="toy.spec",
+    )
+    chained = run_single_parameter_hook(
+        value=loaded.value,
+        hook_options={"name": "toy.mapping_result"},
+        context=ParamCompileHookContext(workflow_dir=str(tmp_path)),
+        registry=registry,
+        param_name="config",
+        spec_name="toy.spec",
+    )
+
+    assert chained.value == ["fields", "mapped"]
 
 
 def mapping_hook(

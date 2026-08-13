@@ -58,6 +58,7 @@ def run_parameter_hook_chains_for_node(
     spec: RuntimeComponentSpec,
     registry: dict[str, Any],
     input_fields_by_context: dict[str | None, dict[str, list[str]]],
+    workflow_dir: str | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     contexts = {
         context_name: fields_by_node.get(node.id, [])
@@ -84,6 +85,7 @@ def run_parameter_hook_chains_for_node(
             provenance: list[dict[str, Any]] = []
             context = ParamCompileHookContext(
                 input_stream_fields=tuple(input_fields),
+                workflow_dir=workflow_dir,
             )
             for hook_options in hooks:
                 result = run_single_parameter_hook(
