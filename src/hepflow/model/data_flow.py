@@ -14,3 +14,10 @@ class DataDependencyResult:
             "consumes": sorted(self.consumes),
             "produces": sorted(self.produces),
         }
+
+
+@dataclass(slots=True, frozen=True)
+class DependencyContext:
+    known_functions: set[str]
+    known_constants: set[str]
+    context_symbols: set[str]

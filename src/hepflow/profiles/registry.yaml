@@ -17,3 +17,7 @@ registry:
     dask:
       impl: hepflow.backends:Dask
   hooks: {}
+  compile_hooks:
+    flow.expand_field_glob:
+      kind": parameter
+      impl: hepflow.compiler.data_flow:expand_field_glob

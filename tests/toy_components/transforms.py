@@ -94,6 +94,104 @@ TOY_TEMPLATE_OUTPUT_SPEC = {
     },
 }
 
+TOY_FIELD_GLOB_SPEC = {
+    "name": "toy.field_glob",
+    "kind": "transform",
+    "input": {"name": "stream", "required": True},
+    "params": {
+        "fields": {
+            "type": "list[string]",
+            "required": False,
+            "default": [],
+            "hooks": [
+                {
+                    "name": "flow.expand_field_glob",
+                    "against": "input.stream",
+                }
+            ],
+        },
+        "plain": {
+            "type": "list[string]",
+            "required": False,
+            "default": [],
+        },
+        "output": {"required": False, "default": "matched_fields"},
+    },
+    "result": {"stream": "event_stream"},
+    "requires": {
+        "symbols": [
+            {"from": "params.fields", "kind": "field_list"},
+        ],
+    },
+    "provides": {
+        "symbols": [
+            {"from": "params.output", "kind": "field_list"},
+        ],
+    },
+}
+
+def _toy_field_glob_spec(name: str, hooks: Any) -> dict[str, Any]:
+    return {
+        "name": name,
+        "kind": "transform",
+        "input": {"name": "stream", "required": True},
+        "params": {
+            "fields": {
+                "type": "list[string]",
+                "required": False,
+                "default": [],
+                "hooks": hooks,
+            },
+            "plain": {
+                "type": "list[string]",
+                "required": False,
+                "default": [],
+            },
+            "output": {"required": False, "default": "matched_fields"},
+        },
+        "result": {"stream": "event_stream"},
+        "requires": {
+            "symbols": [
+                {"from": "params.fields", "kind": "field_list"},
+            ],
+        },
+        "provides": {
+            "symbols": [
+                {"from": "params.output", "kind": "field_list"},
+            ],
+        },
+    }
+
+
+TOY_DOUBLE_FIELD_GLOB_SPEC = _toy_field_glob_spec(
+    "toy.double_field_glob",
+    [
+        {
+            "name": "flow.expand_field_glob",
+            "against": "input.stream",
+        },
+        {
+            "name": "flow.expand_field_glob",
+            "against": "input.stream",
+        },
+    ],
+)
+
+TOY_UNKNOWN_PARAM_HOOK_SPEC = _toy_field_glob_spec(
+    "toy.unknown_param_hook",
+    [
+        {
+            "name": "toy.missing_param_hook",
+            "against": "input.stream",
+        }
+    ],
+)
+
+TOY_MALFORMED_PARAM_HOOK_SPEC = _toy_field_glob_spec(
+    "toy.malformed_param_hook",
+    {"name": "flow.expand_field_glob"},
+)
+
 TOY_MAPPING_CONFIG_SPEC = {
     "name": "toy.mapping_config",
     "kind": "transform",
@@ -218,6 +316,26 @@ def run_toy_template_output(
 ) -> dict[str, Any]:
     del ctx, params
     return {"stream": {**stream, output: list(stream.get(source, []))}}
+
+
+def run_toy_field_glob(
+    *,
+    stream: dict[str, Any],
+    fields: list[str] | None = None,
+    plain: list[str] | None = None,
+    output: str = "matched_fields",
+    ctx: dict[str, Any] | None = None,
+    **params: Any,
+) -> dict[str, Any]:
+    del ctx, params
+    selected = list(fields or [])
+    return {
+        "stream": {
+            **stream,
+            output: selected,
+            "plain_fields": list(plain or []),
+        }
+    }
 
 
 def run_toy_mapping_config(

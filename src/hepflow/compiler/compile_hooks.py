@@ -76,6 +76,8 @@ def _compile_hook_entries(
     for name, entry in hooks.items():
         if not isinstance(entry, dict):
             raise TypeError(f"Compile hook registry entry {name!r} must be a mapping")
+        if entry.get("kind") == "parameter":
+            continue
         if not isinstance(entry.get("impl"), str) or not str(entry.get("impl")).strip():
             raise ValueError(f"Compile hook registry entry {name!r} requires 'impl'")
         spec_ref = entry.get("spec")

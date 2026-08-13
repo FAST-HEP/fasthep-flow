@@ -672,7 +672,6 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
         ("registry.sources", sources),
         ("registry.transforms", transforms),
         ("registry.observers", observers),
-        ("registry.compile_hooks", compile_hooks),
         ("registry.render", render),
     ]:
         for name, entry in group.items():
@@ -688,6 +687,22 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
                 raise ValueError(f"{group_name}[{name!r}].spec must be 'module:object'")
             if not isinstance(impl_ref, str) or ":" not in impl_ref:
                 raise ValueError(f"{group_name}[{name!r}].impl must be 'module:object'")
+
+    for name, entry in compile_hooks.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("registry.compile_hooks keys must be non-empty strings")
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"registry.compile_hooks[{name!r}] must be a mapping with 'impl'"
+            )
+        impl_ref = entry.get("impl")
+        if not isinstance(impl_ref, str) or ":" not in impl_ref:
+            raise ValueError(f"registry.compile_hooks[{name!r}].impl must be 'module:object'")
+        if entry.get("kind") == "parameter":
+            continue
+        spec_ref = entry.get("spec")
+        if not isinstance(spec_ref, str) or ":" not in spec_ref:
+            raise ValueError(f"registry.compile_hooks[{name!r}].spec must be 'module:object'")
 
     for name, entry in report_templates.items():
         if not isinstance(name, str) or not name.strip():

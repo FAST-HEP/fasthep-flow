@@ -8,6 +8,7 @@ from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.data_flow import (
     apply_data_flow_to_sources,
     infer_data_flow,
+    run_param_compile_hooks,
 )
 from hepflow.compiler.execution import (
     normalize_global_execution,
@@ -118,6 +119,8 @@ def build_execution_plan(
         globals_block=dict(graph.graph.get("analysis_globals") or {}),
     )
     validate_plan_applicability(plan)
+    plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
+    run_param_compile_hooks(plan, registry_cfg=plan.registry, warn=True)
     plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
     apply_data_flow_to_sources(plan)
     plan.partitions = build_execution_partitions(plan, chunk_size=chunk_size)

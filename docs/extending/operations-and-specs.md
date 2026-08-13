@@ -236,6 +236,61 @@ own parameter spec declares `load`, and `load` changes only parameter
 materialization. Dependencies inferred from operation inputs, `requires`, and
 `provides` still come from the rest of the operation spec.
 
+## Parameter compile hooks
+
+Operation specs can also request ordered compile-time transformations for
+individual parameters. Hooks run while the execution plan is compiled, before
+runtime receives the parameter value.
+
+For example, a parameter containing shell-style field globs can ask Flow to
+expand those globs against the incoming event stream:
+
+```python
+"drop": {
+    "type": "list[string]",
+    "required": False,
+    "default": [],
+    "hooks": [
+        {
+            "name": "flow.expand_field_glob",
+            "against": "input.stream",
+        }
+    ],
+}
+```
+
+The author-facing value:
+
+```yaml
+params:
+  drop:
+    - Electron_*
+    - Muon_*
+```
+
+is compiled into an explicit runtime parameter:
+
+```yaml
+params:
+  drop:
+    - Electron_charge
+    - Electron_eta
+    - Muon_charge
+    - Muon_eta
+```
+
+Hook entries are applied left-to-right. Each hook receives the current parameter
+value and returns the value to pass to the next hook. Flow resolves hook names
+through the compile-hook registry, records each transformation in
+compile-hook provenance, and writes only the final canonical value into the
+execution plan.
+
+Parameter compile hooks should be pure: they should transform only the provided
+value using the read-only compile context they are given. They should not mutate
+the plan, the registry, graph edges, or provenance structures. Additional hooks,
+such as external mapping loaders, can be added later without changing operation
+runtime code.
+
 ## Parameter-derived requirements and outputs
 
 Specs can often express parameter-derived dependencies declaratively, without requiring operation-specific compiler logic.
