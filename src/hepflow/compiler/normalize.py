@@ -313,7 +313,7 @@ def normalize_sources(sources: Any) -> dict[str, dict[str, Any]]:
                 tree=str(tree),
                 stream_type=str(spec.get("stream_type", DEFAULT_STREAM_TYPE)),
             ).to_dict()
-            for optional_key in ("branches", "start", "stop"):
+            for optional_key in ("branches", "missing_branches", "start", "stop"):
                 if optional_key in spec:
                     source[optional_key] = spec[optional_key]
             out[str(sid)] = source

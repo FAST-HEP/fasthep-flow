@@ -328,7 +328,8 @@ def _stream_fields_for_nodes(
 
         if node.role == "source":
             node_output_fields[node.id] = _source_output_fields(
-                node,
+                plan=plan,
+                node=node,
                 dataset_name=dataset_name,
             )
             continue
@@ -368,20 +369,56 @@ def _stream_fields_for_nodes(
 
 
 def _source_output_fields(
+    plan: ExecutionPlan,
     node: ExecutionNode,
     *,
     dataset_name: str | None,
 ) -> list[str]:
+    inferred = _inferred_source_fields(
+        plan=plan,
+        node=node,
+        dataset_name=dataset_name,
+    )
     by_dataset = node.params.get("branches_by_dataset")
+    authored: list[str] = []
     if dataset_name is not None and isinstance(by_dataset, dict):
         fields = by_dataset.get(dataset_name)
         if isinstance(fields, list):
-            return _literal_fields(_string_list(fields))
+            authored = _literal_fields(_string_list(fields))
+            return _merge_ordered_fields([authored, inferred])
     for key in ("branches", "fields"):
         fields = node.params.get(key)
         if isinstance(fields, list):
-            return _literal_fields(_string_list(fields))
+            authored = _literal_fields(_string_list(fields))
+            break
+    return _merge_ordered_fields([authored, inferred])
+
+
+def _inferred_source_fields(
+    *,
+    plan: ExecutionPlan,
+    node: ExecutionNode,
+    dataset_name: str | None,
+) -> list[str]:
+    source_name = str(node.meta.get("source_name") or node.id.removeprefix("read."))
+    data_flow = plan.data_flow if isinstance(plan.data_flow, dict) else {}
+    required_by_dataset = data_flow.get("required_sources_by_dataset")
+    if dataset_name is not None and isinstance(required_by_dataset, dict):
+        dataset_required = required_by_dataset.get(dataset_name)
+        if isinstance(dataset_required, dict):
+            return _required_source_branches(dataset_required.get(source_name))
+        return []
+
+    required_sources = data_flow.get("required_sources")
+    if isinstance(required_sources, dict):
+        return _required_source_branches(required_sources.get(source_name))
     return []
+
+
+def _required_source_branches(required: Any) -> list[str]:
+    if not isinstance(required, dict):
+        return []
+    return _literal_fields(_string_list(required.get("branches")))
 
 
 def _primary_input_fields(

@@ -86,6 +86,93 @@ def test_field_glob_can_match_upstream_produced_fields(
     assert _glob_params(plan) == ["Foo_source", "Foo_upstream"]
 
 
+def test_field_glob_can_match_inferred_source_fields(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(
+        toy_registry,
+        [
+            _scale_stage("UseInferred", source="Inferred_pt", output="Other"),
+            _glob_stage(["Inferred_*"]),
+        ],
+        fields=[],
+    )
+
+    assert _glob_params(plan) == ["Inferred_pt"]
+
+
+def test_field_glob_sees_authored_and_inferred_source_fields(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(
+        toy_registry,
+        [
+            _scale_stage("UseInferred", source="Inferred_pt", output="Other"),
+            _glob_stage(["*_pt"]),
+        ],
+        fields=["Auth_pt"],
+    )
+
+    assert _glob_params(plan) == ["Auth_pt", "Inferred_pt"]
+
+
+def test_field_glob_uses_dataset_specific_inferred_source_fields(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(
+        toy_registry,
+        [
+            {
+                **_scale_stage("UseMC", source="MC_raw", output="MC_other"),
+                "applies_to": {"eventtype": "mc"},
+            },
+            {
+                **_scale_stage("UseData", source="Data_raw", output="Data_other"),
+                "applies_to": {"eventtype": "data"},
+            },
+            {
+                **_glob_stage(["MC_*"]),
+                "id": "GlobMC",
+                "applies_to": {"eventtype": "mc"},
+            },
+            {
+                **_glob_stage(["Data_*"]),
+                "id": "GlobData",
+                "applies_to": {"eventtype": "data"},
+            },
+        ],
+        fields=[],
+        datasets=[
+            {"name": "mc", "files": ["mc.root"], "eventtype": "mc"},
+            {"name": "data", "files": ["data.root"], "eventtype": "data"},
+        ],
+    )
+
+    assert plan.get_node("stage.GlobMC").params["fields"] == ["MC_raw", "MC_other"]
+    assert plan.get_node("stage.GlobData").params["fields"] == [
+        "Data_raw",
+        "Data_other",
+    ]
+
+
+def test_field_glob_final_source_requirements_are_applied_once(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(
+        toy_registry,
+        [
+            _scale_stage("UseInferred", source="Inferred_pt", output="Other"),
+            _glob_stage(["Inferred_*"]),
+        ],
+        fields=[],
+    )
+    source = plan.get_node("read.events")
+
+    assert source.params["branches"] == ["Inferred_pt"]
+    assert source.params["branches"].count("Inferred_pt") == 1
+    assert len(_glob_node(plan).meta["compile_hooks"]["fields"]) == 1
+
+
 def test_field_glob_does_not_match_unrelated_branch_fields(
     toy_registry: dict[str, Any],
 ) -> None:
