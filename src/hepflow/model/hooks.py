@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import Any
 
 
@@ -57,14 +56,3 @@ class ExecutionHook:
 
     def run_end(self, *, plan, ctx: dict[str, Any], summary: dict[str, Any]) -> None:
         pass
-
-
-@dataclass(slots=True, frozen=True)
-class ParamCompileHookContext:
-    input_stream_fields: tuple[str, ...] = ()
-
-
-@dataclass(slots=True, frozen=True)
-class CompileHookResult:
-    value: Any
-    provenance: dict[str, Any]

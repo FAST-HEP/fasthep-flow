@@ -87,7 +87,7 @@ def default_runtime_registry_config() -> dict[str, Any]:
         "compile_hooks": {
             "flow.expand_field_glob": {
                 "kind": "parameter",
-                "impl": "hepflow.compiler.data_flow:expand_field_glob",
+                "impl": "hepflow.compiler.hooks.expand_field_glob:expand_field_glob",
             },
         },
         "render": {},

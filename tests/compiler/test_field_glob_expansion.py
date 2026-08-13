@@ -5,7 +5,8 @@ from typing import Any
 import pytest
 import yaml
 
-from hepflow.compiler.data_flow import ParamCompileHookContext, expand_field_glob
+from hepflow.compiler.hooks.expand_field_glob import expand_field_glob
+from hepflow.compiler.hooks.model import ParamCompileHookContext
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
 

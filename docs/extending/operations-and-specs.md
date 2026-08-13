@@ -291,6 +291,15 @@ the plan, the registry, graph edges, or provenance structures. Additional hooks,
 such as external mapping loaders, can be added later without changing operation
 runtime code.
 
+Architecturally, `hepflow.compiler.compile_hooks` is the compiler phase entry
+point. It decides when compile hooks run during plan construction and artifact
+generation. The reusable framework and Flow-owned implementations live under
+`hepflow.compiler.hooks`: `model` contains hook context/result objects,
+`registry` resolves named hooks, `runner` executes ordered hook chains, and
+individual pure hooks such as `expand_field_glob` live in their own modules.
+The registry entry `kind` distinguishes compile-hook use cases within this
+single compile-hook system.
+
 ## Parameter-derived requirements and outputs
 
 Specs can often express parameter-derived dependencies declaratively, without requiring operation-specific compiler logic.

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import fnmatch
-import warnings
 from collections import defaultdict
 from typing import Any
 
 from hepflow.compiler.expr_symbols import data_symbols_in_expr
 from hepflow.model.component_spec import RuntimeComponentSpec
 from hepflow.model.data_flow import DataDependencyResult, DependencyContext
-from hepflow.model.hooks import CompileHookResult, ParamCompileHookContext
 from hepflow.model.plan import ExecutionNode, ExecutionPlan
 from hepflow.model.plan_applicability import (
     active_plan_nodes_for_dataset,
@@ -166,7 +163,7 @@ def _infer_data_flow_for_nodes(
         if node.role not in {"transform", "sink"}:
             continue
 
-        spec = _component_spec_for_node(node, registry)
+        spec = component_spec_for_node(node, registry)
         if spec is None:
             continue
         deps = parse_component_data_dependencies(
@@ -293,47 +290,13 @@ def apply_data_flow_to_sources(plan: ExecutionPlan) -> None:
         )
 
 
-def run_param_compile_hooks(
-    plan: ExecutionPlan,
+def input_stream_fields_by_context(
     *,
-    registry_cfg: dict[str, Any] | None = None,
-    warn: bool = True,
-) -> None:
-    registry = merge_registry_config(
-        {
-            **default_expr_registry_config(),
-            **default_runtime_registry_config(),
-        },
-        registry_cfg or plan.registry or {},
-    )
-    known_functions, known_constants = expression_registry_symbol_names(registry)
-    context_symbols = context_symbols_from_plan(plan, registry)
-    dep_ctx = DependencyContext(
-        known_functions=known_functions,
-        known_constants=known_constants,
-        context_symbols=context_symbols,
-    )
-
-    datasets = dict(plan.context.get("datasets") or {})
-    active_contexts: list[tuple[str | None, dict[str, Any] | None, set[str]]] = []
-    if any(isinstance(node.meta.get("applies_to"), dict) for node in plan.nodes):
-        for dataset_name, dataset in sorted(datasets.items()):
-            active_contexts.append(
-                (
-                    str(dataset_name),
-                    dict(dataset or {}),
-                    {
-                        node.id
-                        for node in active_plan_nodes_for_dataset(
-                            plan,
-                            dataset=dict(dataset or {}),
-                        )
-                    },
-                )
-            )
-    else:
-        active_contexts.append((None, None, {node.id for node in plan.nodes}))
-
+    plan: ExecutionPlan,
+    active_contexts: list[tuple[str | None, dict[str, Any] | None, set[str]]],
+    registry: dict[str, Any],
+    dep_ctx: DependencyContext,
+) -> dict[str | None, dict[str, list[str]]]:
     input_fields_by_context: dict[str | None, dict[str, list[str]]] = {}
     for context_name, dataset, active_ids in active_contexts:
         input_fields_by_context[context_name] = _stream_fields_for_nodes(
@@ -344,20 +307,7 @@ def run_param_compile_hooks(
             registry=registry,
             dep_ctx=dep_ctx,
         )
-
-    for node in plan.nodes:
-        if node.role not in {"transform", "sink"}:
-            continue
-        spec = _component_spec_for_node(node, registry)
-        if spec is None:
-            continue
-        _run_param_hook_chains_for_node(
-            node=node,
-            spec=spec,
-            registry=registry,
-            input_fields_by_context=input_fields_by_context,
-            warn=warn,
-        )
+    return input_fields_by_context
 
 
 def _stream_fields_for_nodes(
@@ -390,7 +340,7 @@ def _stream_fields_for_nodes(
             dataset=dataset,
         )
         node_input_fields[node.id] = input_fields
-        spec = _component_spec_for_node(node, registry)
+        spec = component_spec_for_node(node, registry)
         if spec is not None:
             deps = parse_component_data_dependencies(
                 spec=spec,
@@ -451,67 +401,6 @@ def _primary_input_fields(
     return []
 
 
-def _run_param_hook_chains_for_node(
-    *,
-    node: ExecutionNode,
-    spec: RuntimeComponentSpec,
-    registry: dict[str, Any],
-    input_fields_by_context: dict[str | None, dict[str, list[str]]],
-    warn: bool,
-) -> None:
-    contexts = {
-        context_name: fields_by_node.get(node.id, [])
-        for context_name, fields_by_node in input_fields_by_context.items()
-        if node.id in fields_by_node
-    }
-    if not contexts:
-        return
-
-    for param_name, schema in dict(spec.params or {}).items():
-        if not isinstance(schema, dict):
-            continue
-        hooks = _param_hook_chain(schema, param_name=param_name, spec_name=spec.name)
-        if not hooks:
-            continue
-        original = node.params.get(param_name, schema.get("default"))
-        if original in (None, False):
-            continue
-
-        context_outputs: dict[str | None, tuple[Any, list[dict[str, Any]]]] = {}
-        for context_name, input_fields in contexts.items():
-            value = original
-            provenance: list[dict[str, Any]] = []
-            context = ParamCompileHookContext(
-                input_stream_fields=tuple(input_fields),
-            )
-            for hook_options in hooks:
-                result = _run_single_param_hook(
-                    value=value,
-                    hook_options=hook_options,
-                    context=context,
-                    registry=registry,
-                    param_name=param_name,
-                    spec_name=spec.name,
-                )
-                value = result.value
-                provenance.append(result.provenance)
-            context_outputs[context_name] = (value, provenance)
-
-        selected_value, selected_provenance = _require_identical_param_hook_outputs(
-            node=node,
-            param_name=param_name,
-            context_outputs=context_outputs,
-        )
-        node.params[param_name] = selected_value
-        _record_param_hook_provenance(
-            node=node,
-            param_name=param_name,
-            records=selected_provenance,
-            spec_name=spec.name,
-            emit_warnings=warn,
-        )
-
-
 def _transform_output_fields(
     *,
     node: ExecutionNode,
@@ -554,191 +443,12 @@ def _align_schema_output_fields(
     return _merge_ordered_fields([fields, extras])
 
 
-def expand_field_glob(
-    *,
-    value: Any,
-    options: dict[str, Any],
-    context: ParamCompileHookContext,
-) -> CompileHookResult:
-    against = str(options.get("against") or "")
-    if against != "input.stream":
-        raise ValueError("flow.expand_field_glob currently supports against='input.stream'")
-    patterns = _string_list_param(
-        value,
-        param_name=str(options.get("_param_name") or "value"),
-        spec_name=str(options.get("_spec_name") or "component"),
-    )
-    expanded, unmatched = _expand_field_glob_patterns(
-        patterns,
-        available_fields=list(context.input_stream_fields),
-    )
-    return CompileHookResult(
-        value=expanded,
-        provenance={
-            "hook": "flow.expand_field_glob",
-            "against": against,
-            "input": patterns,
-            "output": expanded,
-            "unmatched": unmatched,
-        },
-    )
-
-
-def _param_hook_chain(
-    schema: dict[str, Any],
-    *,
-    param_name: str,
-    spec_name: str,
-) -> list[dict[str, Any]]:
-    raw_hooks = schema.get("hooks")
-    if raw_hooks is None:
-        return []
-    if not isinstance(raw_hooks, list):
-        raise TypeError(f"{spec_name} parameter {param_name!r} hooks must be a list")
-    hooks: list[dict[str, Any]] = []
-    for index, raw_hook in enumerate(raw_hooks):
-        if not isinstance(raw_hook, dict):
-            raise TypeError(
-                f"{spec_name} parameter {param_name!r} hooks[{index}] must be a mapping"
-            )
-        name = raw_hook.get("name")
-        if not isinstance(name, str) or not name.strip():
-            raise ValueError(
-                f"{spec_name} parameter {param_name!r} hooks[{index}] "
-                "requires non-empty 'name'"
-            )
-        hook = dict(raw_hook)
-        hook["_param_name"] = param_name
-        hook["_spec_name"] = spec_name
-        hooks.append(hook)
-    return hooks
-
-
-def _run_single_param_hook(
-    *,
-    value: Any,
-    hook_options: dict[str, Any],
-    context: ParamCompileHookContext,
-    registry: dict[str, Any],
-    param_name: str,
-    spec_name: str,
-) -> CompileHookResult:
-    hook_name = str(hook_options["name"])
-    entry = dict((registry.get("compile_hooks") or {}).get(hook_name) or {})
-    impl_ref = entry.get("impl")
-    if not isinstance(impl_ref, str) or not impl_ref.strip():
-        raise KeyError(f"Parameter compile hook {hook_name!r} is not registered")
-    impl = load_object(impl_ref)
-    if not callable(impl):
-        raise TypeError(f"Parameter compile hook {hook_name!r} implementation is not callable")
-    try:
-        result = impl(
-            value=value,
-            options={k: v for k, v in hook_options.items() if k != "name"},
-            context=context,
-        )
-    except Exception as exc:
-        raise RuntimeError(
-            f"Parameter compile hook {hook_name!r} failed for "
-            f"{spec_name} parameter {param_name!r}: {exc}"
-        ) from exc
-    if isinstance(result, CompileHookResult):
-        return result
-    if isinstance(result, dict) and "value" in result:
-        provenance = result.get("provenance") or {}
-        if not isinstance(provenance, dict):
-            raise TypeError(
-                f"Parameter compile hook {hook_name!r} provenance must be a mapping"
-            )
-        return CompileHookResult(value=result["value"], provenance=provenance)
-    raise TypeError(
-        f"Parameter compile hook {hook_name!r} must return CompileHookResult"
-    )
-
-
-def _require_identical_param_hook_outputs(
-    *,
-    node: ExecutionNode,
-    param_name: str,
-    context_outputs: dict[str | None, tuple[Any, list[dict[str, Any]]]],
-) -> tuple[Any, list[dict[str, Any]]]:
-    values = list(context_outputs.items())
-    if not values:
-        raise ValueError(f"No compile-hook contexts available for {node.id}.{param_name}")
-    base_context, (base_value, base_provenance) = values[0]
-    for context_name, (value, _provenance) in values[1:]:
-        if value != base_value:
-            raise ValueError(
-                f"Parameter compile hooks for {node.id} parameter {param_name!r} "
-                "expanded differently across applicable contexts "
-                f"{base_context!r} and {context_name!r}"
-            )
-    return base_value, base_provenance
-
-
-def _expand_field_glob_patterns(
-    patterns: list[str],
-    *,
-    available_fields: list[str],
-) -> tuple[list[str], list[str]]:
-    expanded: list[str] = []
-    seen: set[str] = set()
-    unmatched: list[str] = []
-    for pattern in patterns:
-        matches = [field for field in available_fields if fnmatch.fnmatchcase(field, pattern)]
-        if not matches:
-            unmatched.append(pattern)
-            continue
-        for field in matches:
-            if field in seen:
-                continue
-            expanded.append(field)
-            seen.add(field)
-    return expanded, unmatched
-
-
 def _is_glob_pattern(value: str) -> bool:
     return any(char in value for char in "*?[")
 
 
 def _literal_fields(fields: list[str]) -> list[str]:
     return [field for field in fields if not _is_glob_pattern(field)]
-
-
-def _record_param_hook_provenance(
-    *,
-    node: ExecutionNode,
-    param_name: str,
-    records: list[dict[str, Any]],
-    spec_name: str,
-    emit_warnings: bool,
-) -> None:
-    compile_hooks = node.meta.setdefault("compile_hooks", {})
-    compile_hooks[param_name] = [dict(record) for record in records]
-    if not emit_warnings:
-        return
-    for record in records:
-        unmatched = record.get("unmatched")
-        if not isinstance(unmatched, list):
-            continue
-        for pattern in unmatched:
-            warnings.warn(
-                f"{spec_name} parameter {param_name!r} field_glob pattern "
-                f"{pattern!r} matched no input stream fields for {node.id}",
-                stacklevel=3,
-            )
-
-
-def _string_list_param(value: Any, *, param_name: str, spec_name: str) -> list[str]:
-    if isinstance(value, str):
-        values = [value]
-    elif isinstance(value, list):
-        values = value
-    else:
-        raise TypeError(f"{spec_name} parameter {param_name!r} must be a list of strings")
-    if not all(isinstance(item, str) and item.strip() for item in values):
-        raise ValueError(f"{spec_name} parameter {param_name!r} contains an invalid field")
-    return [str(item).strip() for item in values]
 
 
 def _string_list(value: Any) -> list[str]:
@@ -819,7 +529,7 @@ def _merge_custom_dependency_parser(
     return result
 
 
-def _component_spec_for_node(
+def component_spec_for_node(
     node: ExecutionNode,
     registry: dict[str, Any],
 ) -> RuntimeComponentSpec | None:

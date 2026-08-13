@@ -4,11 +4,11 @@ from typing import Any, cast
 
 import networkx as nx
 
+from hepflow.compiler.compile_hooks import run_param_compile_hooks
 from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.data_flow import (
     apply_data_flow_to_sources,
     infer_data_flow,
-    run_param_compile_hooks,
 )
 from hepflow.compiler.execution import (
     normalize_global_execution,
