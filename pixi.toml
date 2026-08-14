@@ -55,6 +55,7 @@ lint = "ruff check src tests"
 lint-fix = "ruff check --fix src tests"
 typecheck = "mypy src tests"
 test = "pytest"
+test-perf = "FASTHEP_RUN_PERFORMANCE=1 FASTHEP_BENCHMARK_OUT=$PWD/build/benchmark pytest -v -m performance"
 build = "python -m build"
 check = { depends-on = ["lint", "typecheck", "test"] }
 ci = { depends-on = ["check", "build"] }

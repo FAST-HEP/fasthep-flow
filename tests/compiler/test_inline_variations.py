@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
 from hepflow.api import compile_workflow_file, run_plan_file
+from hepflow.build_layout import ensure_build_layout, plan_path
+from hepflow.compiler import plan as plan_module
+from hepflow.compiler.artifacts import write_compile_artifacts
+from hepflow.compiler.component_defaults import apply_component_param_defaults
+from hepflow.compiler.inline_variations import apply_inline_variation_branches_to_graph
+from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.model.plan import ExecutionPlan
 from hepflow.runtime.engine import execute_plan_locally
+from hepflow.utils import write_yaml
 
 
 def test_inline_variation_clones_linear_downstream_branch(
@@ -735,45 +745,7 @@ def test_inline_variation_compile_scales_to_thousand_node_graph(
     toy_registry: dict[str, Any],
     tmp_path: Any,
 ) -> None:
-    registry = _registry_with_collection_ops(toy_registry)
-    stages: list[dict[str, Any]] = []
-    source = "pt"
-    for index in range(46):
-        output = f"f{index}"
-        stage = _scale(f"S{index:02d}", source=source, output=output)
-        if index == 45:
-            stage["write"] = [{"kind": "toy.write", "path": "output.json"}]
-        stages.append(stage)
-        source = output
-
-    variations = [
-        {
-            "name": f"v{index:02d}",
-            "mode": "inline",
-            "anchor": "S00",
-            "patch": {"params": {"factor": index + 2}},
-            "export": {f"f45_v{index:02d}": "f45"},
-        }
-        for index in range(22)
-    ]
-    workflow = {
-        "version": "1.0",
-        "registry": registry,
-        "data": {
-            "datasets": [
-                {"name": "sample", "files": ["sample.root"], "eventtype": "mc"}
-            ]
-        },
-        "sources": {
-            "events": {
-                "kind": "toy.source",
-                "stream_type": "event_stream",
-                "branches": ["pt"],
-            }
-        },
-        "analysis": {"stages": stages},
-        "systematics": {"include_nominal": True, "variations": variations},
-    }
+    workflow = _large_inline_variation_workflow(toy_registry)
     workflow_path = tmp_path / "workflow.yaml"
     workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
 
@@ -801,6 +773,125 @@ def test_inline_variation_compile_scales_to_thousand_node_graph(
     assert len(deps["origins"]) < 200
     assert (compile_dir / "deps.yaml").stat().st_size < 4_000_000
     assert (compile_dir / "plan.yaml").stat().st_size < 8_000_000
+
+
+@pytest.mark.performance
+@pytest.mark.skipif(
+    os.environ.get("FASTHEP_RUN_PERFORMANCE") != "1",
+    reason="set FASTHEP_RUN_PERFORMANCE=1 to run compiler performance benchmarks",
+)
+def test_inline_variation_thousand_node_compile_benchmark(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _large_inline_variation_workflow(toy_registry)
+    timings: dict[str, float] = {}
+    compile_start = time.perf_counter()
+
+    normalized = _time_phase(timings, "normalize_workflow", normalize_workflow, workflow)
+
+    def lower_phase() -> Any:
+        prepared = apply_component_param_defaults(normalized)
+        return lower_workflow_to_graph(prepared)
+
+    graph = _time_phase(timings, "lower_workflow_to_graph", lower_phase)
+    _time_phase(
+        timings,
+        "inline_variation_expansion",
+        apply_inline_variation_branches_to_graph,
+        graph,
+        normalized,
+    )
+
+    infer_call = 0
+    original_infer_data_flow = plan_module.infer_data_flow
+    original_run_param_compile_hooks = plan_module.run_param_compile_hooks
+
+    def timed_infer_data_flow(*args: Any, **kwargs: Any) -> Any:
+        nonlocal infer_call
+        phase = (
+            "preliminary_infer_data_flow"
+            if infer_call == 0
+            else "final_infer_data_flow"
+        )
+        infer_call += 1
+        return _time_phase(timings, phase, original_infer_data_flow, *args, **kwargs)
+
+    def timed_run_param_compile_hooks(*args: Any, **kwargs: Any) -> Any:
+        return _time_phase(
+            timings,
+            "parameter_hooks",
+            original_run_param_compile_hooks,
+            *args,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(plan_module, "infer_data_flow", timed_infer_data_flow)
+    monkeypatch.setattr(
+        plan_module,
+        "run_param_compile_hooks",
+        timed_run_param_compile_hooks,
+    )
+    plan_start = time.perf_counter()
+    plan = plan_module.build_execution_plan(
+        graph,
+        registry=dict(normalized.get("registry") or {}),
+        provenance=dict(normalized.get("provenance") or {}),
+        execution=plan_module.normalize_global_execution(normalized.get("execution")),
+        execution_hooks=list(normalized.get("execution_hooks") or []),
+    )
+    build_execution_plan_total = time.perf_counter() - plan_start
+    timings["build_execution_plan"] = max(
+        0.0,
+        build_execution_plan_total
+        - timings.get("preliminary_infer_data_flow", 0.0)
+        - timings.get("parameter_hooks", 0.0)
+        - timings.get("final_infer_data_flow", 0.0),
+    )
+
+    outdir = tmp_path / "build"
+    ensure_build_layout(outdir)
+
+    def serialize_artifacts() -> None:
+        write_compile_artifacts(
+            plan=plan,
+            graph=graph,
+            outdir=outdir,
+            normalized=normalized,
+        )
+        write_yaml(plan.to_dict(), str(plan_path(outdir)))
+
+    _time_phase(timings, "artifact_serialization", serialize_artifacts)
+    timings["compile_total"] = time.perf_counter() - compile_start
+
+    compile_dir = outdir / "compile"
+    metrics = _compiler_benchmark_metrics(
+        plan=plan,
+        edge_count=graph.number_of_edges(),
+        timings=timings,
+        deps_path=compile_dir / "deps.yaml",
+        plan_yaml_path=compile_dir / "plan.yaml",
+    )
+    output_path = Path(
+        os.environ.get(
+            "FASTHEP_BENCHMARK_OUT",
+            str(tmp_path / "inline_variation_compile_benchmark.json"),
+        )
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(metrics, indent=2, sort_keys=True), encoding="utf-8")
+    print(json.dumps(metrics, indent=2, sort_keys=True))
+
+    assert metrics["node_count"] >= 1000
+    assert metrics["variation_clone_count"] == 46 * 22
+    assert metrics["origin_field_count"] < 200
+    assert metrics["deps_yaml_size_bytes"] < 4_000_000
+    assert metrics["plan_yaml_size_bytes"] < 8_000_000
+
+    max_seconds = os.environ.get("FASTHEP_COMPILER_BENCHMARK_MAX_SECONDS")
+    if max_seconds:
+        assert metrics["compile_time_seconds"] <= float(max_seconds)
 
 
 def test_inline_variation_export_rejects_incompatible_lineage(
@@ -932,6 +1023,48 @@ def _write_inline_export_workflow(
     return workflow_path
 
 
+def _large_inline_variation_workflow(toy_registry: dict[str, Any]) -> dict[str, Any]:
+    registry = _registry_with_collection_ops(toy_registry)
+    stages: list[dict[str, Any]] = []
+    source = "pt"
+    for index in range(46):
+        output = f"f{index}"
+        stage = _scale(f"S{index:02d}", source=source, output=output)
+        if index == 45:
+            stage["write"] = [{"kind": "toy.write", "path": "output.json"}]
+        stages.append(stage)
+        source = output
+
+    variations = [
+        {
+            "name": f"v{index:02d}",
+            "mode": "inline",
+            "anchor": "S00",
+            "patch": {"params": {"factor": index + 2}},
+            "export": {f"f45_v{index:02d}": "f45"},
+        }
+        for index in range(22)
+    ]
+    return {
+        "version": "1.0",
+        "registry": registry,
+        "data": {
+            "datasets": [
+                {"name": "sample", "files": ["sample.root"], "eventtype": "mc"}
+            ]
+        },
+        "sources": {
+            "events": {
+                "kind": "toy.source",
+                "stream_type": "event_stream",
+                "branches": ["pt"],
+            }
+        },
+        "analysis": {"stages": stages},
+        "systematics": {"include_nominal": True, "variations": variations},
+    }
+
+
 def _registry_with_collection_ops(registry: dict[str, Any]) -> dict[str, Any]:
     registry = deepcopy(registry)
     registry["transforms"]["hep.project_fields"] = {
@@ -976,6 +1109,60 @@ def _origin_count(origin: dict[str, Any]) -> int:
     if origin.get("kind") == "stream_scoped":
         return len(origin["origins"])
     return 1
+
+
+def _time_phase(
+    timings: dict[str, float],
+    name: str,
+    func: Any,
+    *args: Any,
+    **kwargs: Any,
+) -> Any:
+    start = time.perf_counter()
+    try:
+        return func(*args, **kwargs)
+    finally:
+        timings[name] = time.perf_counter() - start
+
+
+def _compiler_benchmark_metrics(
+    *,
+    plan: ExecutionPlan,
+    edge_count: int,
+    timings: dict[str, float],
+    deps_path: Path,
+    plan_yaml_path: Path,
+) -> dict[str, Any]:
+    origins = dict(plan.data_flow.get("origins") or {})
+    return {
+        "node_count": len(plan.nodes),
+        "edge_count": edge_count,
+        "variation_clone_count": sum(
+            1
+            for node in plan.nodes
+            if isinstance(node.meta, dict) and node.meta.get("variation_of")
+        ),
+        "compile_time_seconds": round(timings.get("compile_total", 0.0), 6),
+        "phase_seconds": {
+            name: round(timings.get(name, 0.0), 6)
+            for name in [
+                "normalize_workflow",
+                "lower_workflow_to_graph",
+                "inline_variation_expansion",
+                "build_execution_plan",
+                "preliminary_infer_data_flow",
+                "parameter_hooks",
+                "final_infer_data_flow",
+                "artifact_serialization",
+            ]
+        },
+        "deps_yaml_size_bytes": deps_path.stat().st_size,
+        "plan_yaml_size_bytes": plan_yaml_path.stat().st_size,
+        "origin_field_count": len(origins),
+        "origin_entry_count": sum(
+            _origin_count(dict(origin)) for origin in origins.values()
+        ),
+    }
 
 
 def _only_collect_stream(store: dict[Any, Any]) -> dict[str, Any]:

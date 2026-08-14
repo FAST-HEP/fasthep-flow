@@ -132,3 +132,6 @@ addopts = [
 xfail_strict = true
 filterwarnings = ["error"]
 testpaths = ["tests"]
+markers = [
+    "performance: opt-in performance benchmarks; skipped unless explicitly enabled",
+]
