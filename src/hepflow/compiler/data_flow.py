@@ -128,6 +128,7 @@ def infer_data_flow(
         "required_sources_by_dataset": required_by_dataset,
         "consumers": common["consumers"],
         "origins": common["origins"],
+        "_stream_lineage": common["stream_lineage"],
         "notes": notes,
     }
 
@@ -138,12 +139,17 @@ class StreamRef:
     output_name: str = "stream"
 
 
+@dataclass(frozen=True, slots=True)
+class StreamLineage:
+    identity: str
+
+
 @dataclass(slots=True)
 class StreamState:
     stream: StreamRef
     fields: list[str] = dataclass_field(default_factory=list)
     origins: dict[str, dict[str, Any]] = dataclass_field(default_factory=dict)
-    lineage: tuple[StreamRef, ...] = ()
+    lineage: StreamLineage | None = None
 
 
 @dataclass(slots=True)
@@ -153,6 +159,7 @@ class StreamAnalysisResult:
     origins: dict[str, dict[str, Any]]
     input_fields_by_node: dict[str, list[str]]
     stream_states: dict[StreamRef, StreamState]
+    stream_lineage: dict[str, dict[str, str]]
 
 
 def _analyze_stream_data_flow(
@@ -246,6 +253,7 @@ def _analyze_stream_data_flow(
 
         output_state = _transform_stream_state(
             node=node,
+            spec=spec,
             input_state=input_state,
             input_fields=effective_input_fields,
             input_origins=input_origins,
@@ -275,6 +283,7 @@ def _analyze_stream_data_flow(
         origins=_public_origins(stream_states),
         input_fields_by_node=input_fields_by_node,
         stream_states=stream_states,
+        stream_lineage=_stream_lineage_view(stream_states),
     )
     return {
         "required_sources": result.required_sources,
@@ -282,6 +291,7 @@ def _analyze_stream_data_flow(
         "origins": result.origins,
         "input_fields_by_node": result.input_fields_by_node,
         "stream_states": result.stream_states,
+        "stream_lineage": result.stream_lineage,
     }
 
 
@@ -412,7 +422,7 @@ def _source_stream_state(
         stream=stream,
         fields=fields,
         origins=origins,
-        lineage=(stream,),
+        lineage=_new_lineage(stream, source=True),
     )
 
 
@@ -443,6 +453,7 @@ def _stream_ref(ref: PlanInputRef) -> StreamRef:
 def _transform_stream_state(
     *,
     node: ExecutionNode,
+    spec: RuntimeComponentSpec | None,
     input_state: StreamState | None,
     input_fields: list[str],
     input_origins: dict[str, dict[str, Any]],
@@ -489,13 +500,58 @@ def _transform_stream_state(
             },
         )
     stream = StreamRef(node.id, "stream")
-    lineage = ((input_state.lineage if input_state is not None else ()) + (stream,))
+    lineage = _output_lineage(
+        stream=stream,
+        input_state=input_state,
+        behavior=_lineage_behavior(spec),
+    )
     return StreamState(
         stream=stream,
         fields=output_fields,
         origins=origins,
         lineage=lineage,
     )
+
+
+def _lineage_behavior(spec: RuntimeComponentSpec | None) -> str:
+    raw = _result_metadata(spec).get("lineage") if spec is not None else None
+    if raw is None:
+        return "preserve"
+    behavior = str(raw)
+    if behavior in {"preserve", "new", "source"}:
+        return behavior
+    name = spec.name if spec is not None else "<unknown>"
+    raise ValueError(
+        f"Unsupported event-stream lineage behavior for {name!r}: {raw!r}"
+    )
+
+
+def _result_metadata(spec: RuntimeComponentSpec | None) -> dict[str, Any]:
+    if spec is None:
+        return {}
+    result = spec.result or {}
+    stream_result = result.get("stream")
+    if isinstance(stream_result, dict):
+        return stream_result
+    if result.get("kind") == "event_stream":
+        return result
+    return {}
+
+
+def _output_lineage(
+    *,
+    stream: StreamRef,
+    input_state: StreamState | None,
+    behavior: str,
+) -> StreamLineage:
+    if behavior == "preserve" and input_state is not None and input_state.lineage:
+        return input_state.lineage
+    return _new_lineage(stream, source=behavior == "source")
+
+
+def _new_lineage(stream: StreamRef, *, source: bool = False) -> StreamLineage:
+    prefix = "source" if source else "stream"
+    return StreamLineage(f"{prefix}:{stream.node_id}:{stream.output_name}")
 
 
 def _required_source_for_consumed_field(
@@ -522,6 +578,23 @@ def _required_source_for_consumed_field(
             aliases_by_stream=aliases_by_stream,
         ),
     )
+
+
+def _stream_lineage_view(
+    stream_states: dict[StreamRef, StreamState],
+) -> dict[str, dict[str, str]]:
+    return {
+        _stream_key(stream): {"identity": state.lineage.identity}
+        for stream, state in sorted(
+            stream_states.items(),
+            key=lambda item: _stream_key(item[0]),
+        )
+        if state.lineage is not None
+    }
+
+
+def _stream_key(stream: StreamRef) -> str:
+    return f"{stream.node_id}:{stream.output_name}"
 
 
 def _public_origins(

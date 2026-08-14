@@ -24,6 +24,17 @@ TOY_SCALE_SPEC = {
     },
 }
 
+TOY_NEW_LINEAGE_SPEC = {
+    **TOY_SCALE_SPEC,
+    "name": "toy.new_lineage",
+    "result": {
+        "stream": {
+            "kind": "event_stream",
+            "lineage": "new",
+        }
+    },
+}
+
 TOY_RECORD_SPEC = {
     "name": "toy.record",
     "kind": "transform",
