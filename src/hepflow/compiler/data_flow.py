@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any
 
 from hepflow.compiler.expr_symbols import data_symbols_in_expr
 from hepflow.model.component_spec import RuntimeComponentSpec
 from hepflow.model.data_flow import DataDependencyResult, DependencyContext
-from hepflow.model.plan import ExecutionNode, ExecutionPlan
+from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
 from hepflow.model.plan_applicability import (
     active_plan_nodes_for_dataset,
     resolve_active_input_ref,
@@ -83,24 +85,13 @@ def infer_data_flow(
     primary_stream = _primary_stream_id(plan)
     aliases_by_stream = _aliases_by_stream(plan)
 
-    origins: dict[str, dict[str, Any]] = {}
-
-    for stream_id, aliases in aliases_by_stream.items():
-        for alias, branch in aliases.items():
-            origins[alias] = {
-                "kind": "alias",
-                "stream": stream_id,
-                "branch": branch,
-            }
-
-    common = _infer_data_flow_for_nodes(
+    common = _analyze_stream_data_flow(
         plan=plan,
         nodes=plan.nodes,
         registry=registry,
         dep_ctx=dep_ctx,
         primary_stream=primary_stream,
         aliases_by_stream=aliases_by_stream,
-        origins=origins,
         dataset=None,
     )
 
@@ -110,8 +101,7 @@ def infer_data_flow(
     datasets = dict(plan.context.get("datasets") or {}) if has_dataset_applicability else {}
     required_by_dataset: dict[str, dict[str, Any]] = {}
     for dataset_name, dataset in sorted(datasets.items()):
-        dataset_origins = dict(origins)
-        dataset_flow = _infer_data_flow_for_nodes(
+        dataset_flow = _analyze_stream_data_flow(
             plan=plan,
             nodes=active_plan_nodes_for_dataset(
                 plan,
@@ -121,7 +111,6 @@ def infer_data_flow(
             dep_ctx=dep_ctx,
             primary_stream=primary_stream,
             aliases_by_stream=aliases_by_stream,
-            origins=dataset_origins,
             dataset=dict(dataset or {}),
         )
         required_by_dataset[str(dataset_name)] = dataset_flow["required_sources"]
@@ -138,12 +127,35 @@ def infer_data_flow(
         "required_sources": common["required_sources"],
         "required_sources_by_dataset": required_by_dataset,
         "consumers": common["consumers"],
-        "origins": {key: origins[key] for key in sorted(origins)},
+        "origins": common["origins"],
         "notes": notes,
     }
 
 
-def _infer_data_flow_for_nodes(
+@dataclass(frozen=True, slots=True)
+class StreamRef:
+    node_id: str
+    output_name: str = "stream"
+
+
+@dataclass(slots=True)
+class StreamState:
+    stream: StreamRef
+    fields: list[str] = dataclass_field(default_factory=list)
+    origins: dict[str, dict[str, Any]] = dataclass_field(default_factory=dict)
+    lineage: tuple[StreamRef, ...] = ()
+
+
+@dataclass(slots=True)
+class StreamAnalysisResult:
+    required_sources: dict[str, dict[str, list[str]]]
+    consumers: dict[str, list[str]]
+    origins: dict[str, dict[str, Any]]
+    input_fields_by_node: dict[str, list[str]]
+    stream_states: dict[StreamRef, StreamState]
+
+
+def _analyze_stream_data_flow(
     *,
     plan: ExecutionPlan,
     nodes: list[ExecutionNode],
@@ -151,56 +163,98 @@ def _infer_data_flow_for_nodes(
     dep_ctx: DependencyContext,
     primary_stream: str,
     aliases_by_stream: dict[str, dict[str, str]],
-    origins: dict[str, dict[str, Any]],
     dataset: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    produced_data: set[str] = set()
     source_required_data: dict[str, set[str]] = defaultdict(set)
     source_required_branches: dict[str, set[str]] = defaultdict(set)
     consumers: dict[str, list[str]] = defaultdict(list)
+    input_fields_by_node: dict[str, list[str]] = {}
+    stream_states: dict[StreamRef, StreamState] = {}
+    active_ids = {node.id for node in nodes}
 
     for node in nodes:
+        if node.role == "source":
+            state = _source_stream_state(
+                plan=plan,
+                node=node,
+                dataset_name=_dataset_name(dataset),
+                aliases_by_stream=aliases_by_stream,
+            )
+            stream_states[state.stream] = state
+            continue
+
         if node.role not in {"transform", "sink"}:
             continue
 
         spec = component_spec_for_node(node, registry)
-        if spec is None:
-            continue
-        deps = parse_component_data_dependencies(
-            spec=spec,
-            params=_dependency_params_for_dataset(node.params, dataset=dataset),
-            dep_ctx=dep_ctx,
+        deps = (
+            parse_component_data_dependencies(
+                spec=spec,
+                params=_dependency_params_for_dataset(node.params, dataset=dataset),
+                dep_ctx=dep_ctx,
+            )
+            if spec is not None
+            else DataDependencyResult()
         )
 
         stream_id = str(node.params.get("stream_id") or primary_stream)
+        input_state = _primary_input_stream_state(
+            plan=plan,
+            node=node,
+            active_ids=active_ids,
+            stream_states=stream_states,
+            dataset=dataset,
+        )
+        input_fields = list(input_state.fields) if input_state is not None else []
+        input_origins = dict(input_state.origins) if input_state is not None else {}
+        input_fields_by_node[node.id] = input_fields
+        effective_input_fields = list(input_fields)
+
         for consumed in sorted(deps.consumes):
             consumers[consumed].append(node.id)
+            origin = input_origins.get(consumed)
 
-            if consumed in produced_data and node.impl != "hep.project_fields":
+            if (
+                origin is not None
+                and origin.get("kind") not in {"source", "alias"}
+                and node.impl != "hep.project_fields"
+            ):
                 continue
 
-            required_stream = stream_id if node.impl == "hep.project_fields" else primary_stream
-            branch = _resolve_required_branch(
+            required_stream, branch = _required_source_for_consumed_field(
                 consumed,
-                stream_id=required_stream,
+                origin=origin,
+                node=node,
+                stream_id=stream_id,
+                primary_stream=primary_stream,
                 aliases_by_stream=aliases_by_stream,
             )
             source_required_data[required_stream].add(consumed)
             source_required_branches[required_stream].add(branch)
-
-        for produced in sorted(deps.produces):
-            produced_data.add(produced)
-            if node.impl == "hep.project_fields" and produced in aliases_by_stream.get(stream_id, {}):
-                origins[produced] = {
-                    "kind": "alias",
-                    "stream": stream_id,
-                    "branch": aliases_by_stream[stream_id][produced],
+            if consumed not in input_origins:
+                effective_input_fields = _merge_ordered_fields(
+                    [effective_input_fields, [consumed]]
+                )
+                input_origins[consumed] = {
+                    "kind": "source",
+                    "stream": required_stream,
+                    "branch": branch,
                 }
-                continue
-            origins[produced] = {
-                "kind": "produced",
-                "node": node.id,
-            }
+
+        if node.role == "sink":
+            continue
+
+        output_state = _transform_stream_state(
+            node=node,
+            input_state=input_state,
+            input_fields=effective_input_fields,
+            input_origins=input_origins,
+            deps=deps,
+            params=node.params,
+            stream_id=stream_id,
+            aliases_by_stream=aliases_by_stream,
+        )
+        stream_states[output_state.stream] = output_state
 
     source_required_branches = _route_required_branches_to_leaf_sources(
         plan,
@@ -215,10 +269,19 @@ def _infer_data_flow_for_nodes(
         for stream_id, branches in sorted(source_required_branches.items())
     }
 
+    result = StreamAnalysisResult(
+        required_sources=required_sources,
+        consumers=dict(sorted(consumers.items())),
+        origins=_public_origins(stream_states),
+        input_fields_by_node=input_fields_by_node,
+        stream_states=stream_states,
+    )
     return {
-        "required_sources": required_sources,
-        "consumers": dict(sorted(consumers.items())),
-        "origins": {key: origins[key] for key in sorted(origins)},
+        "required_sources": result.required_sources,
+        "consumers": result.consumers,
+        "origins": result.origins,
+        "input_fields_by_node": result.input_fields_by_node,
+        "stream_states": result.stream_states,
     }
 
 
@@ -298,74 +361,210 @@ def input_stream_fields_by_context(
     dep_ctx: DependencyContext,
 ) -> dict[str | None, dict[str, list[str]]]:
     input_fields_by_context: dict[str | None, dict[str, list[str]]] = {}
+    primary_stream = _primary_stream_id(plan)
+    aliases_by_stream = _aliases_by_stream(plan)
     for context_name, dataset, active_ids in active_contexts:
-        input_fields_by_context[context_name] = _stream_fields_for_nodes(
+        analysis = _analyze_stream_data_flow(
             plan=plan,
-            active_ids=active_ids,
-            dataset_name=context_name,
-            dataset=dataset,
+            nodes=[node for node in plan.nodes if node.id in active_ids],
             registry=registry,
             dep_ctx=dep_ctx,
+            primary_stream=primary_stream,
+            aliases_by_stream=aliases_by_stream,
+            dataset=dataset,
         )
+        input_fields_by_context[context_name] = dict(analysis["input_fields_by_node"])
     return input_fields_by_context
 
 
-def _stream_fields_for_nodes(
+def _dataset_name(dataset: dict[str, Any] | None) -> str | None:
+    if not isinstance(dataset, dict):
+        return None
+    name = dataset.get("name")
+    return str(name) if name is not None else None
+
+
+def _source_stream_state(
     *,
     plan: ExecutionPlan,
-    active_ids: set[str],
+    node: ExecutionNode,
     dataset_name: str | None,
+    aliases_by_stream: dict[str, dict[str, str]],
+) -> StreamState:
+    fields = _source_output_fields(plan, node, dataset_name=dataset_name)
+    source_name = str(node.meta.get("source_name") or node.id.removeprefix("read."))
+    origins = {
+        field: {
+            "kind": "source",
+            "stream": source_name,
+            "branch": _resolve_required_branch(
+                field,
+                stream_id=source_name,
+                aliases_by_stream=aliases_by_stream,
+            ),
+        }
+        for field in fields
+    }
+    for alias, branch in aliases_by_stream.get(source_name, {}).items():
+        origins[alias] = {"kind": "alias", "stream": source_name, "branch": branch}
+    stream = StreamRef(node.id, "stream")
+    return StreamState(
+        stream=stream,
+        fields=fields,
+        origins=origins,
+        lineage=(stream,),
+    )
+
+
+def _primary_input_stream_state(
+    *,
+    plan: ExecutionPlan,
+    node: ExecutionNode,
+    active_ids: set[str],
+    stream_states: dict[StreamRef, StreamState],
     dataset: dict[str, Any] | None,
-    registry: dict[str, Any],
-    dep_ctx: DependencyContext,
-) -> dict[str, list[str]]:
-    node_output_fields: dict[str, list[str]] = {}
-    node_input_fields: dict[str, list[str]] = {}
-
-    for node in plan.nodes:
-        if node.id not in active_ids:
+) -> StreamState | None:
+    for ref in node.inputs:
+        active_ref = resolve_active_input_ref(plan, ref, dataset=dataset)
+        if active_ref.node_id not in active_ids:
             continue
-
-        if node.role == "source":
-            node_output_fields[node.id] = _source_output_fields(
-                plan=plan,
-                node=node,
-                dataset_name=dataset_name,
-            )
+        if active_ref.input_name == "dependency":
             continue
+        if active_ref.output_name != "stream":
+            continue
+        return stream_states.get(_stream_ref(active_ref))
+    return None
 
-        input_fields = _primary_input_fields(
-            plan=plan,
-            node=node,
-            node_output_fields=node_output_fields,
-            dataset=dataset,
+
+def _stream_ref(ref: PlanInputRef) -> StreamRef:
+    return StreamRef(node_id=ref.node_id, output_name=ref.output_name)
+
+
+def _transform_stream_state(
+    *,
+    node: ExecutionNode,
+    input_state: StreamState | None,
+    input_fields: list[str],
+    input_origins: dict[str, dict[str, Any]],
+    deps: DataDependencyResult,
+    params: dict[str, Any],
+    stream_id: str,
+    aliases_by_stream: dict[str, dict[str, str]],
+) -> StreamState:
+    output_fields = _transform_output_fields(
+        node=node,
+        input_fields=input_fields,
+        deps=deps,
+        params=params,
+    )
+    origins = {
+        field: dict(input_origins[field])
+        for field in output_fields
+        if field in input_origins
+    }
+    for produced in sorted(deps.produces):
+        if produced not in output_fields:
+            continue
+        if (
+            node.impl == "hep.project_fields"
+            and produced in aliases_by_stream.get(stream_id, {})
+        ):
+            origins[produced] = {
+                "kind": "alias",
+                "stream": stream_id,
+                "branch": aliases_by_stream[stream_id][produced],
+            }
+            continue
+        origins[produced] = {
+            "kind": "produced",
+            "node": node.id,
+        }
+    for field in output_fields:
+        origins.setdefault(
+            field,
+            {
+                "kind": "preserved",
+                "node": node.id,
+                "stream": {"node_id": node.id, "output_name": "stream"},
+            },
         )
-        node_input_fields[node.id] = input_fields
-        spec = component_spec_for_node(node, registry)
-        if spec is not None:
-            deps = parse_component_data_dependencies(
-                spec=spec,
-                params=_dependency_params_for_dataset(
-                    dict(node.params),
-                    dataset=dataset,
-                ),
-                dep_ctx=dep_ctx,
+    stream = StreamRef(node.id, "stream")
+    lineage = ((input_state.lineage if input_state is not None else ()) + (stream,))
+    return StreamState(
+        stream=stream,
+        fields=output_fields,
+        origins=origins,
+        lineage=lineage,
+    )
+
+
+def _required_source_for_consumed_field(
+    consumed: str,
+    *,
+    origin: dict[str, Any] | None,
+    node: ExecutionNode,
+    stream_id: str,
+    primary_stream: str,
+    aliases_by_stream: dict[str, dict[str, str]],
+) -> tuple[str, str]:
+    if origin is not None and origin.get("kind") in {"source", "alias"}:
+        origin_stream = origin.get("stream")
+        origin_branch = origin.get("branch")
+        if isinstance(origin_stream, str) and isinstance(origin_branch, str):
+            return origin_stream, origin_branch
+
+    required_stream = stream_id if node.impl == "hep.project_fields" else primary_stream
+    return (
+        required_stream,
+        _resolve_required_branch(
+            consumed,
+            stream_id=required_stream,
+            aliases_by_stream=aliases_by_stream,
+        ),
+    )
+
+
+def _public_origins(
+    stream_states: dict[StreamRef, StreamState],
+) -> dict[str, dict[str, Any]]:
+    by_field: dict[str, list[tuple[StreamRef, dict[str, Any]]]] = defaultdict(list)
+    for state in stream_states.values():
+        for field, origin in state.origins.items():
+            by_field[field].append((state.stream, dict(origin)))
+
+    public: dict[str, dict[str, Any]] = {}
+    for field, entries in sorted(by_field.items()):
+        unique: list[tuple[StreamRef, dict[str, Any]]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for stream, origin in entries:
+            marker = (
+                stream.node_id,
+                stream.output_name,
+                repr(sorted(origin.items())),
             )
-        else:
-            deps = DataDependencyResult()
-
-        if node.role == "sink":
-            node_output_fields[node.id] = []
+            if marker in seen:
+                continue
+            seen.add(marker)
+            unique.append((stream, origin))
+        origins = [origin for _stream, origin in unique]
+        if not origins:
             continue
-
-        node_output_fields[node.id] = _transform_output_fields(
-            node=node,
-            input_fields=input_fields,
-            deps=deps,
-            params=node.params,
-        )
-
-    return node_input_fields
+        first = origins[0]
+        if all(origin == first for origin in origins):
+            public[field] = first
+            continue
+        public[field] = {
+            "kind": "stream_scoped",
+            "streams": [
+                {
+                    "node_id": stream.node_id,
+                    "output_name": stream.output_name,
+                    "origin": origin,
+                }
+                for stream, origin in unique
+            ],
+        }
+    return public
 
 
 def _source_output_fields(
@@ -419,23 +618,6 @@ def _required_source_branches(required: Any) -> list[str]:
     if not isinstance(required, dict):
         return []
     return _literal_fields(_string_list(required.get("branches")))
-
-
-def _primary_input_fields(
-    *,
-    plan: ExecutionPlan,
-    node: ExecutionNode,
-    node_output_fields: dict[str, list[str]],
-    dataset: dict[str, Any] | None,
-) -> list[str]:
-    for ref in node.inputs:
-        active_ref = resolve_active_input_ref(plan, ref, dataset=dataset)
-        if active_ref.input_name == "dependency":
-            continue
-        if active_ref.output_name != "stream":
-            continue
-        return list(node_output_fields.get(active_ref.node_id, []))
-    return []
 
 
 def _transform_output_fields(
