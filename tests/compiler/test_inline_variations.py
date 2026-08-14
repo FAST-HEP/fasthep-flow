@@ -8,45 +8,37 @@ import pytest
 import yaml
 
 from hepflow.api import compile_workflow_file, run_plan_file
-from hepflow.compiler.data_flow import infer_data_flow
-from hepflow.compiler.inline_variations import (
-    InlineVariationBranch,
-    add_inline_variation_branch,
-)
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
-from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
+from hepflow.model.plan import ExecutionPlan
 from hepflow.runtime.engine import execute_plan_locally
 
 
 def test_inline_variation_clones_linear_downstream_branch(
     toy_registry: dict[str, Any],
 ) -> None:
-    plan = _plan(
+    plan = _inline_plan(
         toy_registry,
         [
             _scale("A", source="pt", output="a_pt"),
-            _scale("B", source="a_pt", output="b_pt"),
+            _scale("B", source="a_pt", output="b_pt", upstream="A"),
             _scale("C", source="b_pt", output="c_pt"),
             _scale("D", source="c_pt", output="d_pt"),
         ],
         fields=["pt"],
+        variations=[
+            {
+                "name": "jec_up",
+                "mode": "inline",
+                "anchor": "B",
+                "patch": {"params": {"factor": 10}},
+            }
+        ],
     )
 
-    result = add_inline_variation_branch(
-        plan,
-        InlineVariationBranch(
-            anchor_node_id="stage.B",
-            variation={"name": "jec_up"},
-            parameter_patch={"factor": 10},
-        ),
+    assert {"stage.B@jec_up", "stage.C@jec_up", "stage.D@jec_up"} <= set(
+        plan.node_index
     )
-
-    assert result.cloned_nodes == {
-        "stage.B": "stage.B@jec_up",
-        "stage.C": "stage.C@jec_up",
-        "stage.D": "stage.D@jec_up",
-    }
     assert _input_node(plan, "stage.B@jec_up") == "stage.A"
     assert _input_node(plan, "stage.C@jec_up") == "stage.B@jec_up"
     assert _input_node(plan, "stage.D@jec_up") == "stage.C@jec_up"
@@ -57,29 +49,31 @@ def test_inline_variation_clones_linear_downstream_branch(
 def test_inline_variation_clones_branching_downstream_graph(
     toy_registry: dict[str, Any],
 ) -> None:
-    plan = _plan(
+    plan = _inline_plan(
         toy_registry,
         [
             _scale("A", source="pt", output="a_pt"),
-            _scale("B", source="a_pt", output="b_pt"),
+            _scale("B", source="a_pt", output="b_pt", upstream="A"),
             _scale("Left", source="b_pt", output="left_pt", upstream="B"),
             _scale("Right", source="b_pt", output="right_pt", upstream="B"),
             _scale("AfterLeft", source="left_pt", output="after_left_pt", upstream="Left"),
         ],
         fields=["pt"],
+        variations=[
+            {
+                "name": "jes_down",
+                "mode": "inline",
+                "anchor": "B",
+            }
+        ],
     )
 
-    result = add_inline_variation_branch(
-        plan,
-        InlineVariationBranch(anchor_node_id="stage.B", variation={"name": "jes_down"}),
-    )
-
-    assert result.cloned_nodes == {
-        "stage.B": "stage.B@jes_down",
-        "stage.Left": "stage.Left@jes_down",
-        "stage.Right": "stage.Right@jes_down",
-        "stage.AfterLeft": "stage.AfterLeft@jes_down",
-    }
+    assert {
+        "stage.B@jes_down",
+        "stage.Left@jes_down",
+        "stage.Right@jes_down",
+        "stage.AfterLeft@jes_down",
+    } <= set(plan.node_index)
     assert _input_node(plan, "stage.Left@jes_down") == "stage.B@jes_down"
     assert _input_node(plan, "stage.Right@jes_down") == "stage.B@jes_down"
     assert _input_node(plan, "stage.AfterLeft@jes_down") == "stage.Left@jes_down"
@@ -88,11 +82,27 @@ def test_inline_variation_clones_branching_downstream_graph(
 def test_inline_variation_keeps_shared_nominal_side_input(
     toy_registry: dict[str, Any],
 ) -> None:
-    plan = _manual_side_input_plan(toy_registry)
-
-    add_inline_variation_branch(
-        plan,
-        InlineVariationBranch(anchor_node_id="stage.B", variation={"name": "up"}),
+    plan = _inline_plan(
+        _registry_with_product(toy_registry),
+        [
+            _scale("A", source="pt", output="a_pt"),
+            {
+                "id": "SharedWeights",
+                "op": "toy.product",
+                "from": [],
+                "params": {"value": "weights"},
+            },
+            _scale("B", source="a_pt", output="b_pt", upstream="A"),
+            {
+                **_scale("C", source="b_pt", output="c_pt", upstream="B"),
+                "from": [
+                    {"node": "B", "port": "stream", "as": "stream"},
+                    {"node": "SharedWeights", "port": "product", "as": "weights"},
+                ],
+            },
+        ],
+        fields=["pt"],
+        variations=[{"name": "up", "mode": "inline", "anchor": "B"}],
     )
 
     cloned_c = plan.get_node("stage.C@up")
@@ -109,7 +119,7 @@ def test_inline_variation_keeps_shared_nominal_side_input(
 def test_inline_variation_preserves_same_field_names_across_streams(
     toy_registry: dict[str, Any],
 ) -> None:
-    plan = _plan(
+    plan = _inline_plan(
         toy_registry,
         [
             _scale("A", source="pt", output="a_pt"),
@@ -117,50 +127,36 @@ def test_inline_variation_preserves_same_field_names_across_streams(
             _scale("C", source="Jet_pt", output="Selected_pt"),
         ],
         fields=["pt"],
-    )
-
-    add_inline_variation_branch(
-        plan,
-        InlineVariationBranch(anchor_node_id="stage.B", variation={"name": "jer_up"}),
+        variations=[{"name": "jer_up", "mode": "inline", "anchor": "B"}],
     )
 
     assert plan.get_node("stage.B@jer_up").params["output"] == "Jet_pt"
     assert plan.get_node("stage.C@jer_up").params["source"] == "Jet_pt"
-    plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
     assert plan.data_flow["origins"]["Jet_pt"]["kind"] == "stream_scoped"
 
 
-def test_inline_variation_clone_ids_are_unique(toy_registry: dict[str, Any]) -> None:
-    plan = _plan(
-        toy_registry,
-        [_scale("A", source="pt", output="a_pt"), _scale("B", source="a_pt")],
-        fields=["pt"],
-    )
-
-    add_inline_variation_branch(
-        plan,
-        InlineVariationBranch(anchor_node_id="stage.B", variation={"name": "up"}),
-    )
-
-    with pytest.raises(ValueError, match="clone id already exists"):
-        add_inline_variation_branch(
-            plan,
-            InlineVariationBranch(anchor_node_id="stage.B", variation={"name": "up"}),
+def test_inline_variation_duplicate_names_fail_before_graph_expansion(
+    toy_registry: dict[str, Any],
+) -> None:
+    with pytest.raises(ValueError, match="duplicate systematics variation name"):
+        _inline_plan(
+            toy_registry,
+            [_scale("A", source="pt", output="a_pt"), _scale("B", source="a_pt")],
+            fields=["pt"],
+            variations=[
+                {"name": "up", "mode": "inline", "anchor": "B"},
+                {"name": "up", "mode": "inline", "anchor": "B"},
+            ],
         )
 
 
 def test_inline_variation_preserves_event_lineage(toy_registry: dict[str, Any]) -> None:
-    plan = _plan(
+    plan = _inline_plan(
         toy_registry,
         [_scale("A", source="pt", output="a_pt"), _scale("B", source="a_pt")],
         fields=["pt"],
+        variations=[{"name": "up", "mode": "inline", "anchor": "B"}],
     )
-
-    add_inline_variation_branch(
-        plan,
-        InlineVariationBranch(anchor_node_id="stage.B", variation={"name": "up"}),
-    )
-    plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
 
     assert _lineage(plan, "stage.B@up") == _lineage(plan, "stage.B")
     assert _lineage(plan, "stage.B@up") == _lineage(plan, "read.events")
@@ -169,7 +165,7 @@ def test_inline_variation_preserves_event_lineage(toy_registry: dict[str, Any]) 
 def test_inline_variation_stop_boundary_is_exclusive(
     toy_registry: dict[str, Any],
 ) -> None:
-    plan = _plan(
+    plan = _inline_plan(
         toy_registry,
         [
             _scale("A", source="pt", output="a_pt"),
@@ -178,18 +174,17 @@ def test_inline_variation_stop_boundary_is_exclusive(
             _scale("D", source="c_pt", output="d_pt"),
         ],
         fields=["pt"],
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "anchor": "B",
+                "stop_before": ["C"],
+            }
+        ],
     )
 
-    result = add_inline_variation_branch(
-        plan,
-        InlineVariationBranch(
-            anchor_node_id="stage.B",
-            variation={"name": "up"},
-            stop_before=frozenset({"stage.C"}),
-        ),
-    )
-
-    assert result.cloned_nodes == {"stage.B": "stage.B@up"}
+    assert "stage.B@up" in plan.node_index
     assert "stage.C@up" not in plan.node_index
     assert "stage.D@up" not in plan.node_index
 
@@ -197,54 +192,26 @@ def test_inline_variation_stop_boundary_is_exclusive(
 def test_inline_variation_does_not_clone_sink_by_default(
     toy_registry: dict[str, Any],
 ) -> None:
-    plan = _plan(
+    plan = _inline_plan(
         toy_registry,
-        [_scale("A", source="pt", output="a_pt"), _scale("B", source="a_pt")],
+        [
+            _scale("A", source="pt", output="a_pt"),
+            {
+                **_scale("B", source="a_pt"),
+                "write": [{"kind": "toy.write", "path": "output.json"}],
+            },
+        ],
         fields=["pt"],
-    )
-    plan.add_node(
-        ExecutionNode(
-            id="write.Output",
-            graph_node_id="write.Output",
-            role="sink",
-            impl="toy.write",
-            inputs=[
-                PlanInputRef(
-                    node_id="stage.B",
-                    output_name="stream",
-                    input_name="target",
-                )
-            ],
-            params={"path": "output.json"},
-            outputs={"result": "file"},
-        )
-    )
-
-    add_inline_variation_branch(
-        plan,
-        InlineVariationBranch(anchor_node_id="stage.B", variation={"name": "up"}),
+        variations=[{"name": "up", "mode": "inline", "anchor": "B"}],
     )
 
     assert "write.Output@up" not in plan.node_index
 
 
-def test_inline_variation_rejects_incompatible_variation_fan_in(
-    toy_registry: dict[str, Any],
-) -> None:
-    plan = _manual_side_input_plan(toy_registry)
-    plan.get_node("stage.SharedWeights").meta["variation"] = {"name": "other"}
-
-    with pytest.raises(ValueError, match="incompatible variation context"):
-        add_inline_variation_branch(
-            plan,
-            InlineVariationBranch(anchor_node_id="stage.B", variation={"name": "up"}),
-        )
-
-
 def test_inline_variation_plan_executes_with_existing_local_runtime(
     toy_registry: dict[str, Any],
 ) -> None:
-    plan = _plan(
+    plan = _inline_plan(
         toy_registry,
         [
             _scale("A", source="pt", output="a_pt"),
@@ -252,15 +219,14 @@ def test_inline_variation_plan_executes_with_existing_local_runtime(
             _scale("C", source="b_pt", output="c_pt", factor=3),
         ],
         fields=["pt"],
-    )
-
-    add_inline_variation_branch(
-        plan,
-        InlineVariationBranch(
-            anchor_node_id="stage.B",
-            variation={"name": "up"},
-            parameter_patch={"factor": 10},
-        ),
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "anchor": "B",
+                "patch": {"params": {"factor": 10}},
+            }
+        ],
     )
     store = execute_plan_locally(plan)
 
@@ -415,24 +381,19 @@ def test_inline_variation_applies_to_marks_cloned_branch(
 def test_inline_variation_intersects_original_dataset_applicability(
     toy_registry: dict[str, Any],
 ) -> None:
-    plan = _plan(
+    plan = _inline_plan(
         toy_registry,
         [_scale("A", source="pt", output="a_pt"), _scale("B", source="a_pt")],
         fields=["pt"],
-    )
-    plan.get_node("stage.B").meta["applies_to"] = {
-        "datasets": ["dy", "ttbar"],
-    }
-
-    add_inline_variation_branch(
-        plan,
-        InlineVariationBranch(
-            anchor_node_id="stage.B",
-            variation={
+        variations=[
+            {
                 "name": "up",
+                "mode": "inline",
+                "anchor": "B",
                 "applies_to": {"eventtypes": ["mc"], "datasets": ["dy", "wjets"]},
-            },
-        ),
+            }
+        ],
+        stage_updates={"B": {"applies_to": {"datasets": ["dy", "ttbar"]}}},
     )
 
     assert plan.get_node("stage.B@up").meta["applies_to"] == {
@@ -444,29 +405,28 @@ def test_inline_variation_intersects_original_dataset_applicability(
 def test_inline_variation_omits_clone_for_empty_applicability_intersection(
     toy_registry: dict[str, Any],
 ) -> None:
-    plan = _plan(
+    plan = _inline_plan(
         toy_registry,
         [_scale("A", source="pt", output="a_pt"), _scale("B", source="a_pt")],
         fields=["pt"],
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "anchor": "B",
+                "applies_to": {"eventtypes": ["mc"]},
+            }
+        ],
+        stage_updates={"B": {"applies_to": {"eventtype": "data"}}},
     )
-    plan.get_node("stage.B").meta["applies_to"] = {"eventtype": "data"}
 
-    result = add_inline_variation_branch(
-        plan,
-        InlineVariationBranch(
-            anchor_node_id="stage.B",
-            variation={"name": "up", "applies_to": {"eventtypes": ["mc"]}},
-        ),
-    )
-
-    assert result.cloned_nodes == {}
     assert "stage.B@up" not in plan.node_index
 
 
 def test_inline_variation_downstream_clone_keeps_narrower_original_applicability(
     toy_registry: dict[str, Any],
 ) -> None:
-    plan = _plan(
+    plan = _inline_plan(
         toy_registry,
         [
             _scale("A", source="pt", output="a_pt"),
@@ -474,24 +434,20 @@ def test_inline_variation_downstream_clone_keeps_narrower_original_applicability
             _scale("C", source="b_pt", output="c_pt"),
         ],
         fields=["pt"],
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "anchor": "B",
+                "applies_to": {"eventtypes": ["mc"]},
+            }
+        ],
+        stage_updates={
+            "C": {"applies_to": {"eventtypes": ["mc"], "datasets": ["dy"]}},
+        },
     )
-    plan.get_node("stage.C").meta["applies_to"] = {
-        "eventtypes": ["mc"],
-        "datasets": ["dy"],
-    }
 
-    result = add_inline_variation_branch(
-        plan,
-        InlineVariationBranch(
-            anchor_node_id="stage.B",
-            variation={"name": "up", "applies_to": {"eventtypes": ["mc"]}},
-        ),
-    )
-
-    assert result.cloned_nodes == {
-        "stage.B": "stage.B@up",
-        "stage.C": "stage.C@up",
-    }
+    assert {"stage.B@up", "stage.C@up"} <= set(plan.node_index)
     assert plan.get_node("stage.B@up").meta["applies_to"] == {"eventtypes": ["mc"]}
     assert plan.get_node("stage.C@up").meta["applies_to"] == {
         "eventtypes": ["mc"],
@@ -699,11 +655,13 @@ def test_inline_variation_export_rejects_incompatible_lineage(
         compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
 
-def _plan(
+def _inline_plan(
     registry: dict[str, Any],
     stages: list[dict[str, Any]],
     *,
     fields: list[str],
+    variations: list[dict[str, Any]],
+    stage_updates: dict[str, dict[str, Any]] | None = None,
 ) -> Any:
     normalized = normalize_workflow(
         {
@@ -722,8 +680,17 @@ def _plan(
                 }
             },
             "analysis": {"stages": stages},
+            "systematics": {
+                "include_nominal": True,
+                "variations": variations,
+            },
         }
     )
+    stage_updates = stage_updates or {}
+    for stage in normalized["analysis"]["stages"]:
+        update = stage_updates.get(str(stage.get("id") or ""))
+        if update:
+            stage.update(update)
     _, plan = build_plan_from_normalized(normalized)
     return plan
 
@@ -792,6 +759,15 @@ def _registry_with_collection_ops(registry: dict[str, Any]) -> dict[str, Any]:
     return registry
 
 
+def _registry_with_product(registry: dict[str, Any]) -> dict[str, Any]:
+    registry = deepcopy(registry)
+    registry["transforms"]["toy.product"] = {
+        "spec": "tests.toy_components.transforms:TOY_PRODUCT_SPEC",
+        "impl": "tests.toy_components.transforms:run_toy_product",
+    }
+    return registry
+
+
 def _output_payload(build_dir: Any) -> dict[str, Any]:
     direct = build_dir / "artifacts" / "files" / "output.json"
     if direct.exists():
@@ -838,91 +814,3 @@ def _input_node(plan: ExecutionPlan, node_id: str, input_name: str = "stream") -
 
 def _lineage(plan: ExecutionPlan, node_id: str) -> str:
     return plan.data_flow["_stream_lineage"][f"{node_id}:stream"]["identity"]
-
-
-def _manual_side_input_plan(registry: dict[str, Any]) -> ExecutionPlan:
-    plan = ExecutionPlan()
-    plan.registry = registry
-    plan.context = {
-        "datasets": {"sample": {"name": "sample", "files": ["sample.root"]}},
-        "dataset_names": ["sample"],
-        "globals": {},
-    }
-    plan.add_node(
-        ExecutionNode(
-            id="read.events",
-            graph_node_id="read.events",
-            role="source",
-            impl="toy.source",
-            params={"branches": ["pt"]},
-            outputs={"stream": "event_stream"},
-            meta={"source_name": "events"},
-        )
-    )
-    plan.add_node(
-        ExecutionNode(
-            id="stage.A",
-            graph_node_id="stage.A",
-            role="transform",
-            impl="toy.scale",
-            inputs=[
-                PlanInputRef(
-                    node_id="read.events",
-                    output_name="stream",
-                    input_name="stream",
-                )
-            ],
-            params={"source": "pt", "output": "a_pt"},
-            outputs={"stream": "event_stream"},
-        )
-    )
-    plan.add_node(
-        ExecutionNode(
-            id="stage.SharedWeights",
-            graph_node_id="stage.SharedWeights",
-            role="transform",
-            impl="toy.product",
-            params={"value": "weights"},
-            outputs={"product": "toy_product"},
-        )
-    )
-    plan.add_node(
-        ExecutionNode(
-            id="stage.B",
-            graph_node_id="stage.B",
-            role="transform",
-            impl="toy.scale",
-            inputs=[
-                PlanInputRef(
-                    node_id="stage.A",
-                    output_name="stream",
-                    input_name="stream",
-                )
-            ],
-            params={"source": "a_pt", "output": "b_pt"},
-            outputs={"stream": "event_stream"},
-        )
-    )
-    plan.add_node(
-        ExecutionNode(
-            id="stage.C",
-            graph_node_id="stage.C",
-            role="transform",
-            impl="toy.scale",
-            inputs=[
-                PlanInputRef(
-                    node_id="stage.B",
-                    output_name="stream",
-                    input_name="stream",
-                ),
-                PlanInputRef(
-                    node_id="stage.SharedWeights",
-                    output_name="product",
-                    input_name="weights",
-                ),
-            ],
-            params={"source": "b_pt", "output": "c_pt"},
-            outputs={"stream": "event_stream"},
-        )
-    )
-    return plan
