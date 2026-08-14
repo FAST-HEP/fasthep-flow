@@ -559,8 +559,10 @@ def _transform_stream_state(
 ) -> StreamState:
     field_behavior = _field_propagation_behavior(spec)
     if field_behavior == "merge":
-        input_fields = _merge_ordered_fields([state.fields for state in input_states])
-        input_origins = _merge_input_origins(input_states)
+        input_fields, input_origins = _merge_stream_fields_and_origins(
+            node=node,
+            input_states=input_states,
+        )
     output_fields = _transform_output_fields(
         node=node,
         spec=spec,
@@ -737,8 +739,8 @@ def _public_origins(
         seen: set[tuple[str, str, str]] = set()
         for stream, origin in entries:
             marker = (
-                "",
-                "",
+                stream.node_id,
+                stream.output_name,
                 repr(sorted(origin.items())),
             )
             if marker in seen:
@@ -819,15 +821,39 @@ def _required_source_branches(required: Any) -> list[str]:
     return _literal_fields(_string_list(required.get("branches")))
 
 
-def _merge_input_origins(input_states: list[StreamState]) -> dict[str, dict[str, Any]]:
+def _merge_stream_fields_and_origins(
+    *,
+    node: ExecutionNode,
+    input_states: list[StreamState],
+) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    on_conflict = str(node.params.get("on_conflict") or "keep_first")
+    if on_conflict not in {"keep_first", "keep_last", "error"}:
+        raise ValueError(
+            f"Unsupported event-stream merge conflict policy for {node.id!r}: "
+            f"{on_conflict!r}"
+        )
+    fields: list[str] = []
     origins: dict[str, dict[str, Any]] = {}
+    seen: set[str] = set()
     for state in input_states:
         for field in state.fields:
             origin = state.origins.get(field)
-            if origin is None or field in origins:
+            if field in seen:
+                if on_conflict == "error":
+                    raise ValueError(
+                        f"Node {node.id!r} cannot merge duplicate event-stream "
+                        f"field {field!r}"
+                    )
+                if on_conflict == "keep_first":
+                    continue
+                if origin is not None:
+                    origins[field] = dict(origin)
                 continue
-            origins[field] = dict(origin)
-    return origins
+            fields.append(field)
+            seen.add(field)
+            if origin is not None:
+                origins[field] = dict(origin)
+    return fields, origins
 
 
 def _transform_output_fields(
@@ -841,7 +867,10 @@ def _transform_output_fields(
 ) -> list[str]:
     field_behavior = _field_propagation_behavior(spec)
     if field_behavior == "merge":
-        return _merge_ordered_fields([state.fields for state in input_states])
+        return _merge_stream_fields_and_origins(
+            node=node,
+            input_states=input_states,
+        )[0]
     if node.impl == "hep.project_fields":
         aliases = dict(params.get("aliases") or {})
         if params.get("include_existing", True) is False or field_behavior == "projection":
