@@ -14,6 +14,7 @@ from hepflow.compiler.execution import (
     normalize_global_execution,
     validate_stage_execution_resource_references,
 )
+from hepflow.compiler.inline_variations import apply_inline_variation_branches
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.model.graph import get_graph_node
 from hepflow.model.lifecycle import WHEN_ALIASES
@@ -158,6 +159,7 @@ def build_plan_from_normalized(
     variation = normalized.get("variation")
     if isinstance(variation, dict):
         plan.context["variation"] = dict(variation)
+    apply_inline_variation_branches(plan, normalized)
     plan.reports = list(normalized.get("reports") or [])
     return graph, plan
 

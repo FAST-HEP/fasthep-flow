@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+import yaml
 
+from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.compiler.inline_variations import (
     InlineVariationBranch,
     add_inline_variation_branch,
@@ -257,6 +259,74 @@ def test_inline_variation_plan_executes_with_existing_local_runtime(
     )
     store = execute_plan_locally(plan)
 
+    assert store[("stage.C", "stream")]["c_pt"] == [72, 108, 126, 168]
+    assert store[("stage.C@up", "stream")]["c_pt"] == [360, 540, 630, 840]
+
+
+def test_authored_inline_variation_compiles_to_one_plan_and_runs(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    workflow = {
+        "version": "1.0",
+        "registry": toy_registry,
+        "data": {
+            "datasets": [
+                {"name": "sample", "files": ["sample.root"], "eventtype": "mc"}
+            ]
+        },
+        "sources": {
+            "events": {
+                "kind": "toy.source",
+                "stream_type": "event_stream",
+                "branches": ["pt"],
+            }
+        },
+        "analysis": {
+            "stages": [
+                _scale("A", source="pt", output="a_pt"),
+                _scale("B", source="a_pt", output="b_pt", factor=2),
+                _scale("C", source="b_pt", output="c_pt", factor=3),
+            ]
+        },
+        "systematics": {
+            "include_nominal": True,
+            "variations": [
+                {
+                    "name": "up",
+                    "group": "toy",
+                    "direction": "up",
+                    "mode": "inline",
+                    "anchor": "B",
+                    "patch": {"params": {"factor": 10}},
+                }
+            ],
+        },
+    }
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    build_dir = tmp_path / "build"
+
+    compile_workflow_file(workflow_path, outdir=build_dir)
+
+    plan_path = build_dir / "compile" / "plan.yaml"
+    assert plan_path.exists()
+    assert not (build_dir / "compile" / "up" / "plan.yaml").exists()
+    plan_doc = yaml.safe_load(plan_path.read_text(encoding="utf-8"))
+    nodes = {node["id"]: node for node in plan_doc["nodes"]}
+    assert {"stage.A", "stage.B", "stage.C"}.issubset(nodes)
+    assert {"stage.B@up", "stage.C@up"}.issubset(nodes)
+    assert "variation" not in plan_doc["context"]
+    assert nodes["stage.B@up"]["meta"]["variation"] == {
+        "name": "up",
+        "mode": "inline",
+        "group": "toy",
+        "direction": "up",
+    }
+    assert nodes["stage.B@up"]["params"]["factor"] == 10
+
+    value_store = run_plan_file(plan_path, outdir=build_dir).outputs["value_store"]
+    store = value_store[0] if isinstance(value_store, list) else value_store
     assert store[("stage.C", "stream")]["c_pt"] == [72, 108, 126, 168]
     assert store[("stage.C@up", "stream")]["c_pt"] == [360, 540, 630, 840]
 

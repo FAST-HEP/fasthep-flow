@@ -186,6 +186,10 @@ def normalize_systematics(raw: Any) -> SystematicsConfig | None:
         variations.append(
             SystematicVariation(
                 name=name,
+                mode=_normalize_variation_mode(
+                    variation.get("mode"),
+                    f"systematics.variations[{idx}].mode",
+                ),
                 group=_optional_string(
                     variation.get("group"), f"systematics.variations[{idx}].group"
                 ),
@@ -213,6 +217,18 @@ def normalize_systematics(raw: Any) -> SystematicsConfig | None:
                     variation.get("datasets"),
                     f"systematics.variations[{idx}].datasets",
                 ),
+                anchor=_optional_string(
+                    variation.get("anchor", variation.get("stage")),
+                    f"systematics.variations[{idx}].anchor",
+                ),
+                patch=_normalize_inline_patch(
+                    variation,
+                    f"systematics.variations[{idx}]",
+                ),
+                stop_before=_normalize_optional_string_list(
+                    variation.get("stop_before"),
+                    f"systematics.variations[{idx}].stop_before",
+                ),
             )
         )
 
@@ -225,6 +241,29 @@ def normalize_systematics(raw: Any) -> SystematicsConfig | None:
         profiles=profiles,
         variations=variations,
     )
+
+
+def _normalize_variation_mode(raw: Any, where: str) -> str:
+    if raw is None:
+        return "plan"
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError(f"{where} must be a non-empty string")
+    mode = raw.strip()
+    if mode not in {"plan", "inline"}:
+        raise ValueError(f"{where} must be 'plan' or 'inline'")
+    return mode
+
+
+def _normalize_inline_patch(variation: dict[str, Any], where: str) -> dict[str, Any]:
+    if "patch" in variation:
+        patch = _ensure_mapping(variation.get("patch"), f"{where}.patch")
+        params = patch.get("params")
+        if isinstance(params, dict) and set(patch) == {"params"}:
+            return dict(params)
+        return dict(patch)
+    if "params" in variation:
+        return _ensure_mapping(variation.get("params"), f"{where}.params")
+    return {}
 
 
 def normalize_data(data: dict[str, Any], datasets_include: Any = None) -> DataBlock:

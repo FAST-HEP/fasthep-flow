@@ -197,6 +197,7 @@ class SystematicWeightRule:
 @dataclass(frozen=True)
 class SystematicVariation:
     name: str
+    mode: str = "plan"
     group: str | None = None
     direction: str | None = None
     applies_to: SystematicApplicability = field(default_factory=SystematicApplicability)
@@ -204,11 +205,20 @@ class SystematicVariation:
     weight: SystematicWeightRule = field(default_factory=SystematicWeightRule)
     replace: dict[str, str] = field(default_factory=dict)
     datasets: dict[str, Any] = field(default_factory=dict)
+    anchor: str | None = None
+    patch: dict[str, Any] = field(default_factory=dict)
+    stop_before: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self, "name", _nonempty_str(self.name, "systematics.variations[].name")
         )
+        mode = _nonempty_str(self.mode, f"systematics.variations[{self.name}].mode")
+        if mode not in {"plan", "inline"}:
+            raise ValueError(
+                f"systematics.variations[{self.name}].mode must be 'plan' or 'inline'"
+            )
+        object.__setattr__(self, "mode", mode)
         if self.group is not None:
             object.__setattr__(
                 self,
@@ -247,9 +257,49 @@ class SystematicVariation:
             raise ValueError(
                 f"systematics.variations[{self.name}].datasets must be a mapping"
             )
+        if self.anchor is not None:
+            object.__setattr__(
+                self,
+                "anchor",
+                _nonempty_str(self.anchor, f"systematics.variations[{self.name}].anchor"),
+            )
+        if self.mode == "inline" and self.anchor is None:
+            raise ValueError(
+                f"systematics.variations[{self.name}].anchor is required for inline variations"
+            )
+        if not isinstance(self.patch, dict):
+            raise ValueError(
+                f"systematics.variations[{self.name}].patch must be a mapping"
+            )
+        object.__setattr__(
+            self,
+            "stop_before",
+            _optional_list_of_str(
+                self.stop_before,
+                f"systematics.variations[{self.name}].stop_before",
+            ),
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data: dict[str, Any] = {"name": self.name}
+        if self.mode != "plan":
+            data["mode"] = self.mode
+        if self.group is not None:
+            data["group"] = self.group
+        if self.direction is not None:
+            data["direction"] = self.direction
+        data["applies_to"] = self.applies_to.to_dict()
+        data["requires"] = list(self.requires)
+        data["weight"] = self.weight.to_dict()
+        data["replace"] = dict(self.replace)
+        data["datasets"] = dict(self.datasets)
+        if self.anchor is not None:
+            data["anchor"] = self.anchor
+        if self.patch:
+            data["patch"] = dict(self.patch)
+        if self.stop_before:
+            data["stop_before"] = list(self.stop_before)
+        return data
 
 
 @dataclass(frozen=True)
@@ -270,7 +320,11 @@ class SystematicsConfig:
             raise ValueError("systematics.variations must be a list")
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {
+            "include_nominal": self.include_nominal,
+            "profiles": list(self.profiles),
+            "variations": [variation.to_dict() for variation in self.variations],
+        }
 
 
 @dataclass(frozen=True)
@@ -342,6 +396,8 @@ class NormalizedWorkflow:
         data = asdict(self)
         if self.systematics is None:
             data.pop("systematics", None)
+        else:
+            data["systematics"] = self.systematics.to_dict()
         return data
 
 

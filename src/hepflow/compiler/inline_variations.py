@@ -89,6 +89,71 @@ def add_inline_variation_branch(
     )
 
 
+def apply_inline_variation_branches(
+    plan: ExecutionPlan,
+    normalized: Mapping[str, Any],
+) -> list[InlineVariationResult]:
+    systematics = normalized.get("systematics")
+    if not isinstance(systematics, Mapping):
+        return []
+    variations = systematics.get("variations") or []
+    if not isinstance(variations, list):
+        return []
+
+    results: list[InlineVariationResult] = []
+    for raw_variation in variations:
+        if not isinstance(raw_variation, Mapping):
+            continue
+        if str(raw_variation.get("mode") or "plan") != "inline":
+            continue
+        results.append(
+            add_inline_variation_branch(
+                plan,
+                InlineVariationBranch(
+                    anchor_node_id=_stage_node_id(raw_variation.get("anchor")),
+                    variation=_inline_variation_metadata(raw_variation),
+                    parameter_patch=dict(raw_variation.get("patch") or {}),
+                    stop_before=frozenset(
+                        _stage_node_id(item)
+                        for item in list(raw_variation.get("stop_before") or [])
+                    ),
+                ),
+                update_data_flow=False,
+            )
+        )
+
+    if results:
+        plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
+        apply_data_flow_to_sources(plan)
+    return results
+
+
+def _stage_node_id(raw: Any) -> str:
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("Inline variation requires non-empty anchor stage")
+    value = raw.strip()
+    return value if "." in value else f"stage.{value}"
+
+
+def _inline_variation_metadata(raw_variation: Mapping[str, Any]) -> dict[str, Any]:
+    metadata = {
+        key: deepcopy(value)
+        for key, value in raw_variation.items()
+        if key not in {"anchor", "patch", "params", "stage", "stop_before"}
+        and not _empty_metadata_value(value)
+    }
+    metadata["mode"] = "inline"
+    return metadata
+
+
+def _empty_metadata_value(value: Any) -> bool:
+    if value in (None, [], {}):
+        return True
+    if isinstance(value, Mapping):
+        return all(_empty_metadata_value(item) for item in value.values())
+    return False
+
+
 def _inline_clone_order(
     plan: ExecutionPlan,
     *,

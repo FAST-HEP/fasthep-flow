@@ -38,7 +38,10 @@ from hepflow.compiler.plan_diff import (
 from hepflow.compiler.registry_resolution import (
     resolve_workflow_registry,
 )
-from hepflow.compiler.systematics import make_systematic_plan_files
+from hepflow.compiler.systematics import (
+    has_separate_plan_systematics,
+    make_systematic_plan_files,
+)
 from hepflow.model.plan import (
     ExecutionNode,
     ExecutionPartition,
@@ -144,7 +147,7 @@ def make_plan_file(
     normalized_file = resolve_normalized_path(normalized_path)
     out_path = Path(outdir)
     normalized = read_yaml(str(normalized_file)) or {}
-    if "systematics" in normalized:
+    if has_separate_plan_systematics(normalized):
         compile_dir(out_path).mkdir(parents=True, exist_ok=True)
         return make_systematic_plan_files(
             normalized,
@@ -331,7 +334,7 @@ def run_workflow_file(
     out_path = Path(outdir)
     compile_workflow_file(workflow_path, outdir=out_path, chunk_size=chunk_size)
     normalized = read_yaml(str(normalized_path(out_path))) or {}
-    if "systematics" in normalized:
+    if has_separate_plan_systematics(normalized):
         nominal_plan = out_path / "compile" / "nominal" / "plan.yaml"
         if not nominal_plan.exists():
             raise ValueError(

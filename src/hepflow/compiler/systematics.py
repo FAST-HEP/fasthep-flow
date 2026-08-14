@@ -61,6 +61,8 @@ def expand_systematics(normalized: dict[str, Any]) -> list[ExpandedWorkflow]:
     for raw_variation in variations:
         if not isinstance(raw_variation, dict):
             raise ValueError("systematics.variations entries must be mappings")
+        if _variation_mode(raw_variation) == "inline":
+            continue
         variation = _variation_context(raw_variation)
         workflow = deepcopy(normalized)
         workflow["variation"] = variation.to_dict()
@@ -70,6 +72,17 @@ def expand_systematics(normalized: dict[str, Any]) -> list[ExpandedWorkflow]:
         expanded.append(ExpandedWorkflow(variation=variation, workflow=workflow))
 
     return expanded
+
+
+def has_separate_plan_systematics(normalized: dict[str, Any]) -> bool:
+    systematics = normalized.get("systematics")
+    if not isinstance(systematics, dict):
+        return False
+    variations = systematics.get("variations") or []
+    return any(
+        isinstance(variation, dict) and _variation_mode(variation) != "inline"
+        for variation in variations
+    )
 
 
 def apply_weight_variation(
@@ -327,7 +340,7 @@ def _variation_context(raw_variation: dict[str, Any]) -> VariationContext:
     metadata = {
         key: deepcopy(value)
         for key, value in raw_variation.items()
-        if key not in {"name", "group", "direction"}
+        if key not in {"name", "group", "direction", "mode"}
     }
     return VariationContext(
         name=name.strip(),
@@ -336,6 +349,10 @@ def _variation_context(raw_variation: dict[str, Any]) -> VariationContext:
         is_nominal=False,
         metadata=metadata,
     )
+
+
+def _variation_mode(raw_variation: dict[str, Any]) -> str:
+    return str(raw_variation.get("mode") or "plan")
 
 
 def _weight_multipliers(variation: VariationContext) -> list[str]:
