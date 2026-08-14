@@ -11,6 +11,7 @@ from hepflow.model.data_flow import DataDependencyResult, DependencyContext
 from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
 from hepflow.model.plan_applicability import (
     active_plan_nodes_for_dataset,
+    inactive_inputs_behavior_for_node,
     resolve_active_input_ref,
 )
 from hepflow.registry.defaults import (
@@ -212,12 +213,16 @@ def _analyze_stream_data_flow(
         )
 
         stream_id = str(node.params.get("stream_id") or primary_stream)
+        omit_inactive_inputs = (
+            inactive_inputs_behavior_for_node(plan, node) == "omit"
+        )
         input_state = _primary_input_stream_state(
             plan=plan,
             node=node,
             active_ids=active_ids,
             stream_states=stream_states,
             dataset=dataset,
+            omit_inactive_inputs=omit_inactive_inputs,
         )
         input_states = _event_stream_input_states(
             plan=plan,
@@ -225,6 +230,7 @@ def _analyze_stream_data_flow(
             active_ids=active_ids,
             stream_states=stream_states,
             dataset=dataset,
+            omit_inactive_inputs=omit_inactive_inputs,
         )
         input_fields = list(input_state.fields) if input_state is not None else []
         input_origins = dict(input_state.origins) if input_state is not None else {}
@@ -488,13 +494,21 @@ def _primary_input_stream_state(
     active_ids: set[str],
     stream_states: dict[StreamRef, StreamState],
     dataset: dict[str, Any] | None,
+    omit_inactive_inputs: bool,
 ) -> StreamState | None:
+    event_stream_input_count = _event_stream_input_count(plan, node)
     for ref in node.inputs:
         if ref.node_id in active_ids:
             active_ref = ref
         else:
-            if len(node.inputs) > 1:
+            if omit_inactive_inputs:
                 continue
+            if event_stream_input_count > 1:
+                raise ValueError(
+                    f"node {node.id!r} has inactive required input "
+                    f"{ref.node_id!r}; declare input.inactive_inputs: omit "
+                    "to allow contextual omission"
+                )
             active_ref = resolve_active_input_ref(plan, ref, dataset=dataset)
         if active_ref.node_id not in active_ids:
             continue
@@ -513,15 +527,23 @@ def _event_stream_input_states(
     active_ids: set[str],
     stream_states: dict[StreamRef, StreamState],
     dataset: dict[str, Any] | None,
+    omit_inactive_inputs: bool,
 ) -> list[StreamState]:
     states: list[StreamState] = []
     seen: set[StreamRef] = set()
+    event_stream_input_count = _event_stream_input_count(plan, node)
     for ref in node.inputs:
         if ref.node_id in active_ids:
             active_ref = ref
         else:
-            if len(node.inputs) > 1:
+            if omit_inactive_inputs:
                 continue
+            if event_stream_input_count > 1:
+                raise ValueError(
+                    f"node {node.id!r} has inactive required input "
+                    f"{ref.node_id!r}; declare input.inactive_inputs: omit "
+                    "to allow contextual omission"
+                )
             active_ref = resolve_active_input_ref(plan, ref, dataset=dataset)
         if active_ref.node_id not in active_ids:
             continue
@@ -538,6 +560,15 @@ def _event_stream_input_states(
         states.append(state)
         seen.add(stream_ref)
     return states
+
+
+def _event_stream_input_count(plan: ExecutionPlan, node: ExecutionNode) -> int:
+    return sum(
+        1
+        for ref in node.inputs
+        if ref.input_name != "dependency"
+        and plan.get_node(ref.node_id).outputs.get(ref.output_name) == "event_stream"
+    )
 
 
 def _stream_ref(ref: PlanInputRef) -> StreamRef:

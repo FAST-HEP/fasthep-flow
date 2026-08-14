@@ -285,6 +285,9 @@ TOY_PROJECT_FIELDS_SPEC = {
 TOY_MERGE_FIELDS_SPEC = {
     "name": "hep.merge_fields",
     "kind": "transform",
+    "input": {
+        "inactive_inputs": "omit",
+    },
     "params": {
         "on_conflict": {"required": False, "default": "keep_first"},
     },
@@ -307,6 +310,12 @@ TOY_PRESERVE_MERGE_FIELDS_SPEC = {
             "lineage": "preserve",
         }
     },
+}
+
+TOY_STRICT_MERGE_FIELDS_SPEC = {
+    **TOY_MERGE_FIELDS_SPEC,
+    "name": "toy.strict_merge_fields",
+    "input": {},
 }
 
 

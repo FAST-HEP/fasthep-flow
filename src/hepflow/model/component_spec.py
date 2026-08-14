@@ -20,6 +20,9 @@ class RuntimeComponentSpec:
 
     ``input``
         What the component consumes (for example, an ``event_stream``).
+        Multi-input components may declare ``inactive_inputs: omit`` when
+        inputs whose producers are inactive in a dataset context should be
+        omitted rather than treated as missing required inputs.
 
     ``result``
         What the component produces (for example, an event stream or an

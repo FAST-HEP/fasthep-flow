@@ -3,7 +3,27 @@ from __future__ import annotations
 from typing import Any
 
 from hepflow.model.applicability import node_applies_to_dataset
+from hepflow.model.component_spec import RuntimeComponentSpec
 from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
+from hepflow.registry.loaders import load_object
+
+
+def inactive_inputs_behavior_for_node(
+    plan: ExecutionPlan,
+    node: ExecutionNode,
+) -> str:
+    spec = _component_spec_for_node(plan, node)
+    if spec is None:
+        return "error"
+    raw = spec.input.get("inactive_inputs") if isinstance(spec.input, dict) else None
+    if raw is None:
+        return "error"
+    behavior = str(raw)
+    if behavior in {"error", "omit"}:
+        return behavior
+    raise ValueError(
+        f"Unsupported inactive_inputs behavior for {node.id!r}: {behavior!r}"
+    )
 
 
 def node_applies_to_plan_dataset(
@@ -82,19 +102,26 @@ def _validate_dataset(
     label: str,
 ) -> None:
     for node in active_plan_nodes_for_dataset(plan, dataset=dataset):
+        inactive_inputs = inactive_inputs_behavior_for_node(plan, node)
+        event_stream_inputs = _event_stream_input_count(plan, node)
         if (
             node.role == "sink"
             and str(node.params.get("when") or "") == "run_end"
-            and len(node.inputs) > 1
+            and event_stream_inputs > 1
+            and inactive_inputs == "omit"
         ):
             continue
         for ref in node.inputs:
             upstream = plan.get_node(ref.node_id)
-            if (
-                len(node.inputs) > 1
-                and not node_applies_to_plan_dataset(upstream, dataset=dataset)
-            ):
-                continue
+            if not node_applies_to_plan_dataset(upstream, dataset=dataset):
+                if inactive_inputs == "omit":
+                    continue
+                if event_stream_inputs > 1:
+                    raise ValueError(
+                        f"node {node.id!r} has inactive required input "
+                        f"{ref.node_id!r}; declare input.inactive_inputs: omit "
+                        "to allow contextual omission"
+                    )
             try:
                 resolve_active_input_ref(plan, ref, dataset=dataset)
             except ValueError as exc:
@@ -166,8 +193,38 @@ def _bypass_inactive_node(
 __all__ = [
     "active_plan_nodes_for_context",
     "active_plan_nodes_for_dataset",
+    "inactive_inputs_behavior_for_node",
     "node_applies_to_context",
     "node_applies_to_plan_dataset",
     "resolve_active_input_ref",
     "validate_plan_applicability",
 ]
+
+
+def _component_spec_for_node(
+    plan: ExecutionPlan,
+    node: ExecutionNode,
+) -> RuntimeComponentSpec | None:
+    category = {
+        "transform": "transforms",
+        "sink": "sinks",
+    }.get(node.role)
+    if category is None:
+        return None
+    entries = (plan.registry or {}).get(category) or {}
+    entry = entries.get(node.impl)
+    if not isinstance(entry, dict):
+        return None
+    spec_ref = entry.get("spec")
+    if not isinstance(spec_ref, str):
+        return None
+    return RuntimeComponentSpec.from_obj(load_object(spec_ref))
+
+
+def _event_stream_input_count(plan: ExecutionPlan, node: ExecutionNode) -> int:
+    return sum(
+        1
+        for ref in node.inputs
+        if ref.input_name != "dependency"
+        and plan.get_node(ref.node_id).outputs.get(ref.output_name) == "event_stream"
+    )

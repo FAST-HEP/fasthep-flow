@@ -257,6 +257,10 @@ def test_run_end_sink_can_consume_data_and_mc_specific_products(
     toy_workflow: dict[str, Any],
 ) -> None:
     workflow = deepcopy(toy_workflow)
+    workflow["registry"]["sinks"]["hep.render.comparison"] = {
+        "spec": "tests.toy_components.sinks:TOY_COMPARISON_SINK_SPEC",
+        "impl": "tests.toy_components.sinks:run_toy_write",
+    }
     workflow["data"] = {
         "datasets": [
             {"name": "data", "eventtype": "data", "files": ["data.root"]},

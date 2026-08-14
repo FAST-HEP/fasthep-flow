@@ -182,7 +182,11 @@ def _insert_variation_collection_boundaries_in_graph(
             continue
         if boundary.id in cloned_originals or _graph_node_variation(boundary) is not None:
             continue
-        target_edge = _target_stream_edge(graph, boundary.id)
+        target_edge = _variation_collection_target_stream_edge(
+            graph,
+            boundary.id,
+            results=exported,
+        )
         if target_edge is None:
             continue
         target_upstream, edge_data = target_edge
@@ -261,14 +265,40 @@ def _insert_variation_collection_boundaries_in_graph(
         )
 
 
-def _target_stream_edge(
+def _variation_collection_target_stream_edge(
     graph: nx.DiGraph,
     node_id: str,
+    *,
+    results: list[InlineVariationResult],
 ) -> tuple[str, Mapping[str, Any]] | None:
+    varied_upstreams = {
+        original_id for result in results for original_id in result.cloned_nodes
+    }
+    candidates: list[tuple[str, Mapping[str, Any]]] = []
     for upstream, _, edge_data in graph.in_edges(node_id, data=True):
-        if str(edge_data.get("output") or "stream") == "stream":
-            return str(upstream), dict(edge_data)
-    return None
+        upstream_id = str(upstream)
+        if upstream_id not in varied_upstreams:
+            continue
+        if str(edge_data.get("output") or "stream") != "stream":
+            continue
+        candidates.append((upstream_id, dict(edge_data)))
+    if not candidates:
+        return None
+    candidates = sorted(
+        candidates,
+        key=lambda item: (
+            item[0],
+            str(item[1].get("input_name") or "stream"),
+            str(item[1].get("output") or "stream"),
+        ),
+    )
+    upstream_ids = {upstream for upstream, _edge_data in candidates}
+    if len(upstream_ids) > 1:
+        raise ValueError(
+            f"Inline variation collection before {node_id!r} is ambiguous: "
+            f"multiple event-stream inputs vary {sorted(upstream_ids)!r}"
+        )
+    return candidates[0]
 
 
 def _unique_graph_node_id(graph: nx.DiGraph, base: str) -> str:

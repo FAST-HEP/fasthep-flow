@@ -309,6 +309,9 @@ def test_inline_variation_export_collects_selected_fields_before_single_writer(
     workflow_path = _write_inline_export_workflow(
         tmp_path,
         _registry_with_collection_ops(toy_registry),
+        datasets=[
+            {"name": "data", "files": ["data.root"], "eventtype": "data"},
+        ],
         variations=[
             {
                 "name": "up",
@@ -473,6 +476,7 @@ def test_authored_inline_variation_does_not_broaden_anchor_applicability(
             }
         ],
         anchor_applies_to={"eventtype": "data"},
+        datasets=[{"name": "data", "files": ["data.root"], "eventtype": "data"}],
     )
 
     compile_workflow_file(workflow_path, outdir=tmp_path / "build")
@@ -518,6 +522,178 @@ def test_inline_variation_export_can_collect_before_stop_boundary(
     payload = _output_payload(build_dir)
     assert payload["b_pt_up"] == [120, 180, 210, 280]
     assert payload["c_pt"] == [72, 108, 126, 168]
+
+
+def test_inline_variation_collection_selects_the_varied_stream_input(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    workflow_path = _write_inline_export_workflow(
+        tmp_path,
+        _registry_with_collection_ops(toy_registry),
+        stages=[
+            _scale("A", source="pt", output="a_pt"),
+            _scale("B", source="a_pt", output="b_pt", factor=2),
+            _scale("Side", source="pt", output="side_pt", upstream="events"),
+            {
+                "id": "Join",
+                "op": "hep.merge_fields",
+                "from": [
+                    {"node": "Side", "port": "stream", "as": "side"},
+                    {"node": "B", "port": "stream", "as": "stream"},
+                ],
+                "params": {"on_conflict": "keep_first"},
+                "write": [{"kind": "toy.write", "path": "output.json"}],
+            },
+        ],
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "anchor": "B",
+                "patch": {"params": {"factor": 10}},
+                "stop_before": ["Join"],
+                "export": {"b_pt_up": "b_pt"},
+            }
+        ],
+    )
+    build_dir = tmp_path / "build"
+
+    compile_workflow_file(workflow_path, outdir=build_dir)
+    plan_doc = yaml.safe_load(
+        (build_dir / "compile" / "plan.yaml").read_text(encoding="utf-8")
+    )
+    nodes = {node["id"]: node for node in plan_doc["nodes"]}
+    join_inputs = {
+        item["input_name"]: item["node_id"] for item in nodes["stage.Join"]["inputs"]
+    }
+
+    assert join_inputs == {
+        "side": "stage.Side",
+        "stream": "collect.stage.Join",
+    }
+    assert {
+        item["input_name"]: item["node_id"]
+        for item in nodes["collect.stage.Join"]["inputs"]
+    } == {
+        "nominal": "stage.B",
+        "variation_1": "export.stage.B@up",
+    }
+
+
+def test_inline_variation_collection_rejects_ambiguous_varied_stream_inputs(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    workflow_path = _write_inline_export_workflow(
+        tmp_path,
+        _registry_with_collection_ops(toy_registry),
+        stages=[
+            _scale("A", source="pt", output="a_pt"),
+            _scale("B", source="a_pt", output="b_pt", factor=2),
+            _scale("Side", source="pt", output="side_pt", upstream="events"),
+            {
+                "id": "Join",
+                "op": "hep.merge_fields",
+                "from": [
+                    {"node": "Side", "port": "stream", "as": "side"},
+                    {"node": "B", "port": "stream", "as": "stream"},
+                ],
+                "params": {"on_conflict": "keep_first"},
+                "write": [{"kind": "toy.write", "path": "output.json"}],
+            },
+        ],
+        variations=[
+            {
+                "name": "b_up",
+                "mode": "inline",
+                "anchor": "B",
+                "patch": {"params": {"factor": 10}},
+                "stop_before": ["Join"],
+                "export": {"b_pt_up": "b_pt"},
+            },
+            {
+                "name": "side_up",
+                "mode": "inline",
+                "anchor": "Side",
+                "patch": {"params": {"factor": 10}},
+                "stop_before": ["Join"],
+                "export": {"side_pt_up": "side_pt"},
+            },
+        ],
+    )
+
+    with pytest.raises(ValueError, match="multiple event-stream inputs vary"):
+        compile_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+
+def test_inline_variation_collector_omits_inactive_mc_exports_for_data(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    workflow_path = _write_inline_export_workflow(
+        tmp_path,
+        _registry_with_collection_ops(toy_registry),
+        datasets=[
+            {"name": "data", "files": ["data.root"], "eventtype": "data"},
+            {"name": "mc", "files": ["mc.root"], "eventtype": "mc"},
+        ],
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "applies_to": "mc",
+                "anchor": "B",
+                "patch": {"params": {"factor": 10}},
+                "export": {"b_pt_up": "b_pt"},
+            }
+        ],
+    )
+    build_dir = tmp_path / "build"
+
+    compile_workflow_file(workflow_path, outdir=build_dir)
+    result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
+    stores = result.outputs["value_store"]
+    assert isinstance(stores, list)
+    data_store, mc_store = stores
+
+    data_collect = _only_collect_stream(data_store)
+    mc_collect = _only_collect_stream(mc_store)
+    assert "b_pt_up" not in data_collect
+    assert "b_pt_up" in mc_collect
+
+
+def test_unrelated_multi_input_transform_rejects_inactive_required_input(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    workflow_path = _write_inline_export_workflow(
+        tmp_path,
+        _registry_with_strict_merge(toy_registry),
+        datasets=[
+            {"name": "data", "files": ["data.root"], "eventtype": "data"},
+            {"name": "mc", "files": ["mc.root"], "eventtype": "mc"},
+        ],
+        stages=[
+            _scale("A", source="pt", output="a_pt"),
+            _scale("MCOnly", source="pt", output="mc_pt", upstream="events"),
+            {
+                "id": "Join",
+                "op": "toy.strict_merge_fields",
+                "from": [
+                    {"node": "A", "port": "stream", "as": "left"},
+                    {"node": "MCOnly", "port": "stream", "as": "right"},
+                ],
+                "params": {"on_conflict": "keep_first"},
+                "write": [{"kind": "toy.write", "path": "output.json"}],
+            },
+        ],
+        stage_updates={"MCOnly": {"applies_to": {"eventtype": "mc"}}},
+        variations=[],
+    )
+
+    with pytest.raises(ValueError, match="inactive required input"):
+        compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
 
 def test_two_inline_variation_exports_contribute_different_fields(
@@ -702,14 +878,16 @@ def _write_inline_export_workflow(
     variations: list[dict[str, Any]],
     anchor_op: str = "toy.scale",
     anchor_applies_to: dict[str, Any] | None = None,
+    datasets: list[dict[str, Any]] | None = None,
+    stages: list[dict[str, Any]] | None = None,
+    stage_updates: dict[str, dict[str, Any]] | None = None,
 ) -> Any:
     workflow = {
         "version": "1.0",
         "registry": registry,
         "data": {
-            "datasets": [
-                {"name": "sample", "files": ["sample.root"], "eventtype": "mc"}
-            ]
+            "datasets": datasets
+            or [{"name": "sample", "files": ["sample.root"], "eventtype": "mc"}]
         },
         "sources": {
             "events": {
@@ -719,7 +897,8 @@ def _write_inline_export_workflow(
             }
         },
         "analysis": {
-            "stages": [
+            "stages": stages
+            or [
                 _scale("A", source="pt", output="a_pt"),
                 {
                     **_scale("B", source="a_pt", output="b_pt", factor=2),
@@ -741,6 +920,13 @@ def _write_inline_export_workflow(
             "variations": variations,
         },
     }
+    if stage_updates:
+        normalized = normalize_workflow(workflow)
+        for stage in normalized["analysis"]["stages"]:
+            update = stage_updates.get(str(stage.get("id") or ""))
+            if update:
+                stage.update(update)
+        workflow = normalized
     workflow_path = tmp_path / "workflow.yaml"
     workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
     return workflow_path
@@ -768,6 +954,15 @@ def _registry_with_product(registry: dict[str, Any]) -> dict[str, Any]:
     return registry
 
 
+def _registry_with_strict_merge(registry: dict[str, Any]) -> dict[str, Any]:
+    registry = deepcopy(registry)
+    registry["transforms"]["toy.strict_merge_fields"] = {
+        "spec": "tests.toy_components.transforms:TOY_STRICT_MERGE_FIELDS_SPEC",
+        "impl": "tests.toy_components.transforms:run_toy_merge_fields",
+    }
+    return registry
+
+
 def _output_payload(build_dir: Any) -> dict[str, Any]:
     direct = build_dir / "artifacts" / "files" / "output.json"
     if direct.exists():
@@ -781,6 +976,16 @@ def _origin_count(origin: dict[str, Any]) -> int:
     if origin.get("kind") == "stream_scoped":
         return len(origin["origins"])
     return 1
+
+
+def _only_collect_stream(store: dict[Any, Any]) -> dict[str, Any]:
+    collect_streams = [
+        value
+        for (node_id, output_name), value in store.items()
+        if str(node_id).startswith("collect.") and output_name == "stream"
+    ]
+    assert len(collect_streams) == 1
+    return collect_streams[0]
 
 
 def _scale(
