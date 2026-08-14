@@ -260,6 +260,36 @@ TOY_HIST_SPEC = {
     "result": {"hist": {"kind": "histogram"}},
 }
 
+TOY_PROJECT_FIELDS_SPEC = {
+    "name": "hep.project_fields",
+    "kind": "transform",
+    "input": {"name": "stream", "kind": "event_stream", "required": True},
+    "params": {
+        "stream_id": {"required": True},
+        "aliases": {"required": True},
+    },
+    "result": {"stream": "event_stream"},
+    "requires": {
+        "symbols": [
+            {"from": "params.aliases.*", "kind": "field_list"},
+        ]
+    },
+    "provides": {
+        "symbols": [
+            {"from": "params.aliases", "kind": "field_list"},
+        ]
+    },
+}
+
+TOY_MERGE_FIELDS_SPEC = {
+    "name": "hep.merge_fields",
+    "kind": "transform",
+    "params": {
+        "on_conflict": {"required": False, "default": "keep_first"},
+    },
+    "result": {"stream": "event_stream"},
+}
+
 
 def run_toy_scale(
     *,
@@ -272,6 +302,35 @@ def run_toy_scale(
 ) -> dict[str, Any]:
     values = [value * factor for value in stream[source]]
     return {"stream": {**stream, output: values}}
+
+
+def run_toy_project_fields(
+    *,
+    stream: dict[str, Any],
+    stream_id: str,
+    aliases: dict[str, str],
+    ctx: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    del ctx, stream_id
+    return {"stream": {alias: stream[source] for alias, source in aliases.items()}}
+
+
+def run_toy_merge_fields(
+    *,
+    on_conflict: str = "keep_first",
+    ctx: dict[str, Any] | None = None,
+    **streams: dict[str, Any],
+) -> dict[str, Any]:
+    del ctx
+    merged: dict[str, Any] = {}
+    for stream in streams.values():
+        for field, values in stream.items():
+            if field in merged and on_conflict == "error":
+                raise ValueError(f"merge_fields duplicate field: {field}")
+            if field in merged and on_conflict == "keep_first":
+                continue
+            merged[field] = values
+    return {"stream": merged}
 
 
 def run_toy_record(

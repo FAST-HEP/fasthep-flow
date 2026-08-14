@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from copy import deepcopy
 from typing import Any
 
 import pytest
@@ -331,6 +333,109 @@ def test_authored_inline_variation_compiles_to_one_plan_and_runs(
     assert store[("stage.C@up", "stream")]["c_pt"] == [360, 540, 630, 840]
 
 
+def test_inline_variation_export_collects_selected_fields_before_single_writer(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    workflow_path = _write_inline_export_workflow(
+        tmp_path,
+        _registry_with_collection_ops(toy_registry),
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "anchor": "B",
+                "patch": {"params": {"factor": 10}},
+                "export": {"b_pt_up": "b_pt"},
+            }
+        ],
+    )
+    build_dir = tmp_path / "build"
+
+    compile_workflow_file(workflow_path, outdir=build_dir)
+    result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
+
+    assert result.success is True
+    plan_doc = yaml.safe_load(
+        (build_dir / "compile" / "plan.yaml").read_text(encoding="utf-8")
+    )
+    nodes = {node["id"]: node for node in plan_doc["nodes"]}
+    assert [node["role"] for node in plan_doc["nodes"]].count("sink") == 1
+    assert any(node["impl"] == "hep.project_fields" for node in nodes.values())
+    assert any(node["impl"] == "hep.merge_fields" for node in nodes.values())
+    assert not (build_dir / "compile" / "up" / "plan.yaml").exists()
+
+    payload = _output_payload(build_dir)
+    assert payload["b_pt"] == [24, 36, 42, 56]
+    assert payload["c_pt"] == [72, 108, 126, 168]
+    assert payload["b_pt_up"] == [120, 180, 210, 280]
+    assert "c_pt_up" not in payload
+    assert "variation_1" not in payload
+
+
+def test_two_inline_variation_exports_contribute_different_fields(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    workflow_path = _write_inline_export_workflow(
+        tmp_path,
+        _registry_with_collection_ops(toy_registry),
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "anchor": "B",
+                "patch": {"params": {"factor": 10}},
+                "export": {"b_pt_up": "b_pt"},
+            },
+            {
+                "name": "down",
+                "mode": "inline",
+                "anchor": "B",
+                "patch": {"params": {"factor": 1}},
+                "export": {"c_pt_down": "c_pt"},
+            },
+        ],
+    )
+    build_dir = tmp_path / "build"
+
+    compile_workflow_file(workflow_path, outdir=build_dir)
+    run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
+
+    payload = _output_payload(build_dir)
+    assert payload["b_pt_up"] == [120, 180, 210, 280]
+    assert payload["c_pt_down"] == [36, 54, 63, 84]
+    assert "b_pt_down" not in payload
+
+
+def test_inline_variation_export_rejects_incompatible_lineage(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    registry = _registry_with_collection_ops(toy_registry)
+    registry["transforms"]["toy.new_lineage"] = {
+        "spec": "tests.toy_components.transforms:TOY_NEW_LINEAGE_SPEC",
+        "impl": "tests.toy_components.transforms:run_toy_scale",
+    }
+    workflow_path = _write_inline_export_workflow(
+        tmp_path,
+        registry,
+        anchor_op="toy.new_lineage",
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "anchor": "B",
+                "patch": {"params": {"factor": 10}},
+                "export": {"b_pt_up": "b_pt"},
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="incompatible stream lineage"):
+        compile_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+
 def _plan(
     registry: dict[str, Any],
     stages: list[dict[str, Any]],
@@ -358,6 +463,73 @@ def _plan(
     )
     _, plan = build_plan_from_normalized(normalized)
     return plan
+
+
+def _write_inline_export_workflow(
+    tmp_path: Any,
+    registry: dict[str, Any],
+    *,
+    variations: list[dict[str, Any]],
+    anchor_op: str = "toy.scale",
+) -> Any:
+    workflow = {
+        "version": "1.0",
+        "registry": registry,
+        "data": {
+            "datasets": [
+                {"name": "sample", "files": ["sample.root"], "eventtype": "mc"}
+            ]
+        },
+        "sources": {
+            "events": {
+                "kind": "toy.source",
+                "stream_type": "event_stream",
+                "branches": ["pt"],
+            }
+        },
+        "analysis": {
+            "stages": [
+                _scale("A", source="pt", output="a_pt"),
+                {
+                    **_scale("B", source="a_pt", output="b_pt", factor=2),
+                    "op": anchor_op,
+                },
+                {
+                    **_scale("C", source="b_pt", output="c_pt", factor=3),
+                    "write": [{"kind": "toy.write", "path": "output.json"}],
+                },
+            ]
+        },
+        "systematics": {
+            "include_nominal": True,
+            "variations": variations,
+        },
+    }
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    return workflow_path
+
+
+def _registry_with_collection_ops(registry: dict[str, Any]) -> dict[str, Any]:
+    registry = deepcopy(registry)
+    registry["transforms"]["hep.project_fields"] = {
+        "spec": "tests.toy_components.transforms:TOY_PROJECT_FIELDS_SPEC",
+        "impl": "tests.toy_components.transforms:run_toy_project_fields",
+    }
+    registry["transforms"]["hep.merge_fields"] = {
+        "spec": "tests.toy_components.transforms:TOY_MERGE_FIELDS_SPEC",
+        "impl": "tests.toy_components.transforms:run_toy_merge_fields",
+    }
+    return registry
+
+
+def _output_payload(build_dir: Any) -> dict[str, Any]:
+    direct = build_dir / "artifacts" / "files" / "output.json"
+    if direct.exists():
+        path = direct
+    else:
+        [path] = sorted((build_dir / "artifacts" / "files" / "output").glob("*/*.json"))
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _scale(

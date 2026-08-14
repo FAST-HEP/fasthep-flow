@@ -229,6 +229,10 @@ def normalize_systematics(raw: Any) -> SystematicsConfig | None:
                     variation.get("stop_before"),
                     f"systematics.variations[{idx}].stop_before",
                 ),
+                export=_normalize_string_mapping(
+                    _export_fields(variation.get("export")),
+                    f"systematics.variations[{idx}].export",
+                ),
             )
         )
 
@@ -264,6 +268,12 @@ def _normalize_inline_patch(variation: dict[str, Any], where: str) -> dict[str, 
     if "params" in variation:
         return _ensure_mapping(variation.get("params"), f"{where}.params")
     return {}
+
+
+def _export_fields(raw: Any) -> Any:
+    if isinstance(raw, dict) and "fields" in raw:
+        return raw.get("fields")
+    return raw
 
 
 def normalize_data(data: dict[str, Any], datasets_include: Any = None) -> DataBlock:

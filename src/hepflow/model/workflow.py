@@ -208,6 +208,7 @@ class SystematicVariation:
     anchor: str | None = None
     patch: dict[str, Any] = field(default_factory=dict)
     stop_before: list[str] = field(default_factory=list)
+    export: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -271,6 +272,19 @@ class SystematicVariation:
             raise ValueError(
                 f"systematics.variations[{self.name}].patch must be a mapping"
             )
+        if not isinstance(self.export, dict):
+            raise ValueError(
+                f"systematics.variations[{self.name}].export must be a mapping"
+            )
+        for key, value in self.export.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError(
+                    f"systematics.variations[{self.name}].export keys must be non-empty strings"
+                )
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"systematics.variations[{self.name}].export[{key!r}] must be a non-empty string"
+                )
         object.__setattr__(
             self,
             "stop_before",
@@ -299,6 +313,8 @@ class SystematicVariation:
             data["patch"] = dict(self.patch)
         if self.stop_before:
             data["stop_before"] = list(self.stop_before)
+        if self.export:
+            data["export"] = dict(self.export)
         return data
 
 

@@ -25,6 +25,7 @@ class InlineVariationBranch:
 class InlineVariationResult:
     variation: dict[str, Any]
     cloned_nodes: dict[str, str]
+    export_fields: dict[str, str] = dataclass_field(default_factory=dict)
 
 
 def add_inline_variation_branch(
@@ -106,25 +107,27 @@ def apply_inline_variation_branches(
             continue
         if str(raw_variation.get("mode") or "plan") != "inline":
             continue
-        results.append(
-            add_inline_variation_branch(
-                plan,
-                InlineVariationBranch(
-                    anchor_node_id=_stage_node_id(raw_variation.get("anchor")),
-                    variation=_inline_variation_metadata(raw_variation),
-                    parameter_patch=dict(raw_variation.get("patch") or {}),
-                    stop_before=frozenset(
-                        _stage_node_id(item)
-                        for item in list(raw_variation.get("stop_before") or [])
-                    ),
+        result = add_inline_variation_branch(
+            plan,
+            InlineVariationBranch(
+                anchor_node_id=_stage_node_id(raw_variation.get("anchor")),
+                variation=_inline_variation_metadata(raw_variation),
+                parameter_patch=dict(raw_variation.get("patch") or {}),
+                stop_before=frozenset(
+                    _stage_node_id(item)
+                    for item in list(raw_variation.get("stop_before") or [])
                 ),
-                update_data_flow=False,
-            )
+            ),
+            update_data_flow=False,
         )
+        object.__setattr__(result, "export_fields", dict(raw_variation.get("export") or {}))
+        results.append(result)
 
     if results:
         plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
+        _insert_variation_collection_boundaries(plan, results)
         apply_data_flow_to_sources(plan)
+        _retopologize_plan(plan)
     return results
 
 
@@ -139,7 +142,7 @@ def _inline_variation_metadata(raw_variation: Mapping[str, Any]) -> dict[str, An
     metadata = {
         key: deepcopy(value)
         for key, value in raw_variation.items()
-        if key not in {"anchor", "patch", "params", "stage", "stop_before"}
+        if key not in {"anchor", "export", "patch", "params", "stage", "stop_before"}
         and not _empty_metadata_value(value)
     }
     metadata["mode"] = "inline"
@@ -152,6 +155,175 @@ def _empty_metadata_value(value: Any) -> bool:
     if isinstance(value, Mapping):
         return all(_empty_metadata_value(item) for item in value.values())
     return False
+
+
+def _insert_variation_collection_boundaries(
+    plan: ExecutionPlan,
+    results: list[InlineVariationResult],
+) -> None:
+    exported = [result for result in results if result.export_fields]
+    if not exported:
+        return
+
+    for sink in list(plan.nodes):
+        if sink.role != "sink":
+            continue
+        target_ref = _target_stream_ref(sink)
+        if target_ref is None:
+            continue
+
+        collection_inputs = [
+            PlanInputRef(
+                node_id=target_ref.node_id,
+                output_name=target_ref.output_name,
+                input_name="nominal",
+            )
+        ]
+        export_index = 0
+        for result in exported:
+            varied_node_id = result.cloned_nodes.get(target_ref.node_id)
+            if varied_node_id is None:
+                continue
+            _require_compatible_lineage(
+                plan,
+                nominal_node_id=target_ref.node_id,
+                varied_node_id=varied_node_id,
+                variation=result.variation,
+            )
+            export_node_id = _unique_node_id(
+                plan,
+                f"export.{target_ref.node_id}@{_variation_suffix(result.variation)}",
+            )
+            plan.add_node(
+                ExecutionNode(
+                    id=export_node_id,
+                    graph_node_id=export_node_id,
+                    role="transform",
+                    impl="hep.project_fields",
+                    inputs=[
+                        PlanInputRef(
+                            node_id=varied_node_id,
+                            output_name="stream",
+                            input_name="stream",
+                        )
+                    ],
+                    params={
+                        "stream_id": str(result.variation.get("name") or "variation"),
+                        "aliases": dict(result.export_fields),
+                    },
+                    outputs={"stream": "event_stream"},
+                    input_scope=sink.input_scope,
+                    output_scope=sink.input_scope,
+                    partitioning=deepcopy(sink.partitioning),
+                    meta={
+                        "inserted_by": "inline_variations",
+                        "variation": deepcopy(result.variation),
+                        "export_of": varied_node_id,
+                    },
+                )
+            )
+            export_index += 1
+            collection_inputs.append(
+                PlanInputRef(
+                    node_id=export_node_id,
+                    output_name="stream",
+                    input_name=f"variation_{export_index}",
+                )
+            )
+
+        if len(collection_inputs) == 1:
+            continue
+
+        collection_node_id = _unique_node_id(plan, f"collect.{sink.id}")
+        plan.add_node(
+            ExecutionNode(
+                id=collection_node_id,
+                graph_node_id=collection_node_id,
+                role="transform",
+                impl="hep.merge_fields",
+                inputs=collection_inputs,
+                params={"on_conflict": "error"},
+                outputs={"stream": "event_stream"},
+                input_scope=sink.input_scope,
+                output_scope=sink.input_scope,
+                partitioning=deepcopy(sink.partitioning),
+                meta={
+                    "inserted_by": "inline_variations",
+                    "collection_for": sink.id,
+                },
+            )
+        )
+        _replace_input_ref(
+            sink,
+            old_ref=target_ref,
+            new_ref=PlanInputRef(
+                node_id=collection_node_id,
+                output_name="stream",
+                input_name=target_ref.input_name,
+            ),
+        )
+    plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
+
+
+def _target_stream_ref(node: ExecutionNode) -> PlanInputRef | None:
+    for ref in node.inputs:
+        if ref.output_name == "stream":
+            return ref
+    return None
+
+
+def _replace_input_ref(
+    node: ExecutionNode,
+    *,
+    old_ref: PlanInputRef,
+    new_ref: PlanInputRef,
+) -> None:
+    node.inputs = [new_ref if ref == old_ref else ref for ref in node.inputs]
+
+
+def _require_compatible_lineage(
+    plan: ExecutionPlan,
+    *,
+    nominal_node_id: str,
+    varied_node_id: str,
+    variation: dict[str, Any],
+) -> None:
+    lineage = dict((plan.data_flow or {}).get("_stream_lineage") or {})
+    nominal = dict(lineage.get(f"{nominal_node_id}:stream") or {}).get("identity")
+    varied = dict(lineage.get(f"{varied_node_id}:stream") or {}).get("identity")
+    if nominal is not None and varied is not None and nominal == varied:
+        return
+    raise ValueError(
+        f"Inline variation {_variation_name(variation)!r} cannot export fields from "
+        f"{varied_node_id!r} into {nominal_node_id!r}: incompatible stream lineage"
+    )
+
+
+def _unique_node_id(plan: ExecutionPlan, base: str) -> str:
+    if base not in plan.node_index:
+        return base
+    index = 1
+    while f"{base}.{index}" in plan.node_index:
+        index += 1
+    return f"{base}.{index}"
+
+
+def _retopologize_plan(plan: ExecutionPlan) -> None:
+    remaining = {node.id: node for node in plan.nodes}
+    ordered: list[ExecutionNode] = []
+    while remaining:
+        ready = [
+            node_id
+            for node_id, node in remaining.items()
+            if all(ref.node_id not in remaining for ref in node.inputs)
+        ]
+        if not ready:
+            cycle = ", ".join(sorted(remaining))
+            raise ValueError(f"Execution plan contains cyclic or unresolved inputs: {cycle}")
+        for node_id in ready:
+            ordered.append(remaining.pop(node_id))
+    plan.nodes = ordered
+    plan.node_index = {node.id: node for node in ordered}
 
 
 def _inline_clone_order(
