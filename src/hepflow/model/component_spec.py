@@ -24,9 +24,10 @@ class RuntimeComponentSpec:
     ``result``
         What the component produces (for example, an event stream or an
         artifact). Event-stream results may declare symbolic event-lineage
-        behaviour with ``lineage: preserve`` or ``lineage: new``. Sources
-        establish new lineage identities; event-stream transforms preserve
-        input lineage by default.
+        behaviour with ``lineage: preserve``, ``lineage: require_equal``, or
+        ``lineage: new``. Sources establish new lineage identities;
+        event-stream transforms preserve their primary input lineage by
+        default.
 
     Dependency contract
 

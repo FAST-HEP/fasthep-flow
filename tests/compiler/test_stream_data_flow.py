@@ -3,6 +3,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+import pytest
+
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
 
@@ -308,6 +310,176 @@ def test_spec_can_request_new_event_stream_lineage(toy_registry: dict[str, Any])
     assert _lineage(plan, "stage.After") == _lineage(plan, "stage.NewLineage")
 
 
+def test_require_equal_lineage_accepts_two_equal_inputs(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(
+        _registry_with_merge(toy_registry),
+        [
+            {
+                "id": "BranchA",
+                "op": "toy.scale",
+                "from": "events",
+                "params": {"source": "a", "output": "a_out"},
+            },
+            {
+                "id": "BranchB",
+                "op": "toy.scale",
+                "from": "events",
+                "params": {"source": "b", "output": "b_out"},
+            },
+            {
+                "id": "Merge",
+                "op": "hep.merge_fields",
+                "from": [
+                    {"node": "BranchA", "as": "left"},
+                    {"node": "BranchB", "as": "right"},
+                ],
+            },
+        ],
+        fields=["a", "b"],
+    )
+
+    assert _lineage(plan, "stage.Merge") == _lineage(plan, "read.events")
+
+
+def test_require_equal_lineage_accepts_many_equal_inputs(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(
+        _registry_with_merge(toy_registry),
+        [
+            {
+                "id": "BranchA",
+                "op": "toy.scale",
+                "from": "events",
+                "params": {"source": "a", "output": "a_out"},
+            },
+            {
+                "id": "BranchB",
+                "op": "toy.scale",
+                "from": "events",
+                "params": {"source": "b", "output": "b_out"},
+            },
+            {
+                "id": "BranchC",
+                "op": "toy.scale",
+                "from": "events",
+                "params": {"source": "c", "output": "c_out"},
+            },
+            {
+                "id": "Merge",
+                "op": "hep.merge_fields",
+                "from": [
+                    {"node": "BranchA", "as": "left"},
+                    {"node": "BranchB", "as": "middle"},
+                    {"node": "BranchC", "as": "right"},
+                ],
+            },
+        ],
+        fields=["a", "b", "c"],
+    )
+
+    assert _lineage(plan, "stage.Merge") == _lineage(plan, "read.events")
+
+
+def test_require_equal_lineage_rejects_incompatible_inputs(
+    toy_registry: dict[str, Any],
+) -> None:
+    with pytest.raises(ValueError, match="incompatible event-stream lineages"):
+        _plan(
+            _registry_with_merge(toy_registry),
+            [
+                {
+                    "id": "UseEvents",
+                    "op": "toy.scale",
+                    "from": "events",
+                    "params": {"source": "pt", "output": "events_pt"},
+                },
+                {
+                    "id": "UseOther",
+                    "op": "toy.scale",
+                    "from": "other",
+                    "params": {"source": "pt", "output": "other_pt"},
+                },
+                {
+                    "id": "Merge",
+                    "op": "hep.merge_fields",
+                    "from": [
+                        {"node": "UseEvents", "as": "left"},
+                        {"node": "UseOther", "as": "right"},
+                    ],
+                },
+            ],
+            fields=[],
+            sources={
+                "events": _toy_source(["pt"]),
+                "other": _toy_source(["pt"]),
+            },
+        )
+
+
+def test_require_equal_lineage_accepts_single_input(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(
+        _registry_with_merge(toy_registry),
+        [
+            {
+                "id": "BranchA",
+                "op": "toy.scale",
+                "params": {"source": "pt", "output": "a_out"},
+            },
+            {
+                "id": "Merge",
+                "op": "hep.merge_fields",
+                "from": [{"node": "BranchA", "as": "left"}],
+            },
+        ],
+        fields=["pt"],
+    )
+
+    assert _lineage(plan, "stage.Merge") == _lineage(plan, "read.events")
+
+
+def test_multi_input_preserve_uses_primary_input_without_equal_lineage_check(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(
+        _registry_with_merge(toy_registry, spec="preserve"),
+        [
+            {
+                "id": "UseEvents",
+                "op": "toy.scale",
+                "from": "events",
+                "params": {"source": "same_name", "output": "Shared_pt"},
+            },
+            {
+                "id": "UseOther",
+                "op": "toy.scale",
+                "from": "other",
+                "params": {"source": "same_name", "output": "Shared_pt"},
+            },
+            {
+                "id": "Merge",
+                "op": "hep.merge_fields",
+                "from": [
+                    {"node": "UseEvents", "as": "primary"},
+                    {"node": "UseOther", "as": "secondary"},
+                ],
+            },
+        ],
+        fields=[],
+        sources={
+            "events": _toy_source(["same_name"]),
+            "other": _toy_source(["same_name"]),
+        },
+    )
+
+    assert _lineage(plan, "stage.Merge") == _lineage(plan, "stage.UseEvents")
+    assert _lineage(plan, "stage.Merge") != _lineage(plan, "stage.UseOther")
+
+
 def _plan(
     registry: dict[str, Any],
     stages: list[dict[str, Any]],
@@ -338,6 +510,24 @@ def _toy_source(fields: list[str]) -> dict[str, Any]:
         "stream_type": "event_stream",
         "branches": fields,
     }
+
+
+def _registry_with_merge(
+    registry: dict[str, Any],
+    *,
+    spec: str = "require_equal",
+) -> dict[str, Any]:
+    registry = deepcopy(registry)
+    spec_name = (
+        "TOY_PRESERVE_MERGE_FIELDS_SPEC"
+        if spec == "preserve"
+        else "TOY_MERGE_FIELDS_SPEC"
+    )
+    registry["transforms"]["hep.merge_fields"] = {
+        "spec": f"tests.toy_components.transforms:{spec_name}",
+        "impl": "tests.toy_components.transforms:run_toy_merge_fields",
+    }
+    return registry
 
 
 def _lineage(plan: Any, node_id: str) -> str:

@@ -622,7 +622,7 @@ def _lineage_behavior(spec: RuntimeComponentSpec | None) -> str:
     if raw is None:
         return "preserve"
     behavior = str(raw)
-    if behavior in {"preserve", "new", "source"}:
+    if behavior in {"preserve", "require_equal", "new", "source"}:
         return behavior
     name = spec.name if spec is not None else "<unknown>"
     raise ValueError(
@@ -662,7 +662,7 @@ def _output_lineage(
     input_states: list[StreamState],
     behavior: str,
 ) -> StreamLineage:
-    if behavior == "preserve" and len(input_states) > 1:
+    if behavior == "require_equal":
         lineages = [state.lineage for state in input_states if state.lineage is not None]
         if not lineages:
             return _new_lineage(stream)

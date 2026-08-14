@@ -292,6 +292,18 @@ TOY_MERGE_FIELDS_SPEC = {
         "stream": {
             "kind": "event_stream",
             "field_propagation": "merge",
+            "lineage": "require_equal",
+        }
+    },
+}
+
+TOY_PRESERVE_MERGE_FIELDS_SPEC = {
+    **TOY_MERGE_FIELDS_SPEC,
+    "name": "toy.preserve_merge_fields",
+    "result": {
+        "stream": {
+            "kind": "event_stream",
+            "field_propagation": "merge",
             "lineage": "preserve",
         }
     },
