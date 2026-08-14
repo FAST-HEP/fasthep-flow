@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from hepflow.api import compile_workflow_file, run_plan_file
+from hepflow.compiler.data_flow import infer_data_flow
 from hepflow.compiler.inline_variations import (
     InlineVariationBranch,
     add_inline_variation_branch,
@@ -125,6 +126,7 @@ def test_inline_variation_preserves_same_field_names_across_streams(
 
     assert plan.get_node("stage.B@jer_up").params["output"] == "Jet_pt"
     assert plan.get_node("stage.C@jer_up").params["source"] == "Jet_pt"
+    plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
     assert plan.data_flow["origins"]["Jet_pt"]["kind"] == "stream_scoped"
 
 
@@ -158,6 +160,7 @@ def test_inline_variation_preserves_event_lineage(toy_registry: dict[str, Any]) 
         plan,
         InlineVariationBranch(anchor_node_id="stage.B", variation={"name": "up"}),
     )
+    plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
 
     assert _lineage(plan, "stage.B@up") == _lineage(plan, "stage.B")
     assert _lineage(plan, "stage.B@up") == _lineage(plan, "read.events")
@@ -373,6 +376,78 @@ def test_inline_variation_export_collects_selected_fields_before_single_writer(
     assert "variation_1" not in payload
 
 
+def test_inline_variation_applies_to_marks_cloned_branch(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    workflow_path = _write_inline_export_workflow(
+        tmp_path,
+        _registry_with_collection_ops(toy_registry),
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "applies_to": "mc",
+                "anchor": "B",
+                "patch": {"params": {"factor": 10}},
+                "export": {"b_pt_up": "b_pt"},
+            }
+        ],
+    )
+
+    compile_workflow_file(workflow_path, outdir=tmp_path / "build")
+    plan_doc = yaml.safe_load(
+        (tmp_path / "build" / "compile" / "plan.yaml").read_text(encoding="utf-8")
+    )
+    cloned_nodes = [
+        node
+        for node in plan_doc["nodes"]
+        if isinstance(node.get("meta"), dict) and node["meta"].get("variation_of")
+    ]
+
+    assert cloned_nodes
+    assert {node["meta"].get("applies_to", {}).get("eventtype") for node in cloned_nodes} == {
+        "mc"
+    }
+
+
+def test_inline_variation_export_can_collect_before_stop_boundary(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    workflow_path = _write_inline_export_workflow(
+        tmp_path,
+        _registry_with_collection_ops(toy_registry),
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "anchor": "B",
+                "patch": {"params": {"factor": 10}},
+                "stop_before": ["C"],
+                "export": {"b_pt_up": "b_pt"},
+            }
+        ],
+    )
+    build_dir = tmp_path / "build"
+
+    compile_workflow_file(workflow_path, outdir=build_dir)
+    run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
+
+    plan_doc = yaml.safe_load(
+        (build_dir / "compile" / "plan.yaml").read_text(encoding="utf-8")
+    )
+    nodes = {node["id"]: node for node in plan_doc["nodes"]}
+    assert "stage.C@up" not in nodes
+    assert nodes["stage.C"]["inputs"][0]["node_id"] == "collect.stage.C"
+    assert nodes["collect.stage.C"]["meta"]["collection_for"] == "stage.C"
+    assert [node["role"] for node in plan_doc["nodes"]].count("sink") == 1
+
+    payload = _output_payload(build_dir)
+    assert payload["b_pt_up"] == [120, 180, 210, 280]
+    assert payload["c_pt"] == [72, 108, 126, 168]
+
+
 def test_two_inline_variation_exports_contribute_different_fields(
     toy_registry: dict[str, Any],
     tmp_path: Any,
@@ -408,6 +483,75 @@ def test_two_inline_variation_exports_contribute_different_fields(
     assert "b_pt_down" not in payload
 
 
+def test_inline_variation_compile_scales_to_thousand_node_graph(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    registry = _registry_with_collection_ops(toy_registry)
+    stages: list[dict[str, Any]] = []
+    source = "pt"
+    for index in range(46):
+        output = f"f{index}"
+        stage = _scale(f"S{index:02d}", source=source, output=output)
+        if index == 45:
+            stage["write"] = [{"kind": "toy.write", "path": "output.json"}]
+        stages.append(stage)
+        source = output
+
+    variations = [
+        {
+            "name": f"v{index:02d}",
+            "mode": "inline",
+            "anchor": "S00",
+            "patch": {"params": {"factor": index + 2}},
+            "export": {f"f45_v{index:02d}": "f45"},
+        }
+        for index in range(22)
+    ]
+    workflow = {
+        "version": "1.0",
+        "registry": registry,
+        "data": {
+            "datasets": [
+                {"name": "sample", "files": ["sample.root"], "eventtype": "mc"}
+            ]
+        },
+        "sources": {
+            "events": {
+                "kind": "toy.source",
+                "stream_type": "event_stream",
+                "branches": ["pt"],
+            }
+        },
+        "analysis": {"stages": stages},
+        "systematics": {"include_nominal": True, "variations": variations},
+    }
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+
+    compile_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+    compile_dir = tmp_path / "build" / "compile"
+    plan_doc = yaml.safe_load((compile_dir / "plan.yaml").read_text(encoding="utf-8"))
+    deps = yaml.safe_load((compile_dir / "deps.yaml").read_text(encoding="utf-8"))
+    nodes = {node["id"]: node for node in plan_doc["nodes"]}
+    cloned_nodes = [
+        node_id
+        for node_id, node in nodes.items()
+        if isinstance(node.get("meta"), dict) and node["meta"].get("variation_of")
+    ]
+
+    assert len(plan_doc["nodes"]) >= 1000
+    assert len(cloned_nodes) == 46 * 22
+    assert [node["role"] for node in plan_doc["nodes"]].count("sink") == 1
+    assert any(node["id"].startswith("collect.") for node in plan_doc["nodes"])
+    assert "f45_v00" in deps["origins"]
+    assert "f45_v21" in deps["origins"]
+    assert len(deps["origins"]) < 200
+    assert (compile_dir / "deps.yaml").stat().st_size < 4_000_000
+    assert (compile_dir / "plan.yaml").stat().st_size < 8_000_000
+
+
 def test_inline_variation_export_rejects_incompatible_lineage(
     toy_registry: dict[str, Any],
     tmp_path: Any,
@@ -432,7 +576,7 @@ def test_inline_variation_export_rejects_incompatible_lineage(
         ],
     )
 
-    with pytest.raises(ValueError, match="incompatible stream lineage"):
+    with pytest.raises(ValueError, match=r"incompatible .*lineage"):
         compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
 

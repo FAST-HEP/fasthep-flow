@@ -14,7 +14,7 @@ from hepflow.compiler.execution import (
     normalize_global_execution,
     validate_stage_execution_resource_references,
 )
-from hepflow.compiler.inline_variations import apply_inline_variation_branches
+from hepflow.compiler.inline_variations import apply_inline_variation_branches_to_graph
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.model.graph import get_graph_node
 from hepflow.model.lifecycle import WHEN_ALIASES
@@ -125,6 +125,7 @@ def build_execution_plan(
     plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
     run_param_compile_hooks(plan, registry_cfg=plan.registry, warn=True)
     plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
+    _drop_compile_only_data_flow(plan.data_flow)
     apply_data_flow_to_sources(plan)
     plan.partitions = build_execution_partitions(plan, chunk_size=chunk_size)
     return plan
@@ -143,6 +144,7 @@ def build_plan_from_normalized(
         execution["pools"],
     )
     graph = lower_workflow_to_graph(normalized)
+    apply_inline_variation_branches_to_graph(graph, normalized)
     plan = build_execution_plan(
         graph,
         chunk_size=chunk_size,
@@ -159,9 +161,13 @@ def build_plan_from_normalized(
     variation = normalized.get("variation")
     if isinstance(variation, dict):
         plan.context["variation"] = dict(variation)
-    apply_inline_variation_branches(plan, normalized)
     plan.reports = list(normalized.get("reports") or [])
     return graph, plan
+
+
+def _drop_compile_only_data_flow(data_flow: dict[str, Any]) -> None:
+    data_flow.pop("input_fields_by_node", None)
+    data_flow.pop("input_fields_by_dataset", None)
 
 
 def _normalize_execution_hooks(

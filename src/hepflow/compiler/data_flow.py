@@ -85,6 +85,9 @@ def infer_data_flow(
     primary_stream = _primary_stream_id(plan)
     aliases_by_stream = _aliases_by_stream(plan)
 
+    has_dataset_applicability = any(
+        isinstance(node.meta.get("applies_to"), dict) for node in plan.nodes
+    )
     common = _analyze_stream_data_flow(
         plan=plan,
         nodes=plan.nodes,
@@ -95,11 +98,10 @@ def infer_data_flow(
         dataset=None,
     )
 
-    has_dataset_applicability = any(
-        isinstance(node.meta.get("applies_to"), dict) for node in plan.nodes
-    )
     datasets = dict(plan.context.get("datasets") or {}) if has_dataset_applicability else {}
     required_by_dataset: dict[str, dict[str, Any]] = {}
+    lineage_by_dataset: dict[str, dict[str, dict[str, str]]] = {}
+    input_fields_by_dataset: dict[str, dict[str, list[str]]] = {}
     for dataset_name, dataset in sorted(datasets.items()):
         dataset_flow = _analyze_stream_data_flow(
             plan=plan,
@@ -114,6 +116,8 @@ def infer_data_flow(
             dataset=dict(dataset or {}),
         )
         required_by_dataset[str(dataset_name)] = dataset_flow["required_sources"]
+        lineage_by_dataset[str(dataset_name)] = dataset_flow["stream_lineage"]
+        input_fields_by_dataset[str(dataset_name)] = dataset_flow["input_fields_by_node"]
 
     notes = [
         "Data flow is inferred for the primary event stream first; joined source branch decomposition is TODO.",
@@ -128,7 +132,10 @@ def infer_data_flow(
         "required_sources_by_dataset": required_by_dataset,
         "consumers": common["consumers"],
         "origins": common["origins"],
+        "input_fields_by_node": common["input_fields_by_node"],
+        "input_fields_by_dataset": input_fields_by_dataset,
         "_stream_lineage": common["stream_lineage"],
+        "_stream_lineage_by_dataset": lineage_by_dataset,
         "notes": notes,
     }
 
@@ -212,6 +219,13 @@ def _analyze_stream_data_flow(
             stream_states=stream_states,
             dataset=dataset,
         )
+        input_states = _event_stream_input_states(
+            plan=plan,
+            node=node,
+            active_ids=active_ids,
+            stream_states=stream_states,
+            dataset=dataset,
+        )
         input_fields = list(input_state.fields) if input_state is not None else []
         input_origins = dict(input_state.origins) if input_state is not None else {}
         input_fields_by_node[node.id] = input_fields
@@ -255,6 +269,7 @@ def _analyze_stream_data_flow(
             node=node,
             spec=spec,
             input_state=input_state,
+            input_states=input_states,
             input_fields=effective_input_fields,
             input_origins=input_origins,
             deps=deps,
@@ -370,6 +385,13 @@ def input_stream_fields_by_context(
     registry: dict[str, Any],
     dep_ctx: DependencyContext,
 ) -> dict[str | None, dict[str, list[str]]]:
+    cached = _cached_input_stream_fields_by_context(
+        plan=plan,
+        active_contexts=active_contexts,
+    )
+    if cached is not None:
+        return cached
+
     input_fields_by_context: dict[str | None, dict[str, list[str]]] = {}
     primary_stream = _primary_stream_id(plan)
     aliases_by_stream = _aliases_by_stream(plan)
@@ -385,6 +407,39 @@ def input_stream_fields_by_context(
         )
         input_fields_by_context[context_name] = dict(analysis["input_fields_by_node"])
     return input_fields_by_context
+
+
+def _cached_input_stream_fields_by_context(
+    *,
+    plan: ExecutionPlan,
+    active_contexts: list[tuple[str | None, dict[str, Any] | None, set[str]]],
+) -> dict[str | None, dict[str, list[str]]] | None:
+    data_flow = plan.data_flow if isinstance(plan.data_flow, dict) else {}
+    common = data_flow.get("input_fields_by_node")
+    by_dataset = data_flow.get("input_fields_by_dataset")
+    if not isinstance(common, dict):
+        return None
+
+    out: dict[str | None, dict[str, list[str]]] = {}
+    for context_name, _dataset, _active_ids in active_contexts:
+        if context_name is None:
+            out[None] = {
+                str(node_id): list(fields)
+                for node_id, fields in common.items()
+                if isinstance(fields, list)
+            }
+            continue
+        if not isinstance(by_dataset, dict):
+            return None
+        context_fields = by_dataset.get(context_name)
+        if not isinstance(context_fields, dict):
+            return None
+        out[context_name] = {
+            str(node_id): list(fields)
+            for node_id, fields in context_fields.items()
+            if isinstance(fields, list)
+        }
+    return out
 
 
 def _dataset_name(dataset: dict[str, Any] | None) -> str | None:
@@ -435,7 +490,12 @@ def _primary_input_stream_state(
     dataset: dict[str, Any] | None,
 ) -> StreamState | None:
     for ref in node.inputs:
-        active_ref = resolve_active_input_ref(plan, ref, dataset=dataset)
+        if ref.node_id in active_ids:
+            active_ref = ref
+        else:
+            if len(node.inputs) > 1:
+                continue
+            active_ref = resolve_active_input_ref(plan, ref, dataset=dataset)
         if active_ref.node_id not in active_ids:
             continue
         if active_ref.input_name == "dependency":
@@ -444,6 +504,40 @@ def _primary_input_stream_state(
             continue
         return stream_states.get(_stream_ref(active_ref))
     return None
+
+
+def _event_stream_input_states(
+    *,
+    plan: ExecutionPlan,
+    node: ExecutionNode,
+    active_ids: set[str],
+    stream_states: dict[StreamRef, StreamState],
+    dataset: dict[str, Any] | None,
+) -> list[StreamState]:
+    states: list[StreamState] = []
+    seen: set[StreamRef] = set()
+    for ref in node.inputs:
+        if ref.node_id in active_ids:
+            active_ref = ref
+        else:
+            if len(node.inputs) > 1:
+                continue
+            active_ref = resolve_active_input_ref(plan, ref, dataset=dataset)
+        if active_ref.node_id not in active_ids:
+            continue
+        if active_ref.input_name == "dependency":
+            continue
+        if active_ref.output_name != "stream":
+            continue
+        stream_ref = _stream_ref(active_ref)
+        if stream_ref in seen:
+            continue
+        state = stream_states.get(stream_ref)
+        if state is None:
+            continue
+        states.append(state)
+        seen.add(stream_ref)
+    return states
 
 
 def _stream_ref(ref: PlanInputRef) -> StreamRef:
@@ -455,6 +549,7 @@ def _transform_stream_state(
     node: ExecutionNode,
     spec: RuntimeComponentSpec | None,
     input_state: StreamState | None,
+    input_states: list[StreamState],
     input_fields: list[str],
     input_origins: dict[str, dict[str, Any]],
     deps: DataDependencyResult,
@@ -462,9 +557,15 @@ def _transform_stream_state(
     stream_id: str,
     aliases_by_stream: dict[str, dict[str, str]],
 ) -> StreamState:
+    field_behavior = _field_propagation_behavior(spec)
+    if field_behavior == "merge":
+        input_fields = _merge_ordered_fields([state.fields for state in input_states])
+        input_origins = _merge_input_origins(input_states)
     output_fields = _transform_output_fields(
         node=node,
+        spec=spec,
         input_fields=input_fields,
+        input_states=input_states,
         deps=deps,
         params=params,
     )
@@ -503,6 +604,7 @@ def _transform_stream_state(
     lineage = _output_lineage(
         stream=stream,
         input_state=input_state,
+        input_states=input_states,
         behavior=_lineage_behavior(spec),
     )
     return StreamState(
@@ -526,6 +628,19 @@ def _lineage_behavior(spec: RuntimeComponentSpec | None) -> str:
     )
 
 
+def _field_propagation_behavior(spec: RuntimeComponentSpec | None) -> str:
+    raw = _result_metadata(spec).get("field_propagation") if spec is not None else None
+    if raw is None:
+        return "ordinary"
+    behavior = str(raw)
+    if behavior in {"ordinary", "projection", "merge"}:
+        return behavior
+    name = spec.name if spec is not None else "<unknown>"
+    raise ValueError(
+        f"Unsupported event-stream field propagation behavior for {name!r}: {raw!r}"
+    )
+
+
 def _result_metadata(spec: RuntimeComponentSpec | None) -> dict[str, Any]:
     if spec is None:
         return {}
@@ -542,8 +657,19 @@ def _output_lineage(
     *,
     stream: StreamRef,
     input_state: StreamState | None,
+    input_states: list[StreamState],
     behavior: str,
 ) -> StreamLineage:
+    if behavior == "preserve" and len(input_states) > 1:
+        lineages = [state.lineage for state in input_states if state.lineage is not None]
+        if not lineages:
+            return _new_lineage(stream)
+        first = lineages[0]
+        if any(lineage.identity != first.identity for lineage in lineages[1:]):
+            raise ValueError(
+                f"Node {stream.node_id!r} cannot merge incompatible event-stream lineages"
+            )
+        return first
     if behavior == "preserve" and input_state is not None and input_state.lineage:
         return input_state.lineage
     return _new_lineage(stream, source=behavior == "source")
@@ -611,8 +737,8 @@ def _public_origins(
         seen: set[tuple[str, str, str]] = set()
         for stream, origin in entries:
             marker = (
-                stream.node_id,
-                stream.output_name,
+                "",
+                "",
                 repr(sorted(origin.items())),
             )
             if marker in seen:
@@ -693,18 +819,40 @@ def _required_source_branches(required: Any) -> list[str]:
     return _literal_fields(_string_list(required.get("branches")))
 
 
+def _merge_input_origins(input_states: list[StreamState]) -> dict[str, dict[str, Any]]:
+    origins: dict[str, dict[str, Any]] = {}
+    for state in input_states:
+        for field in state.fields:
+            origin = state.origins.get(field)
+            if origin is None or field in origins:
+                continue
+            origins[field] = dict(origin)
+    return origins
+
+
 def _transform_output_fields(
     *,
     node: ExecutionNode,
+    spec: RuntimeComponentSpec | None,
     input_fields: list[str],
+    input_states: list[StreamState],
     deps: DataDependencyResult,
     params: dict[str, Any],
 ) -> list[str]:
+    field_behavior = _field_propagation_behavior(spec)
+    if field_behavior == "merge":
+        return _merge_ordered_fields([state.fields for state in input_states])
     if node.impl == "hep.project_fields":
         aliases = dict(params.get("aliases") or {})
-        return [str(alias) for alias in aliases if isinstance(alias, str)]
+        if params.get("include_existing", True) is False or field_behavior == "projection":
+            return [str(alias) for alias in aliases if isinstance(alias, str)]
+        return _merge_ordered_fields(
+            [input_fields, [str(alias) for alias in aliases if isinstance(alias, str)]]
+        )
     if node.impl == "hep.align_schema":
         return _align_schema_output_fields(input_fields=input_fields, params=params)
+    if field_behavior == "projection":
+        return sorted(deps.produces)
     return _merge_ordered_fields([input_fields, sorted(deps.produces)])
 
 

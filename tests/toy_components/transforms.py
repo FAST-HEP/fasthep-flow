@@ -267,6 +267,7 @@ TOY_PROJECT_FIELDS_SPEC = {
     "params": {
         "stream_id": {"required": True},
         "aliases": {"required": True},
+        "include_existing": {"required": False, "default": True},
     },
     "result": {"stream": "event_stream"},
     "requires": {
@@ -287,7 +288,13 @@ TOY_MERGE_FIELDS_SPEC = {
     "params": {
         "on_conflict": {"required": False, "default": "keep_first"},
     },
-    "result": {"stream": "event_stream"},
+    "result": {
+        "stream": {
+            "kind": "event_stream",
+            "field_propagation": "merge",
+            "lineage": "preserve",
+        }
+    },
 }
 
 
@@ -309,10 +316,12 @@ def run_toy_project_fields(
     stream: dict[str, Any],
     stream_id: str,
     aliases: dict[str, str],
+    include_existing: bool = True,
     ctx: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     del ctx, stream_id
-    return {"stream": {alias: stream[source] for alias, source in aliases.items()}}
+    projected = {alias: stream[source] for alias, source in aliases.items()}
+    return {"stream": {**stream, **projected} if include_existing else projected}
 
 
 def run_toy_merge_fields(

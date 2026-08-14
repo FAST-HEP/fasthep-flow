@@ -15,6 +15,7 @@ from hepflow.model.plan import (
 )
 from hepflow.model.plan_applicability import (
     active_plan_nodes_for_context,
+    node_applies_to_plan_dataset,
     resolve_active_input_ref,
 )
 from hepflow.model.products import OperationResult
@@ -912,6 +913,13 @@ def _collect_inputs(
         if ref.input_name == "dependency":
             continue
         active_ref = ref
+        if plan is not None and ctx is not None and len(input_refs) > 1:
+            dataset = ctx.get("dataset")
+            if not node_applies_to_plan_dataset(
+                plan.get_node(ref.node_id),
+                dataset=dataset if isinstance(dataset, dict) else None,
+            ):
+                continue
         if (
             (ref.node_id, ref.output_name) not in value_store
             and plan is not None
@@ -948,11 +956,17 @@ def _collect_input_products(
         active_ref = ref
         if plan is not None:
             dataset = ctx.get("dataset")
+            dataset_dict = dataset if isinstance(dataset, dict) else None
+            if len(input_refs) > 1 and not node_applies_to_plan_dataset(
+                plan.get_node(ref.node_id),
+                dataset=dataset_dict,
+            ):
+                continue
             try:
                 active_ref = resolve_active_input_ref(
                     plan,
                     ref,
-                    dataset=dataset if isinstance(dataset, dict) else None,
+                    dataset=dataset_dict,
                 )
             except (KeyError, ValueError):
                 # The input may have been supplied directly through initial_values.

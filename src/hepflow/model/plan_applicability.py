@@ -89,6 +89,12 @@ def _validate_dataset(
         ):
             continue
         for ref in node.inputs:
+            upstream = plan.get_node(ref.node_id)
+            if (
+                len(node.inputs) > 1
+                and not node_applies_to_plan_dataset(upstream, dataset=dataset)
+            ):
+                continue
             try:
                 resolve_active_input_ref(plan, ref, dataset=dataset)
             except ValueError as exc:

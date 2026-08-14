@@ -200,6 +200,7 @@ class SystematicVariation:
     mode: str = "plan"
     group: str | None = None
     direction: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     applies_to: SystematicApplicability = field(default_factory=SystematicApplicability)
     requires: list[str] = field(default_factory=list)
     weight: SystematicWeightRule = field(default_factory=SystematicWeightRule)
@@ -209,6 +210,8 @@ class SystematicVariation:
     patch: dict[str, Any] = field(default_factory=dict)
     stop_before: list[str] = field(default_factory=list)
     export: dict[str, str] = field(default_factory=dict)
+    matrix_origin: dict[str, Any] = field(default_factory=dict)
+    matrix_values: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -233,6 +236,10 @@ class SystematicVariation:
                 _nonempty_str(
                     self.direction, f"systematics.variations[{self.name}].direction"
                 ),
+            )
+        if not isinstance(self.metadata, dict):
+            raise ValueError(
+                f"systematics.variations[{self.name}].metadata must be a mapping"
             )
         object.__setattr__(
             self,
@@ -276,6 +283,14 @@ class SystematicVariation:
             raise ValueError(
                 f"systematics.variations[{self.name}].export must be a mapping"
             )
+        if not isinstance(self.matrix_origin, dict):
+            raise ValueError(
+                f"systematics.variations[{self.name}].matrix_origin must be a mapping"
+            )
+        if not isinstance(self.matrix_values, dict):
+            raise ValueError(
+                f"systematics.variations[{self.name}].matrix_values must be a mapping"
+            )
         for key, value in self.export.items():
             if not isinstance(key, str) or not key.strip():
                 raise ValueError(
@@ -302,6 +317,8 @@ class SystematicVariation:
             data["group"] = self.group
         if self.direction is not None:
             data["direction"] = self.direction
+        if self.metadata:
+            data["metadata"] = dict(self.metadata)
         data["applies_to"] = self.applies_to.to_dict()
         data["requires"] = list(self.requires)
         data["weight"] = self.weight.to_dict()
@@ -315,6 +332,10 @@ class SystematicVariation:
             data["stop_before"] = list(self.stop_before)
         if self.export:
             data["export"] = dict(self.export)
+        if self.matrix_origin:
+            data["matrix_origin"] = dict(self.matrix_origin)
+        if self.matrix_values:
+            data["matrix_values"] = dict(self.matrix_values)
         return data
 
 
