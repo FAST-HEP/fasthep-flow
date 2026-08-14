@@ -37,8 +37,8 @@ def test_same_visible_field_name_on_independent_streams_is_scoped(
     ]
     assert plan.data_flow["origins"]["Jet_pt"]["kind"] == "stream_scoped"
     assert {
-        item["origin"]["node"]
-        for item in plan.data_flow["origins"]["Jet_pt"]["streams"]
+        item["node"]
+        for item in plan.data_flow["origins"]["Jet_pt"]["origins"]
     } == {"stage.BranchA", "stage.BranchB"}
 
 

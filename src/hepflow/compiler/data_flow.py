@@ -728,44 +728,51 @@ def _stream_key(stream: StreamRef) -> str:
 def _public_origins(
     stream_states: dict[StreamRef, StreamState],
 ) -> dict[str, dict[str, Any]]:
-    by_field: dict[str, list[tuple[StreamRef, dict[str, Any]]]] = defaultdict(list)
+    by_field: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for state in stream_states.values():
         for field, origin in state.origins.items():
-            by_field[field].append((state.stream, dict(origin)))
+            by_field[field].append(dict(origin))
 
     public: dict[str, dict[str, Any]] = {}
-    for field, entries in sorted(by_field.items()):
-        unique: list[tuple[StreamRef, dict[str, Any]]] = []
-        seen: set[tuple[str, str, str]] = set()
-        for stream, origin in entries:
-            marker = (
-                stream.node_id,
-                stream.output_name,
-                repr(sorted(origin.items())),
-            )
-            if marker in seen:
+    for field, origins in sorted(by_field.items()):
+        unique: list[dict[str, Any]] = []
+        seen: set[tuple[Any, ...]] = set()
+        for origin in origins:
+            key = origin_key(origin)
+            if key in seen:
                 continue
-            seen.add(marker)
-            unique.append((stream, origin))
-        origins = [origin for _stream, origin in unique]
-        if not origins:
+            seen.add(key)
+            unique.append(origin)
+        if not unique:
             continue
-        first = origins[0]
-        if all(origin == first for origin in origins):
-            public[field] = first
+        if len(unique) == 1:
+            public[field] = unique[0]
             continue
         public[field] = {
             "kind": "stream_scoped",
-            "streams": [
-                {
-                    "node_id": stream.node_id,
-                    "output_name": stream.output_name,
-                    "origin": origin,
-                }
-                for stream, origin in unique
-            ],
+            "origins": unique,
         }
     return public
+
+
+def origin_key(origin: dict[str, Any]) -> tuple[Any, ...]:
+    return _origin_value_key(origin)
+
+
+def _origin_value_key(value: Any) -> tuple[Any, ...]:
+    if isinstance(value, dict):
+        return (
+            "dict",
+            tuple(
+                (str(key), _origin_value_key(item))
+                for key, item in sorted(value.items(), key=lambda entry: str(entry[0]))
+            ),
+        )
+    if isinstance(value, list):
+        return ("list", tuple(_origin_value_key(item) for item in value))
+    if isinstance(value, tuple):
+        return ("tuple", tuple(_origin_value_key(item) for item in value))
+    return ("scalar", type(value).__name__, value)
 
 
 def _source_output_fields(

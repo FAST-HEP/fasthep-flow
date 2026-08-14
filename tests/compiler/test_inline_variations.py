@@ -663,6 +663,9 @@ def test_inline_variation_compile_scales_to_thousand_node_graph(
     assert any(node["id"].startswith("collect.") for node in plan_doc["nodes"])
     assert "f45_v00" in deps["origins"]
     assert "f45_v21" in deps["origins"]
+    assert _origin_count(deps["origins"]["pt"]) == 1
+    assert _origin_count(deps["origins"]["f0"]) == 23
+    assert deps["origins"]["f0"]["kind"] == "stream_scoped"
     assert len(deps["origins"]) < 200
     assert (compile_dir / "deps.yaml").stat().st_size < 4_000_000
     assert (compile_dir / "plan.yaml").stat().st_size < 8_000_000
@@ -796,6 +799,12 @@ def _output_payload(build_dir: Any) -> dict[str, Any]:
     else:
         [path] = sorted((build_dir / "artifacts" / "files" / "output").glob("*/*.json"))
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _origin_count(origin: dict[str, Any]) -> int:
+    if origin.get("kind") == "stream_scoped":
+        return len(origin["origins"])
+    return 1
 
 
 def _scale(
