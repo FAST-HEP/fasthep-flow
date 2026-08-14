@@ -406,9 +406,125 @@ def test_inline_variation_applies_to_marks_cloned_branch(
     ]
 
     assert cloned_nodes
-    assert {node["meta"].get("applies_to", {}).get("eventtype") for node in cloned_nodes} == {
-        "mc"
+    assert {
+        tuple(node["meta"].get("applies_to", {}).get("eventtypes") or [])
+        for node in cloned_nodes
+    } == {("mc",)}
+
+
+def test_inline_variation_intersects_original_dataset_applicability(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(
+        toy_registry,
+        [_scale("A", source="pt", output="a_pt"), _scale("B", source="a_pt")],
+        fields=["pt"],
+    )
+    plan.get_node("stage.B").meta["applies_to"] = {
+        "datasets": ["dy", "ttbar"],
     }
+
+    add_inline_variation_branch(
+        plan,
+        InlineVariationBranch(
+            anchor_node_id="stage.B",
+            variation={
+                "name": "up",
+                "applies_to": {"eventtypes": ["mc"], "datasets": ["dy", "wjets"]},
+            },
+        ),
+    )
+
+    assert plan.get_node("stage.B@up").meta["applies_to"] == {
+        "eventtypes": ["mc"],
+        "datasets": ["dy"],
+    }
+
+
+def test_inline_variation_omits_clone_for_empty_applicability_intersection(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(
+        toy_registry,
+        [_scale("A", source="pt", output="a_pt"), _scale("B", source="a_pt")],
+        fields=["pt"],
+    )
+    plan.get_node("stage.B").meta["applies_to"] = {"eventtype": "data"}
+
+    result = add_inline_variation_branch(
+        plan,
+        InlineVariationBranch(
+            anchor_node_id="stage.B",
+            variation={"name": "up", "applies_to": {"eventtypes": ["mc"]}},
+        ),
+    )
+
+    assert result.cloned_nodes == {}
+    assert "stage.B@up" not in plan.node_index
+
+
+def test_inline_variation_downstream_clone_keeps_narrower_original_applicability(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(
+        toy_registry,
+        [
+            _scale("A", source="pt", output="a_pt"),
+            _scale("B", source="a_pt", output="b_pt"),
+            _scale("C", source="b_pt", output="c_pt"),
+        ],
+        fields=["pt"],
+    )
+    plan.get_node("stage.C").meta["applies_to"] = {
+        "eventtypes": ["mc"],
+        "datasets": ["dy"],
+    }
+
+    result = add_inline_variation_branch(
+        plan,
+        InlineVariationBranch(
+            anchor_node_id="stage.B",
+            variation={"name": "up", "applies_to": {"eventtypes": ["mc"]}},
+        ),
+    )
+
+    assert result.cloned_nodes == {
+        "stage.B": "stage.B@up",
+        "stage.C": "stage.C@up",
+    }
+    assert plan.get_node("stage.B@up").meta["applies_to"] == {"eventtypes": ["mc"]}
+    assert plan.get_node("stage.C@up").meta["applies_to"] == {
+        "eventtypes": ["mc"],
+        "datasets": ["dy"],
+    }
+
+
+def test_authored_inline_variation_does_not_broaden_anchor_applicability(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    workflow_path = _write_inline_export_workflow(
+        tmp_path,
+        _registry_with_collection_ops(toy_registry),
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "applies_to": "mc",
+                "anchor": "B",
+                "patch": {"params": {"factor": 10}},
+                "export": {"b_pt_up": "b_pt"},
+            }
+        ],
+        anchor_applies_to={"eventtype": "data"},
+    )
+
+    compile_workflow_file(workflow_path, outdir=tmp_path / "build")
+    plan_doc = yaml.safe_load(
+        (tmp_path / "build" / "compile" / "plan.yaml").read_text(encoding="utf-8")
+    )
+
+    assert all("@up" not in node["id"] for node in plan_doc["nodes"])
 
 
 def test_inline_variation_export_can_collect_before_stop_boundary(
@@ -615,6 +731,7 @@ def _write_inline_export_workflow(
     *,
     variations: list[dict[str, Any]],
     anchor_op: str = "toy.scale",
+    anchor_applies_to: dict[str, Any] | None = None,
 ) -> Any:
     workflow = {
         "version": "1.0",
@@ -637,6 +754,11 @@ def _write_inline_export_workflow(
                 {
                     **_scale("B", source="a_pt", output="b_pt", factor=2),
                     "op": anchor_op,
+                    **(
+                        {"applies_to": anchor_applies_to}
+                        if anchor_applies_to is not None
+                        else {}
+                    ),
                 },
                 {
                     **_scale("C", source="b_pt", output="c_pt", factor=3),

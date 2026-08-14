@@ -8,6 +8,7 @@ from typing import Any
 
 import networkx as nx
 
+from hepflow.model.applicability import applicability_is_empty, intersect_applicability
 from hepflow.model.graph import (
     GraphNode,
     add_graph_edge,
@@ -58,7 +59,10 @@ def add_inline_variation_branch(
 
     clone_order = _inline_clone_order(plan, branch=branch)
     if not clone_order:
-        raise ValueError(f"Inline variation anchor {branch.anchor_node_id!r} was not cloned")
+        return InlineVariationResult(
+            variation=requested_variation,
+            cloned_nodes={},
+        )
 
     suffix = branch.id_suffix or _variation_suffix(requested_variation)
     clone_ids = {node_id: f"{node_id}@{suffix}" for node_id in clone_order}
@@ -190,7 +194,10 @@ def add_inline_variation_branch_to_graph(
 
     clone_order = _inline_graph_clone_order(graph, branch=branch)
     if not clone_order:
-        raise ValueError(f"Inline variation anchor {branch.anchor_node_id!r} was not cloned")
+        return InlineVariationResult(
+            variation=requested_variation,
+            cloned_nodes={},
+        )
 
     suffix = branch.id_suffix or _variation_suffix(requested_variation)
     clone_ids = {node_id: f"{node_id}@{suffix}" for node_id in clone_order}
@@ -330,7 +337,12 @@ def _insert_variation_collection_boundaries(
                         "export_of": varied_node_id,
                         **(
                             {"applies_to": applicability}
-                            if (applicability := _inline_node_applicability(result.variation))
+                            if (
+                                applicability := _clone_applicability(
+                                    plan.get_node(varied_node_id).meta,
+                                    result.variation,
+                                )
+                            )
                             is not None
                             else {}
                         ),
@@ -377,6 +389,8 @@ def _insert_variation_collection_boundaries(
                 input_name=target_ref.input_name,
             ),
         )
+
+
 def _target_stream_ref(node: ExecutionNode) -> PlanInputRef | None:
     for ref in node.inputs:
         if ref.output_name == "stream":
@@ -435,7 +449,12 @@ def _insert_variation_collection_boundaries_in_graph(
                         "export_of": varied_node_id,
                         **(
                             {"applies_to": applicability}
-                            if (applicability := _inline_node_applicability(result.variation))
+                            if (
+                                applicability := _clone_applicability(
+                                    get_graph_node(graph, varied_node_id).meta,
+                                    result.variation,
+                                )
+                            )
                             is not None
                             else {}
                         ),
@@ -583,6 +602,8 @@ def _inline_clone_order(
         if node.id in stop_before:
             continue
         if node.id == branch.anchor_node_id:
+            if _clone_applicability_is_empty(node.meta, branch.variation):
+                break
             clone_order.append(node.id)
             cloned.add(node.id)
             continue
@@ -591,6 +612,8 @@ def _inline_clone_order(
         if not _has_cloned_event_stream_input(node, cloned):
             continue
         if not _is_cloneable_event_stream_node(node, branch=branch):
+            continue
+        if _clone_applicability_is_empty(node.meta, branch.variation):
             continue
         clone_order.append(node.id)
         cloned.add(node.id)
@@ -610,6 +633,11 @@ def _inline_graph_clone_order(
         if node_id in stop_before:
             continue
         if node_id == branch.anchor_node_id:
+            if _clone_applicability_is_empty(
+                get_graph_node(graph, node_id).meta,
+                branch.variation,
+            ):
+                break
             clone_order.append(node_id)
             cloned.add(node_id)
             continue
@@ -619,6 +647,8 @@ def _inline_graph_clone_order(
             continue
         node = get_graph_node(graph, node_id)
         if not _is_cloneable_event_stream_graph_node(node, branch=branch):
+            continue
+        if _clone_applicability_is_empty(node.meta, branch.variation):
             continue
         clone_order.append(node_id)
         cloned.add(node_id)
@@ -689,9 +719,11 @@ def _clone_node(
     meta = deepcopy(node.meta)
     meta["variation"] = deepcopy(variation)
     meta["variation_of"] = node.id
-    applicability = _inline_node_applicability(variation)
+    applicability = _clone_applicability(node.meta, variation)
     if applicability is not None:
         meta["applies_to"] = applicability
+    else:
+        meta.pop("applies_to", None)
     return ExecutionNode(
         id=clone_id,
         graph_node_id=clone_id,
@@ -728,9 +760,11 @@ def _clone_graph_node(
     meta = deepcopy(node.meta)
     meta["variation"] = deepcopy(variation)
     meta["variation_of"] = node.id
-    applicability = _inline_node_applicability(variation)
+    applicability = _clone_applicability(node.meta, variation)
     if applicability is not None:
         meta["applies_to"] = applicability
+    else:
+        meta.pop("applies_to", None)
     return GraphNode(
         id=clone_id,
         role=node.role,
@@ -741,17 +775,21 @@ def _clone_graph_node(
     )
 
 
-def _inline_node_applicability(variation: Mapping[str, Any]) -> dict[str, str] | None:
-    raw = variation.get("applies_to")
-    if not isinstance(raw, Mapping):
-        return None
-    eventtypes = raw.get("eventtypes")
-    if not isinstance(eventtypes, list) or len(eventtypes) != 1:
-        return None
-    eventtype = str(eventtypes[0] or "").lower()
-    if eventtype not in {"data", "mc"}:
-        return None
-    return {"eventtype": eventtype}
+def _clone_applicability(
+    original_meta: Mapping[str, Any],
+    variation: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    return intersect_applicability(
+        original_meta.get("applies_to"),
+        variation.get("applies_to"),
+    )
+
+
+def _clone_applicability_is_empty(
+    original_meta: Mapping[str, Any],
+    variation: Mapping[str, Any],
+) -> bool:
+    return applicability_is_empty(_clone_applicability(original_meta, variation))
 
 
 def _validate_variation_compatible(

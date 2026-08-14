@@ -8,6 +8,10 @@ import pytest
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
+from hepflow.model.applicability import (
+    applicability_is_empty,
+    intersect_applicability,
+)
 from hepflow.model.plan_applicability import active_plan_nodes_for_dataset
 from hepflow.runtime.engine import build_partition_context, execute_plan_partition
 
@@ -43,6 +47,43 @@ def test_stage_applies_to_rejects_unsupported_shapes(
 
     with pytest.raises(ValueError, match=match):
         normalize_workflow(workflow)
+
+
+def test_applicability_intersection_unrestricted_with_mc() -> None:
+    assert intersect_applicability(
+        None,
+        {"eventtypes": ["mc"], "datasets": []},
+    ) == {"eventtypes": ["mc"]}
+
+
+def test_applicability_intersection_mc_with_mc() -> None:
+    assert intersect_applicability(
+        {"eventtype": "mc"},
+        {"eventtypes": ["mc"]},
+    ) == {"eventtypes": ["mc"]}
+
+
+def test_applicability_intersection_data_with_mc_is_empty() -> None:
+    result = intersect_applicability(
+        {"eventtype": "data"},
+        {"eventtypes": ["mc"]},
+    )
+
+    assert applicability_is_empty(result)
+
+
+def test_applicability_intersection_datasets() -> None:
+    assert intersect_applicability(
+        {"datasets": ["ttbar", "dy"]},
+        {"datasets": ["dy", "wjets"]},
+    ) == {"datasets": ["dy"]}
+
+
+def test_applicability_intersection_eventtype_and_dataset_combination() -> None:
+    assert intersect_applicability(
+        {"eventtype": "mc", "datasets": ["ttbar", "dy"]},
+        {"eventtypes": ["mc"], "datasets": ["dy"]},
+    ) == {"eventtypes": ["mc"], "datasets": ["dy"]}
 
 
 def test_active_plan_nodes_omit_mc_only_nodes_for_data(
