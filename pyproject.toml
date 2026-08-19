@@ -24,6 +24,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "dask",
+    "distributed",
+    "dask-jobqueue",
     "jinja2",
     "networkx",
     "numpy",
@@ -31,11 +34,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-distributed = [
-    "dask",
-    "distributed",
-    "dask-jobqueue",
-]
 gpu = [
   "cupy",
 ]
