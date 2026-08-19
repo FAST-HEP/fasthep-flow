@@ -32,9 +32,9 @@ dependencies = [
 
 [project.optional-dependencies]
 distributed = [
-    "dask[complete]",
-    "dask-jobqueue",
+    "dask",
     "distributed",
+    "dask-jobqueue",
 ]
 gpu = [
   "cupy",

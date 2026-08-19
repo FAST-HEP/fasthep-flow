@@ -9,7 +9,7 @@ on:
 
 jobs:
   alpha-ci:
-    name: Python 3.12
+    name: Python 3.13
     runs-on: ubuntu-latest
 
     steps:
@@ -21,33 +21,57 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Install package
         run: |
           python -m pip install --upgrade pip
           python - <<'PY'
+          import re
           import subprocess
           import sys
           import tomllib
 
           with open("pyproject.toml", "rb") as handle:
               project = tomllib.load(handle)["project"]
-          requirements = [
-              dep for dep in project.get("dependencies", [])
-              if not dep.startswith("fasthep")
-          ]
-          requirements.extend(project.get("optional-dependencies", {}).get("test", []))
+
+          optional = project.get("optional-dependencies", {})
+
+          requirements = list(project.get("dependencies", []))
+          requirements.extend(optional.get("test", []))
+          requirements.extend(optional.get("distributed", []))
           requirements.extend(["ruff", "mypy", "build"])
-          subprocess.check_call([sys.executable, "-m", "pip", "install", *requirements])
+
+          fasthep_pattern = re.compile(
+              r"^\s*(fasthep-[A-Za-z0-9_.-]+)(\[[^\]]+\])?",
+              re.IGNORECASE,
+          )
+
+          resolved = []
+          for requirement in requirements:
+              match = fasthep_pattern.match(requirement)
+              if match:
+                  package = match.group(1).lower().replace("_", "-")
+                  extras = match.group(2) or ""
+                  resolved.append(
+                      f"{package}{extras} @ "
+                      f"git+https://github.com/FAST-HEP/{package}.git@main"
+                  )
+              else:
+                  resolved.append(requirement)
+
+          subprocess.check_call(
+              [sys.executable, "-m", "pip", "install", *resolved]
+          )
           PY
+
           python -m pip install -e . --no-deps
 
       - name: Lint
         run: ruff check src tests
-
+                
       - name: Typecheck
         run: mypy src tests
-
+                
       - name: Test
         run: pytest
