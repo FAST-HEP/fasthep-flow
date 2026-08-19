@@ -15,6 +15,8 @@ from hepflow.model.plan import (
 )
 from hepflow.model.plan_applicability import (
     active_plan_nodes_for_context,
+    inactive_inputs_behavior_for_node,
+    node_applies_to_plan_dataset,
     resolve_active_input_ref,
 )
 from hepflow.model.products import OperationResult
@@ -148,8 +150,8 @@ def execute_plan_partition(
                         f"Unsupported sink execution timing for node {node.id!r}: {when!r}"
                     )
 
-            inputs = _collect_inputs(node.inputs, value_store, plan=plan, ctx=ctx)
-            input_products = _collect_input_products(node.inputs, plan=plan, ctx=ctx)
+            inputs = _collect_inputs(node, value_store, plan=plan, ctx=ctx)
+            input_products = _collect_input_products(node, plan=plan, ctx=ctx)
 
             if node.role == "transform":
                 with (
@@ -621,12 +623,12 @@ def execute_dataset_sinks(
             )
 
         inputs = _collect_inputs(
-            node.inputs,
+            node,
             dataset_value_store,
             plan=plan,
             ctx=ctx,
         )
-        input_products = _collect_input_products(node.inputs, plan=plan, ctx=ctx)
+        input_products = _collect_input_products(node, plan=plan, ctx=ctx)
         target = _sink_target(inputs)
         try:
             with (
@@ -697,8 +699,8 @@ def execute_final_nodes(
                 f"Unsupported sink execution timing for node {node.id!r}: {when!r}"
             )
 
-        inputs = _collect_inputs(node.inputs, value_store, plan=plan, ctx=ctx)
-        input_products = _collect_input_products(node.inputs, plan=plan, ctx=ctx)
+        inputs = _collect_inputs(node, value_store, plan=plan, ctx=ctx)
+        input_products = _collect_input_products(node, plan=plan, ctx=ctx)
         target = _sink_target(inputs)
         try:
             with (
@@ -901,17 +903,39 @@ def _is_schema_snapshot_observer(node: ExecutionNode) -> bool:
 
 
 def _collect_inputs(
-    input_refs,
+    node: ExecutionNode,
     value_store: dict[tuple[str, str], Any],
     *,
     plan: ExecutionPlan | None = None,
     ctx: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     inputs: dict[str, Any] = {}
+    input_refs = node.inputs
+    omit_inactive_inputs = (
+        plan is not None and inactive_inputs_behavior_for_node(plan, node) == "omit"
+    )
+    event_stream_input_count = (
+        _event_stream_input_count(plan, node) if plan is not None else 0
+    )
     for ref in input_refs:
         if ref.input_name == "dependency":
             continue
         active_ref = ref
+        if plan is not None and ctx is not None:
+            dataset = ctx.get("dataset")
+            upstream = plan.node_index.get(ref.node_id)
+            if upstream is not None and not node_applies_to_plan_dataset(
+                upstream,
+                dataset=dataset if isinstance(dataset, dict) else None,
+            ):
+                if omit_inactive_inputs:
+                    continue
+                if event_stream_input_count > 1:
+                    raise KeyError(
+                        f"Node {node.id!r} has inactive required input "
+                        f"{ref.node_id!r}; declare input.inactive_inputs: omit "
+                        "to allow contextual omission"
+                    )
         if (
             (ref.node_id, ref.output_name) not in value_store
             and plan is not None
@@ -935,24 +959,45 @@ def _collect_inputs(
 
 
 def _collect_input_products(
-    input_refs: list[PlanInputRef],
+    node: ExecutionNode,
     *,
     plan: ExecutionPlan | None,
     ctx: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     bindings = dict(ctx.get("product_bindings") or {})
     products: dict[str, dict[str, Any]] = {}
+    input_refs = node.inputs
+    omit_inactive_inputs = (
+        plan is not None and inactive_inputs_behavior_for_node(plan, node) == "omit"
+    )
+    event_stream_input_count = (
+        _event_stream_input_count(plan, node) if plan is not None else 0
+    )
     for ref in input_refs:
         if ref.input_name == "dependency":
             continue
         active_ref = ref
         if plan is not None:
             dataset = ctx.get("dataset")
+            dataset_dict = dataset if isinstance(dataset, dict) else None
+            upstream = plan.node_index.get(ref.node_id)
+            if upstream is not None and not node_applies_to_plan_dataset(
+                upstream,
+                dataset=dataset_dict,
+            ):
+                if omit_inactive_inputs:
+                    continue
+                if event_stream_input_count > 1:
+                    raise KeyError(
+                        f"Node {node.id!r} has inactive required input "
+                        f"{ref.node_id!r}; declare input.inactive_inputs: omit "
+                        "to allow contextual omission"
+                    )
             try:
                 active_ref = resolve_active_input_ref(
                     plan,
                     ref,
-                    dataset=dataset if isinstance(dataset, dict) else None,
+                    dataset=dataset_dict,
                 )
             except (KeyError, ValueError):
                 # The input may have been supplied directly through initial_values.
@@ -962,6 +1007,19 @@ def _collect_input_products(
         if isinstance(binding, dict):
             products[ref.input_name] = dict(binding)
     return products
+
+
+def _event_stream_input_count(plan: ExecutionPlan, node: ExecutionNode) -> int:
+    count = 0
+    for ref in node.inputs:
+        if ref.input_name == "dependency":
+            continue
+        upstream = plan.node_index.get(ref.node_id)
+        if upstream is None:
+            continue
+        if upstream.outputs.get(ref.output_name) == "event_stream":
+            count += 1
+    return count
 
 
 @contextmanager

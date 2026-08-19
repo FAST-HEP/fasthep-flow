@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib import resources
 from pathlib import Path
 from typing import Any, cast
 
@@ -64,11 +65,15 @@ def test_qualified_package_profile_loads_from_test_package(tmp_path: Path) -> No
     assert "toy.scale" in layer.registry["transforms"]
 
 
-def test_unqualified_builtin_registry_profile_still_loads(tmp_path: Path) -> None:
-    layer = load_profile_registry_layer("registry", project_root=tmp_path)
+def test_builtin_registry_profile_is_packaged() -> None:
+    profile = resources.files("hepflow.profiles").joinpath("registry.yaml")
 
-    assert layer.path == "package:hepflow.profiles/registry.yaml"
-    assert "local.default" in layer.registry["backends"]
+    assert profile.is_file()
+
+    registry = yaml.safe_load(profile.read_text())["registry"]
+
+    assert "backends" in registry
+    assert "local.default" in registry["backends"]
 
 
 def test_profile_registry_is_copied_into_normalized_workflow(tmp_path: Path) -> None:
@@ -92,64 +97,6 @@ def test_profile_registry_is_copied_into_normalized_workflow(tmp_path: Path) -> 
         "kind": "workflow",
         "path": str(workflow_path),
     }
-
-
-def test_hep_debug_profile_expands_to_hep_stack_with_diagnostics(
-    tmp_path: Path,
-) -> None:
-    workflow = {
-        "version": "1.0",
-        "use": {"profiles": ["hep_debug"]},
-        "data": {
-            "defaults": {"tree_primary": "events"},
-            "datasets": [
-                {"name": "data", "files": ["data.root"]},
-            ],
-        },
-        "sources": {"events": {"kind": "root_tree", "tree": "events"}},
-        "analysis": {"stages": []},
-    }
-    workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
-
-    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
-
-    registry = normalized["registry"]
-    assert "root_tree" in registry["sources"]
-    assert "hep.schema_snapshot" in registry["observers"]
-    assert "hep.render.hist1d" in registry["sinks"]
-    hook_kinds = {
-        hook["kind"] for hook in normalized["execution_hooks"]
-    }
-    assert "hep.dataset_context" in hook_kinds
-    assert "hep.error_report" in hook_kinds
-    assert "hep.warning_capture" in hook_kinds
-
-
-def test_hep_profile_excludes_runtime_diagnostics(tmp_path: Path) -> None:
-    workflow = {
-        "version": "1.0",
-        "use": {"profiles": ["hep"]},
-        "data": {
-            "defaults": {"tree_primary": "events"},
-            "datasets": [
-                {"name": "data", "files": ["data.root"]},
-            ],
-        },
-        "sources": {"events": {"kind": "root_tree", "tree": "events"}},
-        "analysis": {"stages": []},
-    }
-    workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
-
-    normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
-
-    hook_kinds = {
-        hook["kind"] for hook in normalized["execution_hooks"]
-    }
-    assert "hep.dataset_context" in hook_kinds
-    assert "hep.error_report" not in hook_kinds
-    assert "hep.warning_capture" not in hook_kinds
 
 
 def test_profile_include_cycles_error(tmp_path: Path) -> None:

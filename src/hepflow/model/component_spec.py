@@ -20,13 +20,17 @@ class RuntimeComponentSpec:
 
     ``input``
         What the component consumes (for example, an ``event_stream``).
+        Multi-input components may declare ``inactive_inputs: omit`` when
+        inputs whose producers are inactive in a dataset context should be
+        omitted rather than treated as missing required inputs.
 
     ``result``
         What the component produces (for example, an event stream or an
         artifact). Event-stream results may declare symbolic event-lineage
-        behaviour with ``lineage: preserve`` or ``lineage: new``. Sources
-        establish new lineage identities; event-stream transforms preserve
-        input lineage by default.
+        behaviour with ``lineage: preserve``, ``lineage: require_equal``, or
+        ``lineage: new``. Sources establish new lineage identities;
+        event-stream transforms preserve their primary input lineage by
+        default.
 
     Dependency contract
 

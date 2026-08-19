@@ -55,6 +55,16 @@ TOY_CAPTURE_PRODUCTS_SPEC = {
     "result": {"artifact": "artifact"},
 }
 
+TOY_COMPARISON_SINK_SPEC = {
+    "name": "hep.render.comparison",
+    "kind": "sink",
+    "input": {
+        "inactive_inputs": "omit",
+    },
+    "params": {},
+    "result": {"artifact": "artifact"},
+}
+
 
 def run_toy_capture_registry(
     *,

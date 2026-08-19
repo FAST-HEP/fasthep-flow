@@ -32,9 +32,9 @@ dependencies = [
 
 [project.optional-dependencies]
 distributed = [
-    "dask[complete]",
-    "dask-jobqueue",
+    "dask",
     "distributed",
+    "dask-jobqueue",
 ]
 gpu = [
   "cupy",
@@ -132,3 +132,6 @@ addopts = [
 xfail_strict = true
 filterwarnings = ["error"]
 testpaths = ["tests"]
+markers = [
+    "performance: opt-in performance benchmarks; skipped unless explicitly enabled",
+]

@@ -1,7 +1,10 @@
 # normalize.py
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import fields
+from itertools import product
+from string import Formatter
 from typing import Any
 
 from hepflow.compiler.execution import (
@@ -174,67 +177,89 @@ def normalize_systematics(raw: Any) -> SystematicsConfig | None:
     variations: list[SystematicVariation] = []
     seen: set[str] = set()
     for idx, variation_raw in enumerate(variations_raw):
-        variation = _ensure_mapping(variation_raw, f"systematics.variations[{idx}]")
-        name_raw = variation.get("name")
-        if not isinstance(name_raw, str) or not name_raw.strip():
-            raise ValueError(f"systematics.variations[{idx}].name is required")
-        name = name_raw.strip()
-        if name in seen:
-            raise ValueError(f"duplicate systematics variation name: {name}")
-        seen.add(name)
+        variation_template = _ensure_mapping(
+            variation_raw, f"systematics.variations[{idx}]"
+        )
+        concrete_variations = _expand_variation_matrix(
+            variation_template,
+            f"systematics.variations[{idx}]",
+        )
+        for concrete_idx, variation in enumerate(concrete_variations):
+            where = f"systematics.variations[{idx}]"
+            if len(concrete_variations) > 1:
+                where = f"{where}.matrix[{concrete_idx}]"
+            name_raw = variation.get("name")
+            if not isinstance(name_raw, str) or not name_raw.strip():
+                raise ValueError(f"{where}.name is required")
+            name = name_raw.strip()
+            if name in seen:
+                raise ValueError(f"duplicate systematics variation name: {name}")
+            seen.add(name)
 
-        variations.append(
-            SystematicVariation(
-                name=name,
-                mode=_normalize_variation_mode(
-                    variation.get("mode"),
-                    f"systematics.variations[{idx}].mode",
-                ),
-                group=_optional_string(
-                    variation.get("group"), f"systematics.variations[{idx}].group"
-                ),
-                direction=_optional_string(
-                    variation.get("direction"),
-                    f"systematics.variations[{idx}].direction",
-                ),
-                applies_to=_normalize_systematic_applicability(
-                    variation.get("applies_to"),
-                    f"systematics.variations[{idx}].applies_to",
-                ),
-                requires=_normalize_optional_string_list(
-                    variation.get("requires"),
-                    f"systematics.variations[{idx}].requires",
-                ),
-                weight=_normalize_systematic_weight(
-                    variation.get("weight"),
-                    f"systematics.variations[{idx}].weight",
-                ),
-                replace=_normalize_string_mapping(
-                    variation.get("replace"),
-                    f"systematics.variations[{idx}].replace",
-                ),
-                datasets=_normalize_mapping_or_empty(
-                    variation.get("datasets"),
-                    f"systematics.variations[{idx}].datasets",
-                ),
-                anchor=_optional_string(
-                    variation.get("anchor", variation.get("stage")),
-                    f"systematics.variations[{idx}].anchor",
-                ),
-                patch=_normalize_inline_patch(
-                    variation,
-                    f"systematics.variations[{idx}]",
-                ),
-                stop_before=_normalize_optional_string_list(
-                    variation.get("stop_before"),
-                    f"systematics.variations[{idx}].stop_before",
-                ),
-                export=_normalize_string_mapping(
-                    _export_fields(variation.get("export")),
-                    f"systematics.variations[{idx}].export",
+            variations.append(
+                SystematicVariation(
+                    name=name,
+                    mode=_normalize_variation_mode(
+                        variation.get("mode"),
+                        f"{where}.mode",
+                    ),
+                    group=_optional_string(
+                        variation.get("group"), f"{where}.group"
+                    ),
+                    direction=_optional_string(
+                        variation.get("direction"),
+                        f"{where}.direction",
+                    ),
+                    metadata=_normalize_mapping_or_empty(
+                        variation.get("metadata"),
+                        f"{where}.metadata",
+                    ),
+                    applies_to=_normalize_systematic_applicability(
+                        variation.get("applies_to"),
+                        f"{where}.applies_to",
+                    ),
+                    requires=_normalize_optional_string_list(
+                        variation.get("requires"),
+                        f"{where}.requires",
+                    ),
+                    weight=_normalize_systematic_weight(
+                        variation.get("weight"),
+                        f"{where}.weight",
+                    ),
+                    replace=_normalize_string_mapping(
+                        variation.get("replace"),
+                        f"{where}.replace",
+                    ),
+                    datasets=_normalize_mapping_or_empty(
+                        variation.get("datasets"),
+                        f"{where}.datasets",
+                    ),
+                    anchor=_optional_string(
+                        variation.get("anchor", variation.get("stage")),
+                        f"{where}.anchor",
+                    ),
+                    patch=_normalize_inline_patch(
+                        variation,
+                        where,
+                    ),
+                    stop_before=_normalize_optional_string_list(
+                        variation.get("stop_before"),
+                        f"{where}.stop_before",
+                    ),
+                    export=_normalize_string_mapping(
+                        _export_fields(variation.get("export")),
+                        f"{where}.export",
+                    ),
+                    matrix_origin=_normalize_mapping_or_empty(
+                        variation.get("matrix_origin"),
+                        f"{where}.matrix_origin",
+                    ),
+                    matrix_values=_normalize_mapping_or_empty(
+                        variation.get("matrix_values"),
+                        f"{where}.matrix_values",
+                    ),
                 ),
             )
-        )
 
     include_nominal = raw.get("include_nominal", False)
     if not isinstance(include_nominal, bool):
@@ -256,6 +281,134 @@ def _normalize_variation_mode(raw: Any, where: str) -> str:
     if mode not in {"plan", "inline"}:
         raise ValueError(f"{where} must be 'plan' or 'inline'")
     return mode
+
+
+_MATRIX_TEMPLATE_FIELDS = {
+    "name",
+    "group",
+    "direction",
+    "metadata",
+    "requires",
+    "weight",
+    "replace",
+    "datasets",
+    "anchor",
+    "stage",
+    "patch",
+    "params",
+    "stop_before",
+    "export",
+}
+
+
+def _expand_variation_matrix(
+    variation: dict[str, Any],
+    where: str,
+) -> list[dict[str, Any]]:
+    matrix_raw = variation.get("matrix")
+    if matrix_raw is None:
+        concrete = dict(variation)
+        concrete.pop("matrix", None)
+        return [concrete]
+    matrix = _ensure_mapping(matrix_raw, f"{where}.matrix")
+    if not matrix:
+        raise ValueError(f"{where}.matrix must define at least one axis")
+
+    axes: list[tuple[str, list[Any]]] = []
+    for axis, values in matrix.items():
+        if not isinstance(axis, str) or not axis.strip():
+            raise ValueError(f"{where}.matrix axis names must be non-empty strings")
+        if not isinstance(values, list):
+            raise ValueError(f"{where}.matrix.{axis} must be a list")
+        if not values:
+            raise ValueError(f"{where}.matrix.{axis} must be a non-empty list")
+        axes.append((axis, list(values)))
+
+    if not axes:
+        raise ValueError(f"{where}.matrix expands to zero variations")
+
+    out: list[dict[str, Any]] = []
+    axis_names = [axis for axis, _values in axes]
+    for combo in product(*(values for _axis, values in axes)):
+        matrix_values = dict(zip(axis_names, combo, strict=True))
+        concrete = _template_variation_fields(
+            variation,
+            matrix_values,
+            where,
+        )
+        concrete.pop("matrix", None)
+        concrete["matrix_origin"] = {"axes": deepcopy(matrix)}
+        concrete["matrix_values"] = deepcopy(matrix_values)
+        out.append(concrete)
+
+    if not out:
+        raise ValueError(f"{where}.matrix expands to zero variations")
+    return out
+
+
+def _template_variation_fields(
+    variation: dict[str, Any],
+    matrix_values: dict[str, Any],
+    where: str,
+) -> dict[str, Any]:
+    concrete: dict[str, Any] = {}
+    for key, value in variation.items():
+        if key == "matrix":
+            concrete[key] = deepcopy(value)
+        elif key in _MATRIX_TEMPLATE_FIELDS:
+            concrete[key] = _substitute_matrix_templates(value, matrix_values, where)
+        else:
+            concrete[key] = deepcopy(value)
+    return concrete
+
+
+def _substitute_matrix_templates(
+    value: Any,
+    matrix_values: dict[str, Any],
+    where: str,
+) -> Any:
+    if isinstance(value, str):
+        return _substitute_matrix_string(value, matrix_values, where)
+    if isinstance(value, list):
+        return [
+            _substitute_matrix_templates(item, matrix_values, where)
+            for item in value
+        ]
+    if isinstance(value, dict):
+        return {
+            _substitute_matrix_templates(key, matrix_values, where): (
+                _substitute_matrix_templates(item, matrix_values, where)
+            )
+            for key, item in value.items()
+        }
+    return deepcopy(value)
+
+
+def _substitute_matrix_string(
+    value: str,
+    matrix_values: dict[str, Any],
+    where: str,
+) -> Any:
+    formatter = Formatter()
+    for _literal, field_name, format_spec, conversion in formatter.parse(value):
+        if field_name is None:
+            continue
+        if not field_name.isidentifier():
+            raise ValueError(
+                f"{where} template reference {field_name!r} must be a matrix axis name"
+            )
+        if field_name not in matrix_values:
+            raise ValueError(
+                f"{where} template references unknown matrix axis {field_name!r}"
+            )
+        if format_spec or conversion is not None:
+            raise ValueError(
+                f"{where} template reference {field_name!r} must not use format specs"
+            )
+    for axis, axis_value in matrix_values.items():
+        if value == "{" + axis + "}":
+            return deepcopy(axis_value)
+    return value.format(**matrix_values)
 
 
 def _normalize_inline_patch(variation: dict[str, Any], where: str) -> dict[str, Any]:

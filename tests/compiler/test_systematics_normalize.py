@@ -138,6 +138,153 @@ def test_duplicate_variation_names_error(toy_workflow: dict[str, Any]) -> None:
         normalize_workflow(workflow)
 
 
+def test_variation_matrix_expands_in_author_axis_order(
+    toy_workflow: dict[str, Any],
+) -> None:
+    workflow = {
+        **toy_workflow,
+        "systematics": {
+            "variations": [
+                {
+                    "name": "jec_{source}_{direction}",
+                    "mode": "inline",
+                    "anchor": "JetJEC",
+                    "matrix": {
+                        "source": ["Regrouped_Absolute", "Regrouped_BBEC1"],
+                        "direction": ["up", "down"],
+                    },
+                    "group": "jec_{source}",
+                    "direction": "{direction}",
+                    "metadata": {"source": "{source}", "direction": "{direction}"},
+                    "patch": {
+                        "params": {
+                            "source": "{source}",
+                            "direction": "{direction}",
+                        }
+                    },
+                    "export": {
+                        "Jet_pt": "Jet_{source}_{direction}_pt",
+                    },
+                }
+            ],
+        },
+    }
+
+    normalized = normalize_workflow(workflow)
+
+    variations = normalized["systematics"]["variations"]
+    assert [variation["name"] for variation in variations] == [
+        "jec_Regrouped_Absolute_up",
+        "jec_Regrouped_Absolute_down",
+        "jec_Regrouped_BBEC1_up",
+        "jec_Regrouped_BBEC1_down",
+    ]
+    assert variations[0]["patch"] == {
+        "source": "Regrouped_Absolute",
+        "direction": "up",
+    }
+    assert variations[0]["export"] == {
+        "Jet_pt": "Jet_Regrouped_Absolute_up_pt",
+    }
+    assert variations[0]["metadata"] == {
+        "source": "Regrouped_Absolute",
+        "direction": "up",
+    }
+    assert variations[0]["matrix_values"] == {
+        "source": "Regrouped_Absolute",
+        "direction": "up",
+    }
+    assert variations[0]["matrix_origin"] == {
+        "axes": {
+            "source": ["Regrouped_Absolute", "Regrouped_BBEC1"],
+            "direction": ["up", "down"],
+        }
+    }
+
+
+def test_variation_matrix_preserves_non_string_axis_values_in_exact_templates(
+    toy_workflow: dict[str, Any],
+) -> None:
+    workflow = {
+        **toy_workflow,
+        "systematics": {
+            "variations": [
+                {
+                    "name": "scale_{factor}",
+                    "mode": "inline",
+                    "anchor": "Scale",
+                    "matrix": {"factor": [1, 2]},
+                    "patch": {"factor": "{factor}"},
+                }
+            ],
+        },
+    }
+
+    normalized = normalize_workflow(workflow)
+
+    variations = normalized["systematics"]["variations"]
+    assert [variation["patch"] for variation in variations] == [
+        {"factor": 1},
+        {"factor": 2},
+    ]
+
+
+def test_variation_matrix_duplicate_concrete_names_error(
+    toy_workflow: dict[str, Any],
+) -> None:
+    workflow = {
+        **toy_workflow,
+        "systematics": {
+            "variations": [
+                {
+                    "name": "same",
+                    "matrix": {"direction": ["up", "down"]},
+                }
+            ],
+        },
+    }
+
+    with pytest.raises(ValueError, match="duplicate systematics variation name"):
+        normalize_workflow(workflow)
+
+
+@pytest.mark.parametrize(
+    ("variation", "match"),
+    [
+        (
+            {"name": "bad", "matrix": {}},
+            "matrix must define at least one axis",
+        ),
+        (
+            {"name": "bad", "matrix": {"direction": "up"}},
+            "matrix.direction must be a list",
+        ),
+        (
+            {"name": "bad", "matrix": {"direction": []}},
+            "matrix.direction must be a non-empty list",
+        ),
+        (
+            {"name": "bad_{missing}", "matrix": {"direction": ["up"]}},
+            "unknown matrix axis 'missing'",
+        ),
+        (
+            {"name": "bad_{direction!r}", "matrix": {"direction": ["up"]}},
+            "must not use format specs",
+        ),
+    ],
+)
+def test_malformed_variation_matrix_errors(
+    toy_workflow: dict[str, Any], variation: dict[str, Any], match: str
+) -> None:
+    workflow = {
+        **toy_workflow,
+        "systematics": {"variations": [variation]},
+    }
+
+    with pytest.raises(ValueError, match=match):
+        normalize_workflow(workflow)
+
+
 @pytest.mark.parametrize(
     ("systematics", "match"),
     [
