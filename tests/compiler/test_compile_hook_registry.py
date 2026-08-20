@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 import yaml
 
+from hepflow.compiler.hooks.expand_mapping_matrix import expand_mapping_matrix
 from hepflow.compiler.hooks.load_mapping import load_mapping
 from hepflow.compiler.hooks.model import ParamCompileHookContext
 from hepflow.compiler.hooks.registry import resolve_compile_hook
@@ -15,6 +16,16 @@ def test_compile_hook_registry_resolves_parameter_hook() -> None:
     hook = resolve_compile_hook(_registry(), "flow.expand_field_glob", kind="parameter")
 
     assert hook.name == "flow.expand_field_glob"
+    assert hook.kind == "parameter"
+    assert callable(hook.impl)
+
+
+def test_compile_hook_registry_resolves_mapping_matrix_hook() -> None:
+    hook = resolve_compile_hook(
+        _registry(), "flow.expand_mapping_matrix", kind="parameter"
+    )
+
+    assert hook.name == "flow.expand_mapping_matrix"
     assert hook.kind == "parameter"
     assert callable(hook.impl)
 
@@ -108,6 +119,90 @@ def test_load_mapping_can_feed_later_hook(tmp_path) -> None:
     assert chained.value == ["fields", "mapped"]
 
 
+def test_expand_mapping_matrix_expands_in_author_order() -> None:
+    result = expand_mapping_matrix(
+        value={
+            "matrix": {
+                "axes": {
+                    "source": ["A", "B"],
+                    "direction": ["up", "down"],
+                },
+                "mappings": [
+                    {
+                        "target": "jec_{source}_{direction}_pt",
+                        "source": "jec_Nominal_pt",
+                    }
+                ],
+            }
+        },
+        options={},
+        context=ParamCompileHookContext(),
+    )
+
+    assert result.value == {
+        "jec_A_up_pt": "jec_Nominal_pt",
+        "jec_A_down_pt": "jec_Nominal_pt",
+        "jec_B_up_pt": "jec_Nominal_pt",
+        "jec_B_down_pt": "jec_Nominal_pt",
+    }
+    assert result.provenance["axis_names"] == ["source", "direction"]
+    assert result.provenance["generated"] == 4
+
+
+def test_expand_mapping_matrix_preserves_explicit_entries() -> None:
+    result = expand_mapping_matrix(
+        value={
+            "Nominal_pt": "Jet_pt",
+            "matrix": {
+                "axes": {"direction": ["up"]},
+                "mappings": [
+                    {
+                        "target": "jec_{direction}_pt",
+                        "source": "jec_Nominal_pt",
+                    }
+                ],
+            },
+        },
+        options={},
+        context=ParamCompileHookContext(),
+    )
+
+    assert result.value == {
+        "Nominal_pt": "Jet_pt",
+        "jec_up_pt": "jec_Nominal_pt",
+    }
+
+
+def test_expand_mapping_matrix_rejects_duplicate_targets() -> None:
+    with pytest.raises(ValueError, match="duplicate target 'jec_up_pt'"):
+        expand_mapping_matrix(
+            value={
+                "matrix": {
+                    "axes": {"source": ["jec"], "direction": ["up", "up"]},
+                    "mappings": [
+                        {
+                            "target": "{source}_{direction}_pt",
+                            "source": "jec_Nominal_pt",
+                        }
+                    ],
+                }
+            },
+            options={},
+            context=ParamCompileHookContext(),
+        )
+
+
+def test_expand_mapping_matrix_leaves_plain_mapping_unchanged() -> None:
+    result = expand_mapping_matrix(
+        value={"alias": "source"},
+        options={},
+        context=ParamCompileHookContext(),
+    )
+
+    assert result.value == {"alias": "source"}
+    assert result.provenance["generated"] == 0
+
+
 def mapping_hook(
     *,
     value: Any,
@@ -127,6 +222,12 @@ def _registry() -> dict[str, Any]:
             "flow.expand_field_glob": {
                 "kind": "parameter",
                 "impl": "hepflow.compiler.hooks.expand_field_glob:expand_field_glob",
-            }
+            },
+            "flow.expand_mapping_matrix": {
+                "kind": "parameter",
+                "impl": (
+                    "hepflow.compiler.hooks.expand_mapping_matrix:expand_mapping_matrix"
+                ),
+            },
         }
     }

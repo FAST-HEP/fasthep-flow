@@ -910,8 +910,12 @@ def _transform_output_fields(
             input_states=input_states,
         )[0]
     if node.impl == "hep.project_fields":
-        aliases = dict(params.get("aliases") or {})
-        if params.get("include_existing", True) is False or field_behavior == "projection":
+        raw_aliases = params.get("aliases") or {}
+        aliases = raw_aliases if isinstance(raw_aliases, dict) else {}
+        if (
+            params.get("include_existing", True) is False
+            or field_behavior == "projection"
+        ):
             return [str(alias) for alias in aliases if isinstance(alias, str)]
         return _merge_ordered_fields(
             [input_fields, [str(alias) for alias in aliases if isinstance(alias, str)]]
@@ -1192,7 +1196,9 @@ def _values_from_param_reference(
     spec: RuntimeComponentSpec,
 ) -> list[Any]:
     values: list[Any] = [params]
-    for depth, segment in enumerate(source.split(".")[1:]):
+    source_parts = source.split(".")
+    root_param = source_parts[1] if len(source_parts) > 1 else None
+    for depth, segment in enumerate(source_parts[1:]):
         next_values: list[Any] = []
         for value in values:
             if value is None:
@@ -1203,6 +1209,9 @@ def _values_from_param_reference(
                     continue
                 if isinstance(value, dict):
                     next_values.extend(value.values())
+                    continue
+                schema = spec.params.get(root_param) if root_param else None
+                if isinstance(schema, dict) and schema.get("hooks"):
                     continue
                 raise TypeError(
                     f"Wildcard in {source} for {spec.name!r} requires a list or mapping"
@@ -1608,7 +1617,10 @@ def _aliases_by_stream(plan: ExecutionPlan) -> dict[str, dict[str, str]]:
         if node.impl != "hep.project_fields":
             continue
         stream_id = str(node.params.get("stream_id") or _primary_stream_id(plan))
-        for alias, branch in dict(node.params.get("aliases") or {}).items():
+        raw_aliases = node.params.get("aliases") or {}
+        if not isinstance(raw_aliases, dict):
+            continue
+        for alias, branch in raw_aliases.items():
             if isinstance(alias, str) and isinstance(branch, str):
                 aliases[stream_id][alias] = branch
     return {stream_id: dict(items) for stream_id, items in aliases.items()}

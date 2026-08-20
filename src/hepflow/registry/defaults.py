@@ -93,6 +93,12 @@ def default_runtime_registry_config() -> dict[str, Any]:
                 "kind": "parameter",
                 "impl": "hepflow.compiler.hooks.load_mapping:load_mapping",
             },
+            "flow.expand_mapping_matrix": {
+                "kind": "parameter",
+                "impl": (
+                    "hepflow.compiler.hooks.expand_mapping_matrix:expand_mapping_matrix"
+                ),
+            },
         },
         "render": {},
         "report_templates": {},

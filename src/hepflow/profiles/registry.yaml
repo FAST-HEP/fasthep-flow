@@ -24,3 +24,6 @@ registry:
     flow.load_mapping:
       kind: parameter
       impl: hepflow.compiler.hooks.load_mapping:load_mapping
+    flow.expand_mapping_matrix:
+      kind: parameter
+      impl: hepflow.compiler.hooks.expand_mapping_matrix:expand_mapping_matrix
