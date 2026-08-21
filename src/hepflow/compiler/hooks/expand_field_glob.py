@@ -45,6 +45,11 @@ def _expand_field_glob_patterns(
     seen: set[str] = set()
     unmatched: list[str] = []
     for pattern in patterns:
+        if not _has_glob_syntax(pattern):
+            if pattern not in seen:
+                expanded.append(pattern)
+                seen.add(pattern)
+            continue
         matches = [field for field in available_fields if fnmatch.fnmatchcase(field, pattern)]
         if not matches:
             unmatched.append(pattern)
@@ -55,6 +60,10 @@ def _expand_field_glob_patterns(
             expanded.append(field)
             seen.add(field)
     return expanded, unmatched
+
+
+def _has_glob_syntax(value: str) -> bool:
+    return any(char in value for char in "*?[")
 
 
 def _string_list_param(value: Any, *, param_name: str, spec_name: str) -> list[str]:

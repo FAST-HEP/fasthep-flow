@@ -17,6 +17,15 @@ def test_field_glob_expands_exact_field(toy_registry: dict[str, Any]) -> None:
     assert _glob_params(plan) == ["Foo_a"]
 
 
+def test_field_glob_preserves_missing_exact_field(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(toy_registry, [_glob_stage(["Missing_field"])], fields=["Foo_a"])
+
+    assert _glob_params(plan) == ["Missing_field"]
+    assert _glob_node(plan).meta["compile_hooks"]["fields"][0]["unmatched"] == []
+
+
 def test_field_glob_expands_star_prefix(toy_registry: dict[str, Any]) -> None:
     plan = _plan(
         toy_registry,
@@ -268,6 +277,31 @@ def test_field_glob_rejects_different_expansions_across_contexts(
                 {"name": "data", "files": ["data.root"], "eventtype": "data"},
             ],
         )
+
+
+def test_field_glob_exact_fields_remain_stable_across_contexts(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _plan(
+        toy_registry,
+        [
+            {
+                **_scale_stage("ProduceMC", source="pt", output="MC_only"),
+                "applies_to": {"eventtype": "mc"},
+            },
+            {
+                **_glob_stage(["MC_only"]),
+                "id": "ConsumeBoth",
+            },
+        ],
+        fields=["pt"],
+        datasets=[
+            {"name": "mc", "files": ["mc.root"], "eventtype": "mc"},
+            {"name": "data", "files": ["data.root"], "eventtype": "data"},
+        ],
+    )
+
+    assert plan.get_node("stage.ConsumeBoth").params["fields"] == ["MC_only"]
 
 
 def test_field_glob_runtime_params_have_no_wildcards(
