@@ -106,6 +106,17 @@ class ResolvedResourceRecord:
     @classmethod
     def from_obj(cls, resource_id: str, value: dict[str, Any]) -> ResolvedResourceRecord:
         selected = dict(value.get("selected") or {})
+        selected_metadata = {
+            key: item
+            for key, item in selected.items()
+            if key not in {"era", "path", "correction", "fallback", "reason"}
+        }
+        metadata = dict(value.get("metadata") or {})
+        if selected_metadata:
+            metadata["selected"] = {
+                **dict(metadata.get("selected") or {}),
+                **selected_metadata,
+            }
         return cls(
             id=resource_id,
             kind=str(value.get("kind") or ""),
@@ -115,7 +126,7 @@ class ResolvedResourceRecord:
             correction=_optional_str(selected.get("correction")),
             fallback=bool(selected.get("fallback", False)),
             reason=_optional_str(selected.get("reason")),
-            metadata=dict(value.get("metadata") or {}),
+            metadata=metadata,
         )
 
     def to_record(self) -> dict[str, Any]:

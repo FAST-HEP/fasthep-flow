@@ -541,6 +541,26 @@ Such capabilities are generally provided through extensions rather than being in
 
 This keeps the runtime small while allowing richer environments to add inspection and diagnostics when required.
 
+### Resource Provenance
+
+Runtime provenance records the logical resource identity used by an operation
+and, for file-backed resources that provide it, the resolved content identity.
+
+For example, a workflow can ask for a CMS-recommended logical payload such as a
+Winter24 Jet ID resource. At runtime that logical path may currently resolve
+through a filesystem symlink to a particular payload file. The provenance record
+keeps both pieces of information:
+
+- the FAST-HEP resource id and configured/logical path;
+- the resolved filesystem path actually opened;
+- the selected correction object and correction version when available;
+- the payload size and SHA-256 of the exact bytes consumed.
+
+If the upstream recommendation later retargets the same logical path to new
+bytes, the workflow can remain unchanged while the runtime provenance changes.
+Productions can then be compared by their recorded payload fingerprint rather
+than by relying on the current state of an external filesystem.
+
 ---
 
 ## Flow does not perform the scientific computation

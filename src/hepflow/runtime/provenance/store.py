@@ -49,7 +49,10 @@ class ProvenanceStore:
         )
 
     def register_resource(self, resource: ResolvedResource) -> None:
-        self._resources[resource.id] = resolved_resource_record(resource)
+        self._register_resolved_resource_record(
+            resource.id,
+            resolved_resource_record(resource),
+        )
 
     def register_resource_record(
         self,
@@ -57,11 +60,14 @@ class ProvenanceStore:
         record: dict[str, Any] | ResolvedResourceRecord,
     ) -> None:
         if isinstance(record, ResolvedResourceRecord):
-            self._resources[resource_id] = record
+            self._register_resolved_resource_record(resource_id, record)
             return
-        self._resources[resource_id] = ResolvedResourceRecord.from_obj(
+        self._register_resolved_resource_record(
             resource_id,
-            record,
+            ResolvedResourceRecord.from_obj(
+                resource_id,
+                record,
+            ),
         )
 
     def merge(self, other: ProvenanceStore) -> None:
@@ -69,7 +75,7 @@ class ProvenanceStore:
             for operation in execution.operations:
                 self.register_operation_record(execution, operation)
         for resource_id, resource in other.resources().items():
-            self._resources[resource_id] = resource
+            self._register_resolved_resource_record(resource_id, resource)
 
     def executions(self) -> dict[str, ExecutionRecord]:
         return dict(self._executions)
@@ -88,6 +94,27 @@ class ProvenanceStore:
             execution_id: execution.to_record()
             for execution_id, execution in self._executions.items()
         }
+
+    def _register_resolved_resource_record(
+        self,
+        resource_id: str,
+        record: ResolvedResourceRecord,
+    ) -> None:
+        existing = self._resources.get(resource_id)
+        if existing is None:
+            self._resources[resource_id] = record
+            return
+        if existing.to_record() == record.to_record():
+            return
+        existing_selected = existing.to_record().get("selected") or {}
+        new_selected = record.to_record().get("selected") or {}
+        raise ValueError(
+            f"Resource {resource_id!r} changed during execution: "
+            f"first sha256={existing_selected.get('sha256')!r}, "
+            f"later sha256={new_selected.get('sha256')!r}, "
+            f"first resolved_path={existing_selected.get('resolved_path')!r}, "
+            f"later resolved_path={new_selected.get('resolved_path')!r}"
+        )
 
     def validate(self) -> None:
         missing = sorted(

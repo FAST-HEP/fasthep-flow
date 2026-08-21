@@ -119,7 +119,7 @@ def test_repeated_operations_preserve_order_and_resources_deduplicate() -> None:
         ResolvedResource(id="resource", kind="test", value=object(), path="first")
     )
     recorder.record_resource(
-        ResolvedResource(id="resource", kind="test", value=object(), path="second")
+        ResolvedResource(id="resource", kind="test", value=object(), path="first")
     )
 
     execution = recorder.serialise_executions()["stage.Build::events__data__0"]
@@ -127,7 +127,41 @@ def test_repeated_operations_preserve_order_and_resources_deduplicate() -> None:
         {"inputs": {"symbols": ["a"]}, "outputs": {"symbols": ["b"]}},
         {"inputs": {"symbols": ["b"]}, "outputs": {"symbols": ["c"]}},
     ]
-    assert recorder.serialise_resources()["resource"]["selected"]["path"] == "second"
+    assert recorder.serialise_resources()["resource"]["selected"]["path"] == "first"
+
+
+def test_resource_id_conflict_fails_clearly() -> None:
+    recorder = ProvenanceRecorder()
+    recorder.record_resource(
+        ResolvedResource(
+            id="resource",
+            kind="test",
+            value=object(),
+            path="logical",
+            metadata={
+                "selected": {
+                    "resolved_path": "payload-a",
+                    "sha256": "a" * 64,
+                }
+            },
+        )
+    )
+
+    with pytest.raises(ValueError, match="Resource 'resource' changed during execution"):
+        recorder.record_resource(
+            ResolvedResource(
+                id="resource",
+                kind="test",
+                value=object(),
+                path="logical",
+                metadata={
+                    "selected": {
+                        "resolved_path": "payload-b",
+                        "sha256": "b" * 64,
+                    }
+                },
+            )
+        )
 
 
 def test_provenance_document_persistence_round_trip(tmp_path: Path) -> None:
@@ -146,6 +180,38 @@ def test_provenance_document_persistence_round_trip(tmp_path: Path) -> None:
     loaded = load_provenance_document(path)
 
     assert loaded == document
+
+
+def test_resource_selected_fingerprint_survives_record_round_trip() -> None:
+    resource = {
+        "kind": "correctionlib",
+        "requested_era": "2024_Winter24",
+        "selected": {
+            "path": "logical.json.gz",
+            "configured_path": "logical.json.gz",
+            "resolved_path": "payload.json.gz",
+            "sha256": "a" * 64,
+            "size_bytes": 123,
+            "correction": "AK4PUPPI_Tight",
+            "fallback": False,
+            "correction_version": 2,
+        },
+    }
+
+    round_tripped = ProvenanceDocument.from_obj(
+        {
+            "version": "1.0",
+            "run_id": "run",
+            "workflow": {},
+            "software": {},
+            "execution": {},
+            "partitions": [],
+            "node_executions": [],
+            "resources": {"resource": resource},
+        }
+    ).to_record()["resources"]["resource"]
+
+    assert round_tripped == resource
 
 
 def test_inspection_resolves_operation_resources() -> None:
