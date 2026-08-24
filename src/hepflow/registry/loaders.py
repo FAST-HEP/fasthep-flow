@@ -4,6 +4,7 @@ import importlib
 from typing import Any
 
 from hepflow.model.products import ProductHandlerEntry
+from hepflow.progress import ProgressSink
 from hepflow.registry.defaults import (
     default_expr_registry_config,
     default_runtime_registry_config,
@@ -156,3 +157,26 @@ def load_runtime_spec_and_impl(
         ) from exc
 
     return load_object(spec_ref), load_object(impl_ref)
+
+
+def load_progress_sink(
+    registry_cfg: dict[str, Any] | None,
+    name: str,
+) -> ProgressSink:
+    entry = load_runtime_entry(registry_cfg, "progress_sinks", name)
+    impl_ref = entry.get("impl")
+    if not isinstance(impl_ref, str):
+        raise KeyError(f"Progress sink registry entry {name!r} must define 'impl'")
+    impl = load_object(impl_ref)
+    params = dict(entry.get("params") or {})
+    sink = impl(**params) if isinstance(impl, type) else impl
+    if not hasattr(sink, "handle"):
+        raise TypeError(f"Progress sink {name!r} must define handle(update)")
+    return sink
+
+
+def load_progress_sinks(
+    registry_cfg: dict[str, Any] | None,
+    names: list[str] | tuple[str, ...],
+) -> list[ProgressSink]:
+    return [load_progress_sink(registry_cfg, name) for name in names]

@@ -8,6 +8,7 @@ from hepflow.backends.local import _store_outputs_summary
 from hepflow.backends.model import BackendResult
 from hepflow.build_layout import BuildPaths
 from hepflow.model.plan import ExecutionNode, ExecutionPartition, ExecutionPlan
+from hepflow.progress import ProgressReporter
 from hepflow.runtime.engine import (
     _register_product_bindings,
     build_dataset_context,
@@ -37,7 +38,11 @@ class DaskBackend:
         plan: ExecutionPlan,
         *,
         ctx: dict[str, Any] | None = None,
+        progress: ProgressReporter | None = None,
     ) -> BackendResult:
+        reporter = progress
+        result: BackendResult | None = None
+        progress_warnings: list[dict[str, Any]] = []
         strategy = normalise_dask_strategy(plan.execution)
         validate_supported_dask_pools(plan.execution, strategy=strategy)
         dask_config = normalise_dask_config(plan.execution)
@@ -50,49 +55,84 @@ class DaskBackend:
         base_ctx.setdefault("resources", resolved_resources)
         tasks = build_dask_graph(plan, base_ctx=base_ctx)
 
-        dashboard_link: str | None = None
-        strategy_config: dict[str, Any] | None = None
-        if strategy == "htcondor":
-            compute_with_htcondor = import_module(
-                "hepflow.backends._dask._htcondor"
-            ).compute_with_htcondor
-            task_results, dashboard_link, strategy_config = compute_with_htcondor(
-                tasks,
-                execution=plan.execution,
-                build_paths=BuildPaths.from_ctx(base_ctx),
-            )
-        elif strategy == "slurm":
-            compute_with_slurm = import_module(
-                "hepflow.backends._dask._slurm"
-            ).compute_with_slurm
-            task_results, dashboard_link, strategy_config = compute_with_slurm(
-                tasks,
-                execution=plan.execution,
-                build_paths=BuildPaths.from_ctx(base_ctx),
-            )
-        else:
-            compute_with_local_strategy = import_module(
-                "hepflow.backends._dask._local"
-            ).compute_with_local_strategy
-            task_results, dashboard_link = compute_with_local_strategy(
-                tasks,
+        try:
+            if reporter is not None:
+                reporter.run_started(detail={"backend": "dask", "strategy": strategy})
+                reporter.phase_started("executing")
+
+            dashboard_link: str | None = None
+            strategy_config: dict[str, Any] | None = None
+            if strategy == "htcondor":
+                compute_with_htcondor = import_module(
+                    "hepflow.backends._dask._htcondor"
+                ).compute_with_htcondor
+                task_results, dashboard_link, strategy_config = compute_with_htcondor(
+                    tasks,
+                    execution=plan.execution,
+                    build_paths=BuildPaths.from_ctx(base_ctx),
+                )
+            elif strategy == "slurm":
+                compute_with_slurm = import_module(
+                    "hepflow.backends._dask._slurm"
+                ).compute_with_slurm
+                task_results, dashboard_link, strategy_config = compute_with_slurm(
+                    tasks,
+                    execution=plan.execution,
+                    build_paths=BuildPaths.from_ctx(base_ctx),
+                )
+            else:
+                compute_with_local_strategy = import_module(
+                    "hepflow.backends._dask._local"
+                ).compute_with_local_strategy
+                task_results, dashboard_link = compute_with_local_strategy(
+                    tasks,
+                    dask_config=dask_config,
+                    build_paths=BuildPaths.from_ctx(base_ctx),
+                )
+
+            if reporter is not None:
+                for partition in plan.partitions:
+                    reporter.completed(
+                        partition.id,
+                        detail={"backend": "dask", "observed": "after_compute"},
+                    )
+                reporter.phase_completed("executing")
+                reporter.phase_started("finalizing")
+
+            result = build_dask_backend_result(
+                plan,
+                base_ctx=base_ctx,
+                task_results=task_results,
+                partition_hook_summaries=[
+                    item.get("hooks") or {"enabled": []}
+                    for item in task_results
+                ],
+                strategy=strategy,
                 dask_config=dask_config,
-                build_paths=BuildPaths.from_ctx(base_ctx),
+                strategy_config=strategy_config,
+                dashboard_link=dashboard_link,
             )
 
-        return build_dask_backend_result(
-            plan,
-            base_ctx=base_ctx,
-            task_results=task_results,
-            partition_hook_summaries=[
-                item.get("hooks") or {"enabled": []}
-                for item in task_results
-            ],
-            strategy=strategy,
-            dask_config=dask_config,
-            strategy_config=strategy_config,
-            dashboard_link=dashboard_link,
-        )
+            if reporter is not None:
+                reporter.phase_completed("finalizing")
+                reporter.run_completed()
+            return result
+        except BaseException as exc:
+            if reporter is not None:
+                reporter.run_failed(exc)
+            raise
+        finally:
+            if reporter is not None:
+                progress_warnings = [
+                    {"kind": "progress_sink", **warning}
+                    for warning in reporter.close()
+                ]
+                if result is not None:
+                    result.summary.setdefault("warnings", []).extend(progress_warnings)
+                    result.summary["progress"] = {
+                        "run_id": reporter.run_id,
+                        "counts": reporter.counts.to_dict(),
+                    }
 
 
 def build_dask_graph(

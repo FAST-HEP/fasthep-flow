@@ -854,6 +854,10 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
         "registry.compile_hooks",
     )
     render = _ensure_mapping(raw.get("render") or {}, "registry.render")
+    progress_sinks = _ensure_mapping(
+        raw.get("progress_sinks") or {},
+        "registry.progress_sinks",
+    )
     report_templates = _ensure_mapping(
         raw.get("report_templates") or {},
         "registry.report_templates",
@@ -889,6 +893,19 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
                 raise ValueError(f"{group_name}[{name!r}].spec must be 'module:object'")
             if not isinstance(impl_ref, str) or ":" not in impl_ref:
                 raise ValueError(f"{group_name}[{name!r}].impl must be 'module:object'")
+
+    for name, entry in progress_sinks.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("registry.progress_sinks keys must be non-empty strings")
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"registry.progress_sinks[{name!r}] must be a mapping with 'impl'"
+            )
+        impl_ref = entry.get("impl")
+        if not isinstance(impl_ref, str) or ":" not in impl_ref:
+            raise ValueError(
+                f"registry.progress_sinks[{name!r}].impl must be 'module:object'"
+            )
 
     for name, entry in compile_hooks.items():
         if not isinstance(name, str) or not name.strip():
@@ -955,5 +972,6 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
         "hooks": {k: dict(v) for k, v in hooks.items()},
         "compile_hooks": {k: dict(v) for k, v in compile_hooks.items()},
         "render": {k: dict(v) for k, v in render.items()},
+        "progress_sinks": {k: dict(v) for k, v in progress_sinks.items()},
         "report_templates": {k: dict(v) for k, v in report_templates.items()},
     }

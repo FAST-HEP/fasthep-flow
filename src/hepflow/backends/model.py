@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from hepflow.model.plan import ExecutionPlan
+from hepflow.progress import ProgressReporter
 
 
 @dataclass(slots=True)
@@ -23,5 +24,6 @@ class Backend(Protocol):
         plan: ExecutionPlan,
         *,
         ctx: dict[str, Any] | None = None,
+        progress: ProgressReporter | None = None,
     ) -> BackendResult:
         ...

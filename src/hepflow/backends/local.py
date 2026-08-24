@@ -4,6 +4,7 @@ from typing import Any
 
 from hepflow.backends.model import BackendResult
 from hepflow.model.plan import ExecutionPlan
+from hepflow.progress import ProgressReporter
 from hepflow.runtime.engine import execute_plan_locally
 
 
@@ -15,19 +16,32 @@ class LocalBackend:
         plan: ExecutionPlan,
         *,
         ctx: dict[str, Any] | None = None,
+        progress: ProgressReporter | None = None,
     ) -> BackendResult:
         run_ctx = dict(ctx or {})
         warnings: list[dict[str, Any]] = []
         run_ctx["_warnings"] = warnings
-        value = execute_plan_locally(
-            plan,
-            registry_cfg=plan.registry,
-            ctx=run_ctx,
-            partitions=plan.partitions or None,
-        )
+        reporter = progress or ProgressReporter(plan.partitions)
+        try:
+            value = execute_plan_locally(
+                plan,
+                registry_cfg=plan.registry,
+                ctx=run_ctx,
+                partitions=plan.partitions or None,
+                progress=reporter,
+            )
+        finally:
+            warnings.extend(
+                {"kind": "progress_sink", **warning}
+                for warning in reporter.close()
+            )
         summary = _value_store_summary(value, plan=plan)
         summary["warnings"] = warnings
         summary["hooks"] = run_ctx.get("_hook_summary") or {"enabled": []}
+        summary["progress"] = {
+            "run_id": reporter.run_id,
+            "counts": reporter.counts.to_dict(),
+        }
         return BackendResult(
             backend="local",
             strategy="default",

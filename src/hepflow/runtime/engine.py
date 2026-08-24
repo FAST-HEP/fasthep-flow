@@ -20,6 +20,7 @@ from hepflow.model.plan_applicability import (
     resolve_active_input_ref,
 )
 from hepflow.model.products import OperationResult
+from hepflow.progress import ProgressReporter
 from hepflow.registry.defaults import default_expr_registry
 from hepflow.registry.loaders import (
     expr_registry_from_config,
@@ -294,6 +295,7 @@ def execute_plan_locally(
     initial_values: dict[tuple[str, str], Any] | None = None,
     skip_roles: set[str] | None = None,
     partitions: list[ExecutionPartition] | None = None,
+    progress: ProgressReporter | None = None,
 ) -> Any:
     """
     Execute an execution plan locally, optionally once per partition.
@@ -311,26 +313,127 @@ def execute_plan_locally(
         base_ctx["dataset_names"] = list((base_ctx.get("datasets") or {}).keys())
     hook_manager = HookManager.from_plan(plan)
     _reset_final_product_manifests(str(base_ctx.get("outdir") or "."))
+    if progress is not None:
+        progress.run_started()
+        progress.phase_started("executing")
 
     if partitions is None:
-        value_store = execute_plan_partition(
+        try:
+            value_store = execute_plan_partition(
+                plan,
+                ctx=base_ctx,
+                registry_cfg=registry_cfg,
+                initial_values=initial_values,
+                skip_roles=skip_roles,
+                hook_manager=hook_manager,
+            )
+            if progress is not None:
+                progress.phase_completed("executing")
+                progress.phase_started("finalizing")
+            product_items = materialize_final_products(
+                plan,
+                value_store=value_store,
+                outdir=str(base_ctx.get("outdir") or "."),
+                registry_cfg=registry_cfg,
+            )
+            _register_product_bindings(base_ctx, product_items)
+            execute_final_nodes(
+                plan,
+                value_store=value_store,
+                ctx=base_ctx,
+                registry_cfg=registry_cfg,
+                skip_roles=skip_roles,
+                hook_manager=hook_manager,
+            )
+            write_writer_manifests(
+                plan,
+                stores=[value_store],
+                outdir=str(base_ctx.get("outdir") or "."),
+                runtime_provenance=recorder,
+            )
+            hook_manager.run_end(plan=plan, ctx=base_ctx, summary={})
+            if progress is not None:
+                progress.phase_completed("finalizing")
+                progress.run_completed()
+            if isinstance(ctx, dict):
+                ctx["_hook_summary"] = base_ctx.get("_hook_summary")
+            return value_store
+        except Exception as exc:
+            if progress is not None:
+                progress.run_failed(exc)
+            raise
+
+    results: list[dict[tuple[str, str], Any]] = []
+    try:
+        for partition in partitions:
+            partition_ctx = build_partition_context(
+                plan,
+                base_ctx=base_ctx,
+                partition=partition,
+            )
+            if progress is not None:
+                progress.running(partition.id)
+            try:
+                results.append(
+                    execute_plan_partition(
+                        plan,
+                        ctx=partition_ctx,
+                        registry_cfg=registry_cfg,
+                        initial_values=initial_values,
+                        skip_roles=skip_roles,
+                        hook_manager=hook_manager,
+                    )
+                )
+            except Exception:
+                if progress is not None:
+                    progress.failed(partition.id)
+                raise
+            if progress is not None:
+                progress.completed(partition.id)
+        if progress is not None:
+            progress.phase_completed("executing")
+            progress.phase_started("finalizing")
+
+        dataset_stores: list[dict[tuple[str, str], Any]] = []
+        grouped_results = group_partition_results_by_dataset(results, partitions)
+        for dataset_name, stores in grouped_results.items():
+            dataset_value_store = merge_partition_value_stores_for_dataset(
+                plan,
+                stores,
+                dataset_name=dataset_name,
+                registry_cfg=registry_cfg,
+            )
+            dataset_ctx = build_dataset_context(
+                plan,
+                base_ctx=base_ctx,
+                dataset_name=dataset_name,
+            )
+            execute_dataset_sinks(
+                plan,
+                dataset_name=dataset_name,
+                dataset_value_store=dataset_value_store,
+                ctx=dataset_ctx,
+                registry_cfg=registry_cfg,
+                skip_roles=skip_roles,
+                hook_manager=hook_manager,
+            )
+            dataset_stores.append(dataset_value_store)
+
+        merged_value_store = merge_partition_value_stores(
             plan,
-            ctx=base_ctx,
+            dataset_stores,
             registry_cfg=registry_cfg,
-            initial_values=initial_values,
-            skip_roles=skip_roles,
-            hook_manager=hook_manager,
         )
         product_items = materialize_final_products(
             plan,
-            value_store=value_store,
+            value_store=merged_value_store,
             outdir=str(base_ctx.get("outdir") or "."),
             registry_cfg=registry_cfg,
         )
         _register_product_bindings(base_ctx, product_items)
         execute_final_nodes(
             plan,
-            value_store=value_store,
+            value_store=merged_value_store,
             ctx=base_ctx,
             registry_cfg=registry_cfg,
             skip_roles=skip_roles,
@@ -338,89 +441,22 @@ def execute_plan_locally(
         )
         write_writer_manifests(
             plan,
-            stores=[value_store],
+            stores=results,
+            partitions=partitions,
             outdir=str(base_ctx.get("outdir") or "."),
             runtime_provenance=recorder,
         )
         hook_manager.run_end(plan=plan, ctx=base_ctx, summary={})
+        if progress is not None:
+            progress.phase_completed("finalizing")
+            progress.run_completed()
         if isinstance(ctx, dict):
             ctx["_hook_summary"] = base_ctx.get("_hook_summary")
-        return value_store
-
-    results: list[dict[tuple[str, str], Any]] = []
-    for partition in partitions:
-        partition_ctx = build_partition_context(
-            plan,
-            base_ctx=base_ctx,
-            partition=partition,
-        )
-        results.append(
-            execute_plan_partition(
-                plan,
-                ctx=partition_ctx,
-                registry_cfg=registry_cfg,
-                initial_values=initial_values,
-                skip_roles=skip_roles,
-                hook_manager=hook_manager,
-            )
-        )
-
-    dataset_stores: list[dict[tuple[str, str], Any]] = []
-    grouped_results = group_partition_results_by_dataset(results, partitions)
-    for dataset_name, stores in grouped_results.items():
-        dataset_value_store = merge_partition_value_stores_for_dataset(
-            plan,
-            stores,
-            dataset_name=dataset_name,
-            registry_cfg=registry_cfg,
-        )
-        dataset_ctx = build_dataset_context(
-            plan,
-            base_ctx=base_ctx,
-            dataset_name=dataset_name,
-        )
-        execute_dataset_sinks(
-            plan,
-            dataset_name=dataset_name,
-            dataset_value_store=dataset_value_store,
-            ctx=dataset_ctx,
-            registry_cfg=registry_cfg,
-            skip_roles=skip_roles,
-            hook_manager=hook_manager,
-        )
-        dataset_stores.append(dataset_value_store)
-
-    merged_value_store = merge_partition_value_stores(
-        plan,
-        dataset_stores,
-        registry_cfg=registry_cfg,
-    )
-    product_items = materialize_final_products(
-        plan,
-        value_store=merged_value_store,
-        outdir=str(base_ctx.get("outdir") or "."),
-        registry_cfg=registry_cfg,
-    )
-    _register_product_bindings(base_ctx, product_items)
-    execute_final_nodes(
-        plan,
-        value_store=merged_value_store,
-        ctx=base_ctx,
-        registry_cfg=registry_cfg,
-        skip_roles=skip_roles,
-        hook_manager=hook_manager,
-    )
-    write_writer_manifests(
-        plan,
-        stores=results,
-        partitions=partitions,
-        outdir=str(base_ctx.get("outdir") or "."),
-        runtime_provenance=recorder,
-    )
-    hook_manager.run_end(plan=plan, ctx=base_ctx, summary={})
-    if isinstance(ctx, dict):
-        ctx["_hook_summary"] = base_ctx.get("_hook_summary")
-    return results
+        return results
+    except Exception as exc:
+        if progress is not None:
+            progress.run_failed(exc)
+        raise
 
 
 def _reset_final_product_manifests(outdir: str) -> None:

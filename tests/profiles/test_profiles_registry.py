@@ -10,6 +10,7 @@ import yaml
 from hepflow.api import normalise_workflow_file
 from hepflow.compiler.profiles import expand_profile_names, load_profile_registry_layer
 from hepflow.registry.loaders import (
+    load_progress_sink,
     load_runtime_spec_and_impl,
 )
 from hepflow.registry.merge import RegistryLayer, merge_registry_layers
@@ -74,6 +75,20 @@ def test_builtin_registry_profile_is_packaged() -> None:
 
     assert "backends" in registry
     assert "local.default" in registry["backends"]
+
+
+def test_progress_sink_registry_entries_load() -> None:
+    registry = {
+        "progress_sinks": {
+            "collect": {
+                "impl": "hepflow.progress.sink:NullProgressSink",
+            }
+        }
+    }
+
+    sink = load_progress_sink(registry, "collect")
+
+    assert hasattr(sink, "handle")
 
 
 def test_profile_registry_is_copied_into_normalized_workflow(tmp_path: Path) -> None:
