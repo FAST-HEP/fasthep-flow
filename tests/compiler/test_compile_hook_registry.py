@@ -173,6 +173,66 @@ def test_expand_mapping_matrix_preserves_explicit_entries() -> None:
     }
 
 
+def test_expand_mapping_matrix_expands_list_entries_with_ranges() -> None:
+    result = expand_mapping_matrix(
+        value=[
+            {"name": "weight_nominal", "expr": "1.0", "dtype": "float32"},
+            {
+                "name": "weight_pdf_{index}",
+                "expr": "1.0",
+                "dtype": "float32",
+                "matrix": {"index": {"range": {"start": 0, "stop": 3}}},
+            },
+        ],
+        options={},
+        context=ParamCompileHookContext(),
+    )
+
+    assert result.value == [
+        {"name": "weight_nominal", "expr": "1.0", "dtype": "float32"},
+        {"name": "weight_pdf_0", "expr": "1.0", "dtype": "float32"},
+        {"name": "weight_pdf_1", "expr": "1.0", "dtype": "float32"},
+        {"name": "weight_pdf_2", "expr": "1.0", "dtype": "float32"},
+    ]
+    assert result.provenance == {
+        "hook": "flow.expand_mapping_matrix",
+        "input_kind": "list[mapping]",
+        "output_kind": "list[mapping]",
+        "axis_names": ["index"],
+        "expanded_entries": 1,
+        "generated": 3,
+    }
+
+
+def test_expand_mapping_matrix_expands_list_entries_in_author_order() -> None:
+    result = expand_mapping_matrix(
+        value=[
+            {
+                "name": "{source}_{direction}_{index}",
+                "expr": "{source}_{direction}",
+                "matrix": {
+                    "source": ["A", "B"],
+                    "direction": ["up", "down"],
+                    "index": {"range": {"stop": 2}},
+                },
+            }
+        ],
+        options={},
+        context=ParamCompileHookContext(),
+    )
+
+    assert [item["name"] for item in result.value] == [
+        "A_up_0",
+        "A_up_1",
+        "A_down_0",
+        "A_down_1",
+        "B_up_0",
+        "B_up_1",
+        "B_down_0",
+        "B_down_1",
+    ]
+
+
 def test_expand_mapping_matrix_rejects_duplicate_targets() -> None:
     with pytest.raises(ValueError, match="duplicate target 'jec_up_pt'"):
         expand_mapping_matrix(
