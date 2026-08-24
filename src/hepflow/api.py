@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,10 @@ from hepflow.progress import ProgressReporter, ProgressSink
 from hepflow.runtime.config import (
     _runtime_execution_with_overrides,
     default_run_outdir_for_plan,
+)
+from hepflow.runtime.partitions import (
+    describe_partition_selection,
+    select_partitions,
 )
 from hepflow.runtime.provenance import (
     format_provenance_artifact,
@@ -263,10 +268,19 @@ def run_plan_file(
     workers: int | None = None,
     progress: ProgressReporter | None = None,
     progress_sinks: list[ProgressSink] | None = None,
+    partition_numbers: Iterable[int] | None = None,
 ) -> BackendResult:
     """Run a compiled plan file and write ``run_summary.yaml``."""
     plan_file = resolve_plan_path(plan_path)
     plan = load_plan_file(plan_file)
+    requested_partition_numbers = (
+        list(partition_numbers) if partition_numbers is not None else None
+    )
+    selected_partitions = select_partitions(
+        plan.partitions,
+        numbers=requested_partition_numbers,
+    )
+    execution_plan = replace(plan, partitions=selected_partitions)
     out_path = (
         Path(outdir) if outdir is not None else default_run_outdir_for_plan(plan_file)
     )
@@ -279,9 +293,9 @@ def run_plan_file(
         scheduler=scheduler,
         workers=workers,
     )
-    plan.execution = runtime_execution
+    execution_plan.execution = runtime_execution
 
-    backend_impl = load_backend(plan)
+    backend_impl = load_backend(execution_plan)
     run_ctx: dict[str, Any] = {
         "outdir": str(build_paths.root.resolve()),
         "build_paths": build_paths,
@@ -289,8 +303,8 @@ def run_plan_file(
     }
     reporter = progress
     if reporter is None and progress_sinks:
-        reporter = ProgressReporter(plan.partitions, sinks=progress_sinks)
-    result = backend_impl.run(plan, ctx=run_ctx, progress=reporter)
+        reporter = ProgressReporter(selected_partitions, sinks=progress_sinks)
+    result = backend_impl.run(execution_plan, ctx=run_ctx, progress=reporter)
 
     summary = {
         "backend": result.backend,
@@ -299,6 +313,12 @@ def run_plan_file(
         "execution": runtime_execution,
         **result.summary,
     }
+    if requested_partition_numbers is not None:
+        summary["partition_selection"] = describe_partition_selection(
+            plan.partitions,
+            selected_partitions=selected_partitions,
+            numbers=requested_partition_numbers,
+        )
     summary["summary_path"] = str(build_paths.run_summary())
     summary["artifacts_path"] = str(build_paths.artifacts_root())
     if build_paths.variation is not None:
@@ -311,7 +331,7 @@ def run_plan_file(
         variation_name=build_paths.variation,
     )
     report_outputs = run_workflow_reports(
-        plan,
+        execution_plan,
         outdir=build_paths.root,
         summary=summary,
     )
@@ -337,6 +357,7 @@ def run_workflow_file(
     chunk_size: int | None = None,
     progress: ProgressReporter | None = None,
     progress_sinks: list[ProgressSink] | None = None,
+    partition_numbers: Iterable[int] | None = None,
 ) -> BackendResult:
     """Compile and run a workflow YAML file in one call."""
     out_path = Path(outdir)
@@ -359,6 +380,7 @@ def run_workflow_file(
             workers=workers,
             progress=progress,
             progress_sinks=progress_sinks,
+            partition_numbers=partition_numbers,
         )
     return run_plan_file(
         plan_path(out_path),
@@ -369,6 +391,7 @@ def run_workflow_file(
         workers=workers,
         progress=progress,
         progress_sinks=progress_sinks,
+        partition_numbers=partition_numbers,
     )
 
 
