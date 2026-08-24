@@ -460,6 +460,7 @@ The following pages explore these parts of Flow in more detail:
 
 - {doc}`compilation` — the compilation representations and planning process
 - {doc}`runtime` — how execution plans are carried out
+- {doc}`progress` — backend-neutral progress events and sink architecture
 - {doc}`../extending/operations-and-specs` — how capabilities expose planner-visible contracts and runtime implementations
 
 For runnable workflows, including the exoplanet example used on this page, see the [FAST-HEP workshop](https://fasthep-workshop.readthedocs.io/en/latest/).
@@ -473,4 +474,5 @@ graph-structure
 plan
 runtime
 environments
+progress
 ```

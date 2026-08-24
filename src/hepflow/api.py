@@ -51,6 +51,7 @@ from hepflow.model.plan import (
 )
 from hepflow.profiles.init import InitResult
 from hepflow.profiles.init import init_project as _init_project
+from hepflow.progress import ProgressReporter, ProgressSink
 from hepflow.runtime.config import (
     _runtime_execution_with_overrides,
     default_run_outdir_for_plan,
@@ -260,6 +261,8 @@ def run_plan_file(
     strategy: str | None = None,
     scheduler: str | None = None,
     workers: int | None = None,
+    progress: ProgressReporter | None = None,
+    progress_sinks: list[ProgressSink] | None = None,
 ) -> BackendResult:
     """Run a compiled plan file and write ``run_summary.yaml``."""
     plan_file = resolve_plan_path(plan_path)
@@ -284,7 +287,10 @@ def run_plan_file(
         "build_paths": build_paths,
         "execution": runtime_execution,
     }
-    result = backend_impl.run(plan, ctx=run_ctx)
+    reporter = progress
+    if reporter is None and progress_sinks:
+        reporter = ProgressReporter(plan.partitions, sinks=progress_sinks)
+    result = backend_impl.run(plan, ctx=run_ctx, progress=reporter)
 
     summary = {
         "backend": result.backend,
@@ -329,6 +335,8 @@ def run_workflow_file(
     scheduler: str | None = None,
     workers: int | None = None,
     chunk_size: int | None = None,
+    progress: ProgressReporter | None = None,
+    progress_sinks: list[ProgressSink] | None = None,
 ) -> BackendResult:
     """Compile and run a workflow YAML file in one call."""
     out_path = Path(outdir)
@@ -349,6 +357,8 @@ def run_workflow_file(
             strategy=strategy,
             scheduler=scheduler,
             workers=workers,
+            progress=progress,
+            progress_sinks=progress_sinks,
         )
     return run_plan_file(
         plan_path(out_path),
@@ -357,6 +367,8 @@ def run_workflow_file(
         strategy=strategy,
         scheduler=scheduler,
         workers=workers,
+        progress=progress,
+        progress_sinks=progress_sinks,
     )
 
 
