@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from hepflow.build_layout import BuildPaths
-from hepflow.model.io import OutputResult
+from hepflow.model.io import ArtifactManifest, ArtifactReference
 from hepflow.model.plan import ExecutionPartition, ExecutionPlan
 from hepflow.runtime.provenance import (
     ProvenanceRecorder,
@@ -24,7 +24,7 @@ def write_writer_manifests(
 ) -> None:
     """Aggregate successful partition-writer results into one manifest per writer."""
     records_by_node: dict[str, list[dict[str, Any]]] = {}
-    result_records: list[tuple[OutputResult, dict[str, Any]]] = []
+    result_records: list[tuple[ArtifactReference, dict[str, Any]]] = []
     root = Path(outdir)
     partition_by_store = {
         id(store): partition
@@ -83,14 +83,13 @@ def write_writer_manifests(
             manifest["name"]
         )
         manifest_dir.mkdir(parents=True, exist_ok=True)
-        (manifest_dir / "manifest.json").write_text(
-            json.dumps(manifest, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        _write_json_atomic(manifest_dir / "manifest.json", manifest)
 
 
-def _writer_outputs(value: Any) -> list[OutputResult]:
-    if isinstance(value, OutputResult):
+def _writer_outputs(value: Any) -> list[ArtifactReference]:
+    if isinstance(value, ArtifactManifest):
+        return list(value.parts)
+    if isinstance(value, ArtifactReference):
         return [value]
     if isinstance(value, list):
         return [output for item in value for output in _writer_outputs(item)]
@@ -98,7 +97,7 @@ def _writer_outputs(value: Any) -> list[OutputResult]:
 
 
 def _artifact_record_from_output(
-    output: OutputResult,
+    output: ArtifactReference,
     *,
     node: Any,
     outdir: Path,
@@ -109,6 +108,12 @@ def _artifact_record_from_output(
         record = dict(writer_manifest)
         if partition is not None and "inputs" not in record:
             record["inputs"] = [_partition_input(partition)]
+        elif "inputs" not in record:
+            partition_context = output.metadata.get("partition_context")
+            if isinstance(partition_context, dict):
+                record["inputs"] = [dict(partition_context)]
+            elif output.partition_id is not None:
+                record["inputs"] = [{"partition_id": output.partition_id}]
         return record
     path, path_type = _artifact_path(output.path, outdir)
     record = {
@@ -122,8 +127,10 @@ def _artifact_record_from_output(
         "input_node": _input_node(node),
         "path": path,
         "path_type": path_type,
-        "dataset": output.metadata.get("dataset"),
-        "partition": output.metadata.get("partition"),
+        "dataset": output.dataset_name or output.metadata.get("dataset"),
+        "partition": output.partition_index
+        if output.partition_index is not None
+        else output.metadata.get("partition"),
         "attempt": output.metadata.get("attempt", 0),
     }
     if partition is not None:
@@ -217,3 +224,9 @@ def _build_manifest(records: list[dict[str, Any]]) -> dict[str, Any]:
         "total_entries": total_entries,
         "datasets": datasets,
     }
+
+
+def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)

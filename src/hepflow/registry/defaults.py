@@ -111,6 +111,7 @@ def default_runtime_registry_config() -> dict[str, Any]:
                     "retain": True,
                     "representation": "reference",
                 },
+                "merge": "hepflow.runtime.artifacts:merge_artifact_products",
             },
         },
     }

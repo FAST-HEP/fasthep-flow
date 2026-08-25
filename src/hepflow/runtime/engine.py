@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from hepflow.model.io import OutputResult
 from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.model.plan import (
     ExecutionNode,
@@ -32,7 +33,6 @@ from hepflow.runtime.boundary import (
     PartitionExecutionSummary,
     ProductAccumulator,
     extract_boundary_products,
-    partition_boundary_results_to_value_stores,
     plan_partition_boundary,
     reduce_product_values,
 )
@@ -142,7 +142,13 @@ def execute_plan_partition(
                             registry_cfg=registry_cfg,
                             ctx=ctx,
                         )
-                    _store_node_outputs(node.id, node.outputs, result, value_store)
+                    _store_node_outputs(
+                        node.id,
+                        node.outputs,
+                        result,
+                        value_store,
+                        ctx=ctx,
+                    )
                     hook_manager.after_node(
                         node=node,
                         inputs=inputs,
@@ -183,7 +189,13 @@ def execute_plan_partition(
                         outputs=result,
                         ctx=ctx,
                     )
-                    _store_node_outputs(node.id, node.outputs, result, value_store)
+                    _store_node_outputs(
+                        node.id,
+                        node.outputs,
+                        result,
+                        value_store,
+                        ctx=ctx,
+                    )
                 continue
 
             if node.role == "observer":
@@ -201,7 +213,13 @@ def execute_plan_partition(
                             registry_cfg=registry_cfg,
                             ctx=ctx,
                         )
-                    _store_node_outputs(node.id, node.outputs, result, value_store)
+                    _store_node_outputs(
+                        node.id,
+                        node.outputs,
+                        result,
+                        value_store,
+                        ctx=ctx,
+                    )
                     hook_manager.after_node(
                         node=node,
                         inputs=inputs,
@@ -226,7 +244,13 @@ def execute_plan_partition(
                             meta=_node_meta(node),
                             registry_cfg=registry_cfg,
                         )
-                    _store_node_outputs(node.id, node.outputs, result, value_store)
+                    _store_node_outputs(
+                        node.id,
+                        node.outputs,
+                        result,
+                        value_store,
+                        ctx=ctx,
+                    )
                     hook_manager.after_node(
                         node=node,
                         inputs=inputs,
@@ -401,6 +425,7 @@ def execute_plan_locally(
                     partition=partition,
                     boundary=boundary_plan,
                     runtime_registry=runtime_registry,
+                    ctx=partition_ctx,
                 )
                 del value_store
                 boundary_result = PartitionBoundaryResult(
@@ -433,11 +458,9 @@ def execute_plan_locally(
             progress.phase_started("finalizing")
 
         dataset_stores: list[dict[tuple[str, str], Any]] = []
-        manifest_results: list[PartitionBoundaryResult] = []
         for dataset_name in dataset_order:
             accumulator = dataset_accumulators[dataset_name]
             dataset_value_store = accumulator.finalize()
-            manifest_results.extend(accumulator.collected_partition_results())
             dataset_ctx = build_dataset_context(
                 plan,
                 base_ctx=base_ctx,
@@ -479,8 +502,7 @@ def execute_plan_locally(
         )
         write_writer_manifests(
             plan,
-            stores=partition_boundary_results_to_value_stores(manifest_results),
-            partitions=[result.partition for result in manifest_results],
+            stores=[merged_value_store],
             outdir=str(base_ctx.get("outdir") or "."),
             runtime_provenance=recorder,
         )
@@ -680,7 +702,13 @@ def execute_dataset_sinks(
                         meta=_node_meta(node),
                         registry_cfg=registry_cfg,
                     )
-                _store_node_outputs(node.id, node.outputs, result, dataset_value_store)
+                _store_node_outputs(
+                    node.id,
+                    node.outputs,
+                    result,
+                    dataset_value_store,
+                    ctx=ctx,
+                )
                 hook_manager.after_node(
                     node=node,
                     inputs=inputs,
@@ -749,7 +777,13 @@ def execute_final_nodes(
                         meta=_node_meta(node),
                         registry_cfg=registry_cfg,
                     )
-                _store_node_outputs(node.id, node.outputs, result, value_store)
+                _store_node_outputs(
+                    node.id,
+                    node.outputs,
+                    result,
+                    value_store,
+                    ctx=ctx,
+                )
                 hook_manager.after_node(
                     node=node,
                     inputs=inputs,
@@ -1125,6 +1159,8 @@ def _store_node_outputs(
     outputs: dict[str, str],
     result: Any,
     value_store: dict[tuple[str, str], Any],
+    *,
+    ctx: dict[str, Any] | None = None,
 ) -> None:
     if isinstance(result, OperationResult):
         for output_name, product in result.products.items():
@@ -1135,14 +1171,88 @@ def _store_node_outputs(
     output_names = list(outputs.keys())
     if isinstance(result, dict) and set(result.keys()) == set(output_names):
         for output_name in output_names:
-            value_store[(node_id, output_name)] = result[output_name]
+            value_store[(node_id, output_name)] = _normalize_single_output(
+                result[output_name],
+                node_id=node_id,
+                output_name=output_name,
+                product_kind=outputs[output_name],
+                ctx=ctx,
+            )
         return
 
     if len(output_names) == 1:
-        value_store[(node_id, output_names[0])] = result
+        output_name = output_names[0]
+        value_store[(node_id, output_name)] = _normalize_single_output(
+            result,
+            node_id=node_id,
+            output_name=output_name,
+            product_kind=outputs[output_name],
+            ctx=ctx,
+        )
         return
 
     raise ValueError(
         f"Node {node_id!r} returned a single value for multiple outputs {output_names}; "
         "return a mapping keyed by output port name instead"
     )
+
+
+def _normalize_single_output(
+    result: Any,
+    *,
+    node_id: str,
+    output_name: str,
+    product_kind: str,
+    ctx: dict[str, Any] | None,
+) -> Any:
+    if (
+        product_kind == "artifact"
+        and isinstance(result, dict)
+        and isinstance(result.get("path"), str)
+    ):
+        metadata = {
+            key: value
+            for key, value in result.items()
+            if key not in {"path", "format"}
+        }
+        return OutputResult(
+            kind="artifact",
+            path=str(result["path"]),
+            format=result.get("format"),
+            metadata=metadata,
+            producer_node=node_id,
+            output_name=output_name,
+            dataset_name=_ctx_dataset_name(ctx),
+            partition_id=_ctx_partition_id(ctx),
+            partition_index=_ctx_partition_index(ctx),
+        )
+    return result
+
+
+def _ctx_dataset_name(ctx: dict[str, Any] | None) -> str | None:
+    if ctx is None:
+        return None
+    partition = dict(ctx.get("partition") or {})
+    dataset_name = ctx.get("dataset_name") or partition.get("dataset")
+    return str(dataset_name) if dataset_name is not None else None
+
+
+def _ctx_partition_id(ctx: dict[str, Any] | None) -> str | None:
+    if ctx is None:
+        return None
+    partition = dict(ctx.get("partition") or {})
+    partition_id = partition.get("id")
+    return str(partition_id) if partition_id is not None else None
+
+
+def _ctx_partition_index(ctx: dict[str, Any] | None) -> int | None:
+    if ctx is None:
+        return None
+    partition = dict(ctx.get("partition") or {})
+    part = str(partition.get("part") or "")
+    if not part:
+        return None
+    try:
+        return int(part.rsplit("_", 1)[-1])
+    except ValueError:
+        return None

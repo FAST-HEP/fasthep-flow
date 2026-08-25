@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from hepflow.api import compile_workflow_file, run_plan_file
-from hepflow.model.io import OutputResult
+from hepflow.model.io import ArtifactManifest, OutputResult
 from hepflow.model.plan import (
     ExecutionNode,
     ExecutionPartition,
@@ -26,6 +26,7 @@ from hepflow.registry.loaders import (
     runtime_registry_from_config,
 )
 from hepflow.registry.runtime import RuntimeRegistry
+from hepflow.runtime.artifacts import merge_artifact_products
 from hepflow.runtime.boundary import (
     PartitionBoundaryResult,
     PartitionExecutionSummary,
@@ -326,6 +327,129 @@ def test_extract_boundary_products_rejects_unimplemented_materialize_mode() -> N
         )
 
 
+def test_reference_boundary_rejects_plain_in_memory_values() -> None:
+    plan = ExecutionPlan()
+    _add_node(plan, "write.skim", role="sink", outputs={"artifact": "artifact"})
+    registry = RuntimeRegistry(
+        product_handlers={
+            "artifact": ProductHandlerEntry(
+                boundary=ProductBoundaryPolicy(retain=True, representation="reference")
+            )
+        }
+    )
+    boundary = plan_partition_boundary(plan, runtime_registry=registry)
+
+    with pytest.raises(ValueError, match="expected an ArtifactReference"):
+        extract_boundary_products(
+            plan,
+            {("write.skim", "artifact"): {"path": "plain-dict.root"}},
+            partition=_partition(),
+            boundary=boundary,
+            runtime_registry=registry,
+        )
+
+
+def test_value_boundary_carries_plain_values_without_materialization() -> None:
+    plan = ExecutionPlan()
+    _add_node(plan, "stage.Payload", outputs={"payload": "toy_product"})
+    registry = RuntimeRegistry(
+        product_handlers={
+            "toy_product": ProductHandlerEntry(
+                boundary=ProductBoundaryPolicy(retain=True, representation="value")
+            )
+        }
+    )
+    boundary = plan_partition_boundary(plan, runtime_registry=registry)
+    value = {"large": "but explicit value"}
+
+    [product] = extract_boundary_products(
+        plan,
+        {("stage.Payload", "payload"): value},
+        partition=_partition(),
+        boundary=boundary,
+        runtime_registry=registry,
+    )
+
+    assert product.value is value
+
+
+def test_materialize_boundary_invokes_materializer_once_and_validates_result() -> None:
+    calls: list[object] = []
+
+    def materialize(
+        value: object,
+        *,
+        node: ExecutionNode,
+        output_name: str,
+        dataset_name: str | None,
+        partition: dict[str, Any],
+        ctx: dict[str, Any],
+        **kwargs: Any,
+    ) -> OutputResult:
+        del output_name, kwargs
+        calls.append(value)
+        return OutputResult(
+            kind="artifact",
+            path="memory://materialized",
+            producer_node=node.id,
+            output_name="artifact",
+            dataset_name=dataset_name,
+            partition_id=str(partition["id"]),
+            partition_index=0,
+            metadata={"ctx_outdir": ctx["outdir"]},
+        )
+
+    plan = ExecutionPlan()
+    _add_node(plan, "stage.Payload", outputs={"artifact": "artifact"})
+    registry = RuntimeRegistry(
+        product_handlers={
+            "artifact": ProductHandlerEntry(
+                materialize=materialize,
+                boundary=ProductBoundaryPolicy(retain=True, representation="materialize"),
+            )
+        }
+    )
+    boundary = plan_partition_boundary(plan, runtime_registry=registry)
+
+    [product] = extract_boundary_products(
+        plan,
+        {("stage.Payload", "artifact"): object()},
+        partition=_partition(),
+        boundary=boundary,
+        runtime_registry=registry,
+        ctx={"outdir": "build/test"},
+    )
+
+    assert len(calls) == 1
+    assert isinstance(product.value, OutputResult)
+    assert product.value.uri == "memory://materialized"
+    assert product.value.metadata["ctx_outdir"] == "build/test"
+
+
+def test_materialize_boundary_rejects_non_reference_result() -> None:
+    plan = ExecutionPlan()
+    _add_node(plan, "stage.Payload", outputs={"artifact": "artifact"})
+    registry = RuntimeRegistry(
+        product_handlers={
+            "artifact": ProductHandlerEntry(
+                materialize=lambda value, **kwargs: {"path": "plain-dict.root"},
+                boundary=ProductBoundaryPolicy(retain=True, representation="materialize"),
+            )
+        }
+    )
+    boundary = plan_partition_boundary(plan, runtime_registry=registry)
+
+    with pytest.raises(ValueError, match="expected an ArtifactReference"):
+        extract_boundary_products(
+            plan,
+            {("stage.Payload", "artifact"): object()},
+            partition=_partition(),
+            boundary=boundary,
+            runtime_registry=registry,
+            ctx={"outdir": "build/test"},
+        )
+
+
 def test_product_accumulator_combines_histograms_incrementally() -> None:
     from tests.toy_components import transforms as toy_transforms  # noqa: PLC0415
 
@@ -420,6 +544,7 @@ def test_product_accumulator_keeps_artifacts_collected_for_writer_manifests(
     registry = RuntimeRegistry(
         product_handlers={
             "artifact": ProductHandlerEntry(
+                merge=merge_artifact_products,
                 boundary=ProductBoundaryPolicy(retain=True, representation="reference"),
             ),
             "histogram": ProductHandlerEntry(
@@ -491,10 +616,11 @@ def test_product_accumulator_keeps_artifacts_collected_for_writer_manifests(
         ("events__toy__1", outputs[1]),
     ]
     assert all(result.products[0].kind == "artifact" for result in collected)
-    assert accumulator.finalize() == {
-        ("stage.RecoilHist", "hist"): {"entries": 2},
-        ("write.skim", "artifact"): outputs,
-    }
+    finalized = accumulator.finalize()
+    assert finalized[("stage.RecoilHist", "hist")] == {"entries": 2}
+    manifest = finalized[("write.skim", "artifact")]
+    assert isinstance(manifest, ArtifactManifest)
+    assert [part.uri for part in manifest.parts] == [output.path for output in outputs]
 
     write_writer_manifests(
         plan,

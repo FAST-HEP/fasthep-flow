@@ -473,6 +473,7 @@ compilation
 graph-structure
 plan
 runtime
+artifacts
 environments
 progress
 ```

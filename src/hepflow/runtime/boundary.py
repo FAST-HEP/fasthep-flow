@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from hepflow.build_layout import BuildPaths
 from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.model.plan import ExecutionNode, ExecutionPartition, ExecutionPlan
 from hepflow.model.products import (
@@ -13,6 +16,7 @@ from hepflow.model.products import (
     ProductHandlerEntry,
 )
 from hepflow.registry.runtime import RuntimeRegistry
+from hepflow.runtime.artifacts import validate_artifact_reference_like
 
 _SCOPE_RANK = {
     "partition": 0,
@@ -227,8 +231,8 @@ def extract_boundary_products(
     partition: ExecutionPartition | Mapping[str, Any] | None,
     boundary: list[BoundaryOutputSpec],
     runtime_registry: RuntimeRegistry,
+    ctx: Mapping[str, Any] | None = None,
 ) -> list[BoundaryProduct]:
-    del plan
     partition_id, dataset = _partition_identity(partition)
     products: list[BoundaryProduct] = []
 
@@ -239,19 +243,31 @@ def extract_boundary_products(
         policy = _boundary_policy(spec.kind, runtime_registry)
         if policy.representation == "materialize":
             handler = runtime_registry.product_handlers.get(spec.kind)
-            if handler is None or handler.boundary_materialize is None:
+            if handler is None or handler.materialize is None:
                 raise NotImplementedError(
                     f"Boundary materialization for product kind {spec.kind!r} "
                     "is not implemented."
                 )
-            value = handler.boundary_materialize(
+            node = plan.get_node(spec.node_id)
+            value = _materialize_boundary_value(
+                handler.materialize,
                 value_store[value_key],
-                node_id=spec.node_id,
+                node=node,
                 output_name=spec.output_name,
                 partition=partition,
+                ctx=ctx,
+            )
+            validate_artifact_reference_like(
+                value,
+                context=f"Boundary materializer for {spec.node_id}.{spec.output_name}",
             )
         else:
             value = value_store[value_key]
+            if policy.representation == "reference":
+                validate_artifact_reference_like(
+                    value,
+                    context=f"Boundary product {spec.node_id}.{spec.output_name}",
+                )
 
         products.append(
             BoundaryProduct(
@@ -267,6 +283,43 @@ def extract_boundary_products(
         )
 
     return products
+
+
+def _materialize_boundary_value(
+    materialize: Any,
+    value: Any,
+    *,
+    node: ExecutionNode,
+    output_name: str,
+    partition: ExecutionPartition | Mapping[str, Any] | None,
+    ctx: Mapping[str, Any] | None,
+) -> Any:
+    runtime_ctx = dict(ctx or {})
+    outdir = runtime_ctx.get("outdir") or "."
+    kwargs: dict[str, Any] = {
+        "node": node,
+        "output_name": output_name,
+        "outdir": outdir,
+        "dataset_name": _partition_identity(partition)[1],
+        "partition": partition.to_context()
+        if isinstance(partition, ExecutionPartition)
+        else dict(partition or {}),
+        "source_scope": node.output_scope,
+        "destination_scope": "partition",
+        "ctx": runtime_ctx,
+    }
+    build_paths = BuildPaths(root=Path(str(outdir)))
+    if _accepts_keyword(materialize, "build_paths"):
+        kwargs["build_paths"] = build_paths
+    call_kwargs = {
+        key: value
+        for key, value in kwargs.items()
+        if key in _accepted_keywords(materialize) or _accepts_var_kwargs(materialize)
+    }
+    result = materialize(value, **call_kwargs)
+    if isinstance(result, dict) and "value" in result:
+        return result["value"]
+    return result
 
 
 def boundary_products_to_value_store(
@@ -317,6 +370,37 @@ def reduce_product_values(
         return list(values)
 
     return values[0] if len(values) == 1 else list(values)
+
+
+def _accepted_keywords(func: Any) -> set[str]:
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        return set()
+    return {
+        name
+        for name, parameter in signature.parameters.items()
+        if parameter.kind
+        in {
+            inspect.Parameter.KEYWORD_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        }
+    }
+
+
+def _accepts_keyword(func: Any, name: str) -> bool:
+    return name in _accepted_keywords(func) or _accepts_var_kwargs(func)
+
+
+def _accepts_var_kwargs(func: Any) -> bool:
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    )
 
 
 def format_partition_boundary(boundary: list[BoundaryOutputSpec]) -> str:
