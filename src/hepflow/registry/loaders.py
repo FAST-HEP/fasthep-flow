@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import importlib
-from typing import Any
+from typing import Any, cast
 
-from hepflow.model.products import ProductHandlerEntry
+from hepflow.model.products import (
+    BoundaryRepresentation,
+    ProductBoundaryPolicy,
+    ProductHandlerEntry,
+)
 from hepflow.progress import ProgressSink
 from hepflow.registry.defaults import (
     default_expr_registry_config,
@@ -76,18 +80,57 @@ def runtime_registry_from_config(cfg: dict[str, Any] | None) -> RuntimeRegistry:
             if isinstance(entry_cfg.get("materialize"), str)
             else None
         )
+        boundary_materialize_obj = (
+            load_object(entry_cfg["boundary_materialize"])
+            if isinstance(entry_cfg.get("boundary_materialize"), str)
+            else None
+        )
         if merge_obj is not None and not callable(merge_obj):
             raise TypeError(f"Product handler merge '{name}' is not callable")
         if materialize_obj is not None and not callable(materialize_obj):
             raise TypeError(f"Product handler materialize '{name}' is not callable")
+        if boundary_materialize_obj is not None and not callable(
+            boundary_materialize_obj
+        ):
+            raise TypeError(
+                f"Product handler boundary_materialize '{name}' is not callable"
+            )
 
         product_handlers[name] = ProductHandlerEntry(
             merge=merge_obj,
             materialize=materialize_obj,
+            boundary=_product_boundary_policy(name, entry_cfg.get("boundary")),
+            boundary_materialize=boundary_materialize_obj,
         )
 
     return RuntimeRegistry(
         product_handlers=product_handlers,
+    )
+
+
+def _product_boundary_policy(
+    name: str,
+    cfg: Any,
+) -> ProductBoundaryPolicy:
+    if cfg is None:
+        return ProductBoundaryPolicy()
+    if not isinstance(cfg, dict):
+        raise TypeError(f"Product handler boundary '{name}' must be a mapping")
+
+    retain = cfg.get("retain", False)
+    if not isinstance(retain, bool):
+        raise TypeError(f"Product handler boundary '{name}'.retain must be boolean")
+
+    representation = cfg.get("representation", "value")
+    if representation not in {"value", "reference", "materialize"}:
+        raise ValueError(
+            f"Product handler boundary '{name}'.representation must be one of "
+            "'value', 'reference', or 'materialize'; got {representation!r}"
+        )
+
+    return ProductBoundaryPolicy(
+        retain=retain,
+        representation=cast(BoundaryRepresentation, representation),
     )
 
 

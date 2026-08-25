@@ -105,5 +105,12 @@ def default_runtime_registry_config() -> dict[str, Any]:
         "progress_sinks": {},
         "report_templates": {},
         "execution_modifiers": {},
-        "product_handlers": {},
+        "product_handlers": {
+            "artifact": {
+                "boundary": {
+                    "retain": True,
+                    "representation": "reference",
+                },
+            },
+        },
     }

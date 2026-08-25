@@ -307,31 +307,21 @@ def _default_execution_policy(
         )
 
     if role == "transform":
+        if _produces_partition_products(outputs):
+            return (
+                "partition",
+                "partition",
+                PartitionSpec(mode="dataset_chunks", chunk_size=chunk_size)
+                if chunk_size is not None
+                else PartitionSpec(mode="dataset"),
+                "never",
+            )
+
         if "stream" not in outputs and "event_stream" not in set(outputs.values()):
             return (
                 "global",
                 "global",
                 PartitionSpec(mode="none"),
-                "never",
-            )
-
-        if outputs == {"hist": "histogram"}:
-            return (
-                "partition",
-                "partition",
-                PartitionSpec(mode="dataset_chunks", chunk_size=chunk_size)
-                if chunk_size is not None
-                else PartitionSpec(mode="dataset"),
-                "never",
-            )
-
-        if outputs.get("cutflow") == "cutflow":
-            return (
-                "partition",
-                "partition",
-                PartitionSpec(mode="dataset_chunks", chunk_size=chunk_size)
-                if chunk_size is not None
-                else PartitionSpec(mode="dataset"),
                 "never",
             )
 
@@ -351,3 +341,8 @@ def _default_execution_policy(
         return ("global", "global", PartitionSpec(mode="none"), "always")
 
     raise ValueError(f"Unknown execution role: {role!r}")
+
+
+def _produces_partition_products(outputs: dict[str, str]) -> bool:
+    product_kinds = set(outputs.values()) - {"event_stream"}
+    return bool(product_kinds & {"histogram", "cutflow"})

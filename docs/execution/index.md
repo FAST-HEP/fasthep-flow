@@ -459,7 +459,7 @@ Keeping this boundary explicit allows the workflow language, operation implement
 The following pages explore these parts of Flow in more detail:
 
 - {doc}`compilation` — the compilation representations and planning process
-- {doc}`runtime` — how execution plans are carried out
+- {doc}`runtime` — how execution plans, partitions, and boundary products are carried out
 - {doc}`progress` — backend-neutral progress events and sink architecture
 - {doc}`../extending/operations-and-specs` — how capabilities expose planner-visible contracts and runtime implementations
 

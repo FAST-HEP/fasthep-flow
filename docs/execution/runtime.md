@@ -160,6 +160,50 @@ Flow describes these operations in terms of products and partitions rather than 
 
 ---
 
+## Partition-boundary products
+
+Partition execution has an explicit boundary. A product may be useful inside one
+partition but too large or too short-lived to return from that partition to the
+driver.
+
+Flow separates two questions:
+
+- **Liveness**: does this product need to survive the partition?
+- **Representation**: if it survives, what form crosses the boundary?
+
+Liveness is determined from the execution plan and product-handler policy. A
+product crosses the partition boundary when either a wider-scope consumer needs
+it, such as a dataset-level or run-level sink, or its registered product handler
+declares that it should be retained even without a wider graph consumer.
+
+Representation is declared independently by the product handler:
+
+- `value` carries the runtime value itself, suitable for small mergeable
+  products such as histograms, cutflows, or counters.
+- `reference` carries an already durable/lightweight reference, such as an
+  output artifact result describing a file that was written during partition
+  execution.
+- `materialize` reserves the lifecycle where an in-memory value must be
+  converted into a durable/lightweight boundary representation before it leaves
+  the partition.
+
+The two invariants are:
+
+- A partition executor must return only products whose lifetime extends beyond
+  the partition.
+- A product crossing a partition boundary must cross in the cheapest
+  representation appropriate to its product type.
+
+This first boundary model lets Flow plan and extract `BoundaryProduct` wrappers
+without making generic runtime code aware of ROOT, Awkward, histograms,
+Carpenter, or any other package-specific value type.
+
+Backend adoption, local executor retention changes, and incremental reduction
+are later phases. The current runtime may still retain complete partition value
+stores while the boundary contract is being introduced.
+
+---
+
 ## Products carry results between nodes
 
 Operations communicate through products.
