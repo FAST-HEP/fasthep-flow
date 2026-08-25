@@ -78,6 +78,7 @@ class OperationResult:
 
 @dataclass(frozen=True)
 class ProductHandlerEntry:
+    combine: Callable[..., Any] | None = None
     merge: Callable[..., Any] | None = None
     materialize: Callable[..., Any] | None = None
     boundary: ProductBoundaryPolicy = field(default_factory=ProductBoundaryPolicy)

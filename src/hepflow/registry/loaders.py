@@ -70,6 +70,11 @@ def runtime_registry_from_config(cfg: dict[str, Any] | None) -> RuntimeRegistry:
                 f"Product handler registry entry '{name}' must be a mapping"
             )
 
+        combine_obj = (
+            load_object(entry_cfg["combine"])
+            if isinstance(entry_cfg.get("combine"), str)
+            else None
+        )
         merge_obj = (
             load_object(entry_cfg["merge"])
             if isinstance(entry_cfg.get("merge"), str)
@@ -85,6 +90,8 @@ def runtime_registry_from_config(cfg: dict[str, Any] | None) -> RuntimeRegistry:
             if isinstance(entry_cfg.get("boundary_materialize"), str)
             else None
         )
+        if combine_obj is not None and not callable(combine_obj):
+            raise TypeError(f"Product handler combine '{name}' is not callable")
         if merge_obj is not None and not callable(merge_obj):
             raise TypeError(f"Product handler merge '{name}' is not callable")
         if materialize_obj is not None and not callable(materialize_obj):
@@ -97,6 +104,7 @@ def runtime_registry_from_config(cfg: dict[str, Any] | None) -> RuntimeRegistry:
             )
 
         product_handlers[name] = ProductHandlerEntry(
+            combine=combine_obj,
             merge=merge_obj,
             materialize=materialize_obj,
             boundary=_product_boundary_policy(name, entry_cfg.get("boundary")),

@@ -29,9 +29,12 @@ from hepflow.registry.loaders import (
 from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.boundary import (
     PartitionBoundaryResult,
+    PartitionExecutionSummary,
+    ProductAccumulator,
     extract_boundary_products,
     partition_boundary_results_to_value_stores,
     plan_partition_boundary,
+    reduce_product_values,
 )
 from hepflow.runtime.handlers import run_observer, run_sink, run_source, run_transform
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
@@ -371,7 +374,9 @@ def execute_plan_locally(
 
     runtime_registry = runtime_registry_from_config(registry_cfg)
     boundary_plan = plan_partition_boundary(plan, runtime_registry=runtime_registry)
-    results: list[PartitionBoundaryResult] = []
+    dataset_accumulators: dict[str, ProductAccumulator] = {}
+    dataset_order: list[str] = []
+    partition_summaries: list[PartitionExecutionSummary] = []
     try:
         for partition in partitions:
             partition_ctx = build_partition_context(
@@ -398,12 +403,25 @@ def execute_plan_locally(
                     runtime_registry=runtime_registry,
                 )
                 del value_store
-                results.append(
-                    PartitionBoundaryResult(
-                        partition=partition,
-                        products=boundary_products,
-                    )
+                boundary_result = PartitionBoundaryResult(
+                    partition=partition,
+                    products=boundary_products,
                 )
+                accumulator = dataset_accumulators.get(partition.dataset)
+                if accumulator is None:
+                    accumulator = ProductAccumulator(
+                        plan,
+                        runtime_registry=runtime_registry,
+                        dataset_name=partition.dataset,
+                    )
+                    dataset_accumulators[partition.dataset] = accumulator
+                    dataset_order.append(partition.dataset)
+                accumulator.add_result(boundary_result)
+                partition_summaries.append(
+                    PartitionExecutionSummary.from_boundary_result(boundary_result)
+                )
+                del boundary_result
+                del boundary_products
             except Exception:
                 if progress is not None:
                     progress.failed(partition.id)
@@ -415,18 +433,11 @@ def execute_plan_locally(
             progress.phase_started("finalizing")
 
         dataset_stores: list[dict[tuple[str, str], Any]] = []
-        boundary_stores = partition_boundary_results_to_value_stores(results)
-        grouped_results = group_partition_results_by_dataset(
-            boundary_stores,
-            [result.partition for result in results],
-        )
-        for dataset_name, stores in grouped_results.items():
-            dataset_value_store = merge_partition_value_stores_for_dataset(
-                plan,
-                stores,
-                dataset_name=dataset_name,
-                registry_cfg=registry_cfg,
-            )
+        manifest_results: list[PartitionBoundaryResult] = []
+        for dataset_name in dataset_order:
+            accumulator = dataset_accumulators[dataset_name]
+            dataset_value_store = accumulator.finalize()
+            manifest_results.extend(accumulator.collected_partition_results())
             dataset_ctx = build_dataset_context(
                 plan,
                 base_ctx=base_ctx,
@@ -443,11 +454,14 @@ def execute_plan_locally(
             )
             dataset_stores.append(dataset_value_store)
 
-        merged_value_store = merge_partition_value_stores(
+        global_accumulator = ProductAccumulator(
             plan,
-            dataset_stores,
-            registry_cfg=registry_cfg,
+            runtime_registry=runtime_registry,
+            dataset_name=None,
         )
+        for dataset_store in dataset_stores:
+            global_accumulator.add_value_store(dataset_store)
+        merged_value_store = global_accumulator.finalize()
         product_items = materialize_final_products(
             plan,
             value_store=merged_value_store,
@@ -465,8 +479,8 @@ def execute_plan_locally(
         )
         write_writer_manifests(
             plan,
-            stores=boundary_stores,
-            partitions=[result.partition for result in results],
+            stores=partition_boundary_results_to_value_stores(manifest_results),
+            partitions=[result.partition for result in manifest_results],
             outdir=str(base_ctx.get("outdir") or "."),
             runtime_provenance=recorder,
         )
@@ -476,7 +490,7 @@ def execute_plan_locally(
             progress.run_completed()
         if isinstance(ctx, dict):
             ctx["_hook_summary"] = base_ctx.get("_hook_summary")
-        return results
+        return partition_summaries
     except Exception as exc:
         if progress is not None:
             progress.run_failed(exc)
@@ -562,34 +576,13 @@ def merge_partition_value_stores(
             grouped.setdefault(key, []).append(value)
 
     for key, values in grouped.items():
-        node_id, output_name = key
-        try:
-            node = plan.get_node(node_id)
-            output_kind = node.outputs.get(output_name)
-        except KeyError:
-            node = None
-            output_kind = None
-
-        if node is not None:
-            handler = runtime_registry.product_handlers.get(str(output_kind))
-            if handler is not None and handler.merge is not None:
-                merged[key] = handler.merge(
-                    values,
-                    node=node,
-                    output_name=output_name,
-                    dataset_name=None,
-                )
-                continue
-
-        if output_kind in runtime_registry.product_handlers:
-            merged[key] = values[0] if len(values) == 1 else list(values)
-            continue
-
-        if output_kind == "report":
-            merged[key] = list(values)
-            continue
-
-        merged[key] = values[0] if len(values) == 1 else list(values)
+        merged[key] = reduce_product_values(
+            plan,
+            runtime_registry,
+            key=key,
+            values=values,
+            dataset_name=None,
+        )
 
     return merged
 
@@ -623,34 +616,13 @@ def merge_partition_value_stores_for_dataset(
             grouped.setdefault(key, []).append(value)
 
     for key, values in grouped.items():
-        node_id, output_name = key
-        try:
-            node = plan.get_node(node_id)
-            output_kind = node.outputs.get(output_name)
-        except KeyError:
-            node = None
-            output_kind = None
-
-        if node is not None:
-            handler = runtime_registry.product_handlers.get(str(output_kind))
-            if handler is not None and handler.merge is not None:
-                merged[key] = handler.merge(
-                    values,
-                    node=node,
-                    output_name=output_name,
-                    dataset_name=dataset_name,
-                )
-                continue
-
-        if output_kind in runtime_registry.product_handlers:
-            merged[key] = values[0] if len(values) == 1 else list(values)
-            continue
-
-        if output_kind == "report":
-            merged[key] = list(values)
-            continue
-
-        merged[key] = values[0] if len(values) == 1 else list(values)
+        merged[key] = reduce_product_values(
+            plan,
+            runtime_registry,
+            key=key,
+            values=values,
+            dataset_name=dataset_name,
+        )
 
     return merged
 

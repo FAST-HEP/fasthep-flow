@@ -16,7 +16,11 @@ from hepflow.model.plan import (
     ExecutionPlan,
     PlanInputRef,
 )
-from hepflow.model.products import ProductBoundaryPolicy, ProductHandlerEntry
+from hepflow.model.products import (
+    BoundaryProduct,
+    ProductBoundaryPolicy,
+    ProductHandlerEntry,
+)
 from hepflow.registry.loaders import (
     resolve_runtime_registry,
     runtime_registry_from_config,
@@ -24,6 +28,8 @@ from hepflow.registry.loaders import (
 from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.boundary import (
     PartitionBoundaryResult,
+    PartitionExecutionSummary,
+    ProductAccumulator,
     boundary_products_to_value_store,
     extract_boundary_products,
     format_partition_boundary,
@@ -38,6 +44,28 @@ def test_product_handler_boundary_policy_defaults_are_backward_compatible() -> N
     )
 
     assert registry.product_handlers["event_stream"].boundary == ProductBoundaryPolicy()
+    assert registry.product_handlers["event_stream"].combine is None
+
+
+def test_product_handler_combine_loads_when_present() -> None:
+    registry = runtime_registry_from_config(
+        {
+            "product_handlers": {
+                "histogram": {
+                    "combine": "tests.toy_components.transforms:combine_toy_histograms"
+                }
+            }
+        }
+    )
+
+    assert callable(registry.product_handlers["histogram"].combine)
+
+
+def test_product_handler_combine_rejects_non_callable() -> None:
+    with pytest.raises(TypeError, match="Product handler combine 'histogram'"):
+        runtime_registry_from_config(
+            {"product_handlers": {"histogram": {"combine": "math:pi"}}}
+        )
 
 
 @pytest.mark.parametrize(
@@ -298,6 +326,274 @@ def test_extract_boundary_products_rejects_unimplemented_materialize_mode() -> N
         )
 
 
+def test_product_accumulator_combines_histograms_incrementally() -> None:
+    from tests.toy_components import transforms as toy_transforms  # noqa: PLC0415
+
+    toy_transforms.TOY_COMBINE_CALLS.clear()
+    plan = ExecutionPlan()
+    _add_node(plan, "stage.RecoilHist", outputs={"hist": "histogram"})
+    registry = RuntimeRegistry(
+        product_handlers={
+            "histogram": ProductHandlerEntry(
+                combine=toy_transforms.combine_toy_histograms,
+                merge=toy_transforms.merge_toy_histograms,
+                boundary=ProductBoundaryPolicy(retain=True, representation="value"),
+            )
+        }
+    )
+    accumulator = ProductAccumulator(plan, runtime_registry=registry, dataset_name="toy")
+
+    for index in range(100):
+        partition = _partition(index=index)
+        accumulator.add_result(
+            PartitionBoundaryResult(
+                partition=partition,
+                products=[
+                    _boundary_product(
+                        node_id="stage.RecoilHist",
+                        output_name="hist",
+                        kind="histogram",
+                        value={"entries": 1},
+                        partition=partition,
+                    )
+                ],
+            )
+        )
+
+    assert accumulator.combined_count == 1
+    assert accumulator.collected_count == 0
+    assert len(toy_transforms.TOY_COMBINE_CALLS) == 99
+    assert accumulator.finalize() == {("stage.RecoilHist", "hist"): {"entries": 100}}
+
+
+def test_product_accumulator_collects_event_streams_until_final_merge() -> None:
+    from tests.toy_components import transforms as toy_transforms  # noqa: PLC0415
+
+    toy_transforms.TOY_EVENT_STREAM_MERGE_CALLS.clear()
+    plan = ExecutionPlan()
+    _add_node(plan, "stage.Scale", outputs={"stream": "event_stream"})
+    registry = RuntimeRegistry(
+        product_handlers={
+            "event_stream": ProductHandlerEntry(
+                merge=toy_transforms.merge_toy_event_streams,
+                boundary=ProductBoundaryPolicy(retain=False, representation="value"),
+            )
+        }
+    )
+    accumulator = ProductAccumulator(plan, runtime_registry=registry, dataset_name="toy")
+
+    for index in range(4):
+        partition = _partition(index=index)
+        accumulator.add_result(
+            PartitionBoundaryResult(
+                partition=partition,
+                products=[
+                    _boundary_product(
+                        node_id="stage.Scale",
+                        output_name="stream",
+                        kind="event_stream",
+                        value={"pt": [index]},
+                        partition=partition,
+                    )
+                ],
+            )
+        )
+
+    assert accumulator.combined_count == 0
+    assert accumulator.collected_count == 4
+    assert toy_transforms.TOY_EVENT_STREAM_MERGE_CALLS == []
+    assert accumulator.finalize() == {("stage.Scale", "stream"): {"pt": [0, 1, 2, 3]}}
+    assert len(toy_transforms.TOY_EVENT_STREAM_MERGE_CALLS) == 1
+    assert len(toy_transforms.TOY_EVENT_STREAM_MERGE_CALLS[0]) == 4
+
+
+def test_product_accumulator_keeps_artifacts_collected_for_writer_manifests(
+    tmp_path,
+) -> None:
+    from tests.toy_components import transforms as toy_transforms  # noqa: PLC0415
+
+    from hepflow.runtime.writer_manifests import write_writer_manifests  # noqa: PLC0415
+
+    plan = ExecutionPlan()
+    _add_node(plan, "stage.RecoilHist", outputs={"hist": "histogram"})
+    _add_node(plan, "write.skim", role="sink", outputs={"artifact": "artifact"})
+    registry = RuntimeRegistry(
+        product_handlers={
+            "artifact": ProductHandlerEntry(
+                boundary=ProductBoundaryPolicy(retain=True, representation="reference"),
+            ),
+            "histogram": ProductHandlerEntry(
+                combine=toy_transforms.combine_toy_histograms,
+                merge=toy_transforms.merge_toy_histograms,
+                boundary=ProductBoundaryPolicy(retain=True, representation="value"),
+            ),
+        }
+    )
+    accumulator = ProductAccumulator(plan, runtime_registry=registry, dataset_name="toy")
+
+    outputs = [
+        OutputResult(
+            kind="root_tree",
+            path=f"artifacts/files/skim/toy/0_{index}.root",
+            metadata={
+                "writer_manifest": {
+                    "kind": "root_tree",
+                    "name": "skim",
+                    "node_id": "write.skim",
+                    "input_node": "stage.Select",
+                    "tree": "Events",
+                    "path": f"artifacts/files/skim/toy/0_{index}.root",
+                    "path_type": "relative_to_outdir",
+                    "dataset": "toy",
+                    "partition": index,
+                    "attempt": 0,
+                    "entries": index + 1,
+                    "size_bytes": 12,
+                    "format": "root",
+                }
+            },
+        )
+        for index in range(2)
+    ]
+    for index, output in enumerate(outputs):
+        partition = _partition(index=index)
+        accumulator.add_result(
+            PartitionBoundaryResult(
+                partition=partition,
+                products=[
+                    _boundary_product(
+                        node_id="stage.RecoilHist",
+                        output_name="hist",
+                        kind="histogram",
+                        value={"entries": 1},
+                        partition=partition,
+                    ),
+                    _boundary_product(
+                        node_id="write.skim",
+                        output_name="artifact",
+                        kind="artifact",
+                        value=output,
+                        partition=partition,
+                        representation="reference",
+                    ),
+                ],
+            )
+        )
+
+    collected = accumulator.collected_partition_results()
+    assert accumulator.combined_count == 1
+    assert accumulator.collected_count == 2
+    assert [
+        (result.partition.id, result.products[0].value)
+        for result in collected
+    ] == [
+        ("events__toy__0", outputs[0]),
+        ("events__toy__1", outputs[1]),
+    ]
+    assert all(result.products[0].kind == "artifact" for result in collected)
+    assert accumulator.finalize() == {
+        ("stage.RecoilHist", "hist"): {"entries": 2},
+        ("write.skim", "artifact"): outputs,
+    }
+
+    write_writer_manifests(
+        plan,
+        stores=[result.value_store() for result in collected],
+        partitions=[result.partition for result in collected],
+        outdir=tmp_path,
+    )
+    manifest = json.loads(
+        (tmp_path / "artifacts" / "files" / "skim" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert [
+        item["path"]
+        for item in manifest["datasets"]["toy"]["files"]
+    ] == [
+        "artifacts/files/skim/toy/0_0.root",
+        "artifacts/files/skim/toy/0_1.root",
+    ]
+
+
+def test_product_accumulator_add_result_is_atomic_when_combine_fails() -> None:
+    from tests.toy_components import transforms as toy_transforms  # noqa: PLC0415
+
+    def failing_combine(left: Any, right: Any, **kwargs: Any) -> Any:
+        del left, right, kwargs
+        raise RuntimeError("planned combine failure")
+
+    plan = ExecutionPlan()
+    _add_node(plan, "stage.FirstHist", outputs={"hist": "histogram"})
+    _add_node(plan, "stage.BadHist", outputs={"hist": "bad_histogram"})
+    registry = RuntimeRegistry(
+        product_handlers={
+            "histogram": ProductHandlerEntry(
+                combine=toy_transforms.combine_toy_histograms,
+                merge=toy_transforms.merge_toy_histograms,
+                boundary=ProductBoundaryPolicy(retain=True, representation="value"),
+            ),
+            "bad_histogram": ProductHandlerEntry(
+                combine=failing_combine,
+                boundary=ProductBoundaryPolicy(retain=True, representation="value"),
+            ),
+        }
+    )
+    accumulator = ProductAccumulator(plan, runtime_registry=registry, dataset_name="toy")
+    first_partition = _partition(index=0)
+    second_partition = _partition(index=1)
+
+    accumulator.add_result(
+        PartitionBoundaryResult(
+            partition=first_partition,
+            products=[
+                _boundary_product(
+                    node_id="stage.FirstHist",
+                    output_name="hist",
+                    kind="histogram",
+                    value={"entries": 1},
+                    partition=first_partition,
+                ),
+                _boundary_product(
+                    node_id="stage.BadHist",
+                    output_name="hist",
+                    kind="bad_histogram",
+                    value={"entries": 1},
+                    partition=first_partition,
+                ),
+            ],
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="planned combine failure"):
+        accumulator.add_result(
+            PartitionBoundaryResult(
+                partition=second_partition,
+                products=[
+                    _boundary_product(
+                        node_id="stage.FirstHist",
+                        output_name="hist",
+                        kind="histogram",
+                        value={"entries": 10},
+                        partition=second_partition,
+                    ),
+                    _boundary_product(
+                        node_id="stage.BadHist",
+                        output_name="hist",
+                        kind="bad_histogram",
+                        value={"entries": 10},
+                        partition=second_partition,
+                    ),
+                ],
+            )
+        )
+
+    assert accumulator.finalize() == {
+        ("stage.FirstHist", "hist"): {"entries": 1},
+        ("stage.BadHist", "hist"): {"entries": 1},
+    }
+
+
 def test_histogram_execution_policy_is_partition_scoped(
     toy_workflow: dict[str, Any],
     tmp_path,
@@ -341,6 +637,7 @@ def test_local_histogram_only_execution_prunes_event_streams_before_merge(
             },
             "histogram": {
                 "boundary": {"retain": True, "representation": "value"},
+                "combine": "tests.toy_components.transforms:combine_toy_histograms",
                 "merge": "tests.toy_components.transforms:merge_toy_histograms",
                 "materialize": "tests.toy_components.transforms:materialize_toy_histogram",
             },
@@ -356,7 +653,7 @@ def test_local_histogram_only_execution_prunes_event_streams_before_merge(
     assert result.success is True
     outputs = result.outputs["value_store"]
     assert isinstance(outputs, list)
-    assert all(isinstance(item, PartitionBoundaryResult) for item in outputs)
+    assert all(isinstance(item, PartitionExecutionSummary) for item in outputs)
     assert [
         [(product.node_id, product.output_name) for product in item.products]
         for item in outputs
@@ -399,10 +696,11 @@ def test_local_execution_retains_wider_scope_event_stream_and_invokes_merge(
     assert result.success is True
     outputs = result.outputs["value_store"]
     assert isinstance(outputs, list)
+    assert all(isinstance(item, PartitionExecutionSummary) for item in outputs)
     assert all(
-        ("stage.Scale", "stream") in item.value_store()
+        ("stage.Scale", "stream")
+        in [(product.node_id, product.output_name) for product in item.products]
         for item in outputs
-        if isinstance(item, PartitionBoundaryResult)
     )
     payload = json.loads(
         (build_dir / "artifacts" / "files" / "dataset.json").read_text(
@@ -495,11 +793,11 @@ def test_execute_plan_locally_returns_partition_boundary_results(
         partitions=plan.partitions,
     )
 
-    assert all(isinstance(item, PartitionBoundaryResult) for item in results)
+    assert all(isinstance(item, PartitionExecutionSummary) for item in results)
     assert [
-        list(item.value_store())
+        [(product.node_id, product.output_name) for product in item.products]
         for item in results
-        if isinstance(item, PartitionBoundaryResult)
+        if isinstance(item, PartitionExecutionSummary)
     ] == [[("stage.RecoilHist", "hist")], [("stage.RecoilHist", "hist")]]
 
 
@@ -608,6 +906,7 @@ def _histogram_workflow(
             or {
                 "histogram": {
                     "boundary": {"retain": True, "representation": "value"},
+                    "combine": "tests.toy_components.transforms:combine_toy_histograms",
                     "merge": "tests.toy_components.transforms:merge_toy_histograms",
                 }
             },
@@ -624,15 +923,35 @@ def _histogram_workflow(
     }
 
 
-def _partition() -> ExecutionPartition:
+def _boundary_product(
+    *,
+    node_id: str,
+    output_name: str,
+    kind: str,
+    value: Any,
+    partition: ExecutionPartition,
+    representation: Literal["value", "reference", "materialize"] = "value",
+) -> BoundaryProduct:
+    return BoundaryProduct(
+        node_id=node_id,
+        output_name=output_name,
+        kind=kind,
+        dataset=partition.dataset,
+        partition_id=partition.id,
+        representation=representation,
+        value=value,
+    )
+
+
+def _partition(index: int = 0) -> ExecutionPartition:
     return ExecutionPartition(
-        id="events__toy__0",
+        id=f"events__toy__{index}",
         dataset="toy",
         file="toy://events",
         source="events",
-        part="0_0",
-        start=0,
-        stop=1,
+        part=f"0_{index}",
+        start=index,
+        stop=index + 1,
     )
 
 

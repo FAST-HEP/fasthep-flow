@@ -516,16 +516,35 @@ def merge_toy_histograms(
     return {"entries": sum(int(value.get("entries") or 0) for value in values)}
 
 
+TOY_COMBINE_CALLS: list[tuple[Any, Any]] = []
+
+
+def combine_toy_histograms(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    del kwargs
+    TOY_COMBINE_CALLS.append((left, right))
+    return {
+        "entries": int(left.get("entries") or 0) + int(right.get("entries") or 0),
+    }
+
+
 def merge_toy_event_streams(
     values: list[dict[str, Any]],
     **kwargs: Any,
 ) -> dict[str, Any]:
     del kwargs
+    TOY_EVENT_STREAM_MERGE_CALLS.append(list(values))
     merged: dict[str, list[Any]] = {}
     for value in values:
         for key, items in value.items():
             merged.setdefault(str(key), []).extend(list(items))
     return merged
+
+
+TOY_EVENT_STREAM_MERGE_CALLS: list[list[dict[str, Any]]] = []
 
 
 def fail_toy_event_stream_merge(

@@ -5,7 +5,7 @@ from typing import Any
 from hepflow.backends.model import BackendResult
 from hepflow.model.plan import ExecutionPlan
 from hepflow.progress import ProgressReporter
-from hepflow.runtime.boundary import PartitionBoundaryResult
+from hepflow.runtime.boundary import PartitionBoundaryResult, PartitionExecutionSummary
 from hepflow.runtime.engine import execute_plan_locally
 
 
@@ -88,6 +88,11 @@ def _partition_summary(
                 }
                 for product in item.products
             ],
+        }
+    if isinstance(item, PartitionExecutionSummary):
+        return {
+            "partition": item.partition.to_dict(),
+            "outputs": [product.to_dict() for product in item.products],
         }
     return {
         "partition": plan.partitions[index].to_dict()
