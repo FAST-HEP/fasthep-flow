@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 TOY_SCALE_SPEC = {
@@ -504,3 +506,55 @@ def run_toy_hist(
 ) -> dict[str, Any]:
     del ctx, params
     return {"hist": {"entries": len(next(iter(stream.values()), []))}}
+
+
+def merge_toy_histograms(
+    values: list[dict[str, Any]],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    del kwargs
+    return {"entries": sum(int(value.get("entries") or 0) for value in values)}
+
+
+def merge_toy_event_streams(
+    values: list[dict[str, Any]],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    del kwargs
+    merged: dict[str, list[Any]] = {}
+    for value in values:
+        for key, items in value.items():
+            merged.setdefault(str(key), []).extend(list(items))
+    return merged
+
+
+def fail_toy_event_stream_merge(
+    values: list[dict[str, Any]],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    del values, kwargs
+    raise AssertionError("event_stream merge should not be invoked")
+
+
+def materialize_toy_histogram(
+    value: dict[str, Any],
+    *,
+    node: Any,
+    output_name: str,
+    outdir: str | Path,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    del output_name, kwargs
+    path = Path(outdir) / "artifacts" / "histograms" / f"{node.id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
+    return {
+        "value": value,
+        "items": [
+            {
+                "id": node.id,
+                "path": str(path),
+                "kind": "histogram",
+            }
+        ],
+    }

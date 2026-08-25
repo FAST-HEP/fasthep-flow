@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import gc
+import json
+import weakref
 from typing import Any, Literal
 
 import pytest
 import yaml
 
+from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.model.io import OutputResult
 from hepflow.model.plan import (
     ExecutionNode,
@@ -19,10 +23,13 @@ from hepflow.registry.loaders import (
 )
 from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.boundary import (
+    PartitionBoundaryResult,
+    boundary_products_to_value_store,
     extract_boundary_products,
     format_partition_boundary,
     plan_partition_boundary,
 )
+from hepflow.runtime.engine import execute_plan_locally
 
 
 def test_product_handler_boundary_policy_defaults_are_backward_compatible() -> None:
@@ -210,6 +217,62 @@ def test_extract_boundary_products_wraps_only_selected_values() -> None:
     assert ("stage.MainSelection", "stream") in value_store
 
 
+def test_boundary_products_to_value_store_contains_only_boundary_values() -> None:
+    plan = _histogram_plan()
+    registry = _boundary_registry()
+    boundary = plan_partition_boundary(plan, runtime_registry=registry)
+    value_store = {
+        ("read.events", "stream"): {"pt": [1]},
+        ("stage.ProjectEvents", "stream"): {"pt": [1]},
+        ("stage.MainSelection", "stream"): {"pt": [1]},
+        ("stage.RecoilHist", "hist"): "recoil",
+        ("stage.HTHist", "hist"): "ht",
+    }
+
+    products = extract_boundary_products(
+        plan,
+        value_store,
+        partition=_partition(),
+        boundary=boundary,
+        runtime_registry=registry,
+    )
+    compact_store = boundary_products_to_value_store(products)
+
+    assert compact_store == {
+        ("stage.RecoilHist", "hist"): "recoil",
+        ("stage.HTHist", "hist"): "ht",
+    }
+
+
+def test_transient_partition_values_are_collectible_after_boundary_extraction() -> None:
+    plan = _histogram_plan()
+    registry = _boundary_registry()
+    boundary = plan_partition_boundary(plan, runtime_registry=registry)
+    transient = _Sentinel("stream")
+    retained = _Sentinel("hist")
+    transient_ref = weakref.ref(transient)
+    retained_ref = weakref.ref(retained)
+    value_store = {
+        ("stage.MainSelection", "stream"): transient,
+        ("stage.RecoilHist", "hist"): retained,
+    }
+
+    products = extract_boundary_products(
+        plan,
+        value_store,
+        partition=_partition(),
+        boundary=boundary,
+        runtime_registry=registry,
+    )
+    del value_store
+    del transient
+    gc.collect()
+
+    assert transient_ref() is None
+    assert retained_ref() is retained
+    assert products[0].value is retained
+
+
 def test_extract_boundary_products_rejects_unimplemented_materialize_mode() -> None:
     plan = ExecutionPlan()
     _add_node(plan, "stage.Large", outputs={"large": "large_product"})
@@ -263,6 +326,181 @@ def test_histogram_execution_policy_is_partition_scoped(
     assert hist_node.input_scope == "partition"
     assert hist_node.output_scope == "partition"
     assert hist_node.partitioning.mode == "dataset_chunks"
+
+
+def test_local_histogram_only_execution_prunes_event_streams_before_merge(
+    toy_workflow: dict[str, Any],
+    tmp_path,
+) -> None:
+    workflow = _histogram_workflow(
+        toy_workflow,
+        product_handlers={
+            "event_stream": {
+                "boundary": {"retain": False, "representation": "value"},
+                "merge": "tests.toy_components.transforms:fail_toy_event_stream_merge",
+            },
+            "histogram": {
+                "boundary": {"retain": True, "representation": "value"},
+                "merge": "tests.toy_components.transforms:merge_toy_histograms",
+                "materialize": "tests.toy_components.transforms:materialize_toy_histogram",
+            },
+        },
+    )
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    build_dir = tmp_path / "build"
+    compile_workflow_file(workflow_path, outdir=build_dir, chunk_size=1)
+
+    result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
+
+    assert result.success is True
+    outputs = result.outputs["value_store"]
+    assert isinstance(outputs, list)
+    assert all(isinstance(item, PartitionBoundaryResult) for item in outputs)
+    assert [
+        [(product.node_id, product.output_name) for product in item.products]
+        for item in outputs
+    ] == [
+        [("stage.RecoilHist", "hist")],
+        [("stage.RecoilHist", "hist")],
+        [("stage.RecoilHist", "hist")],
+        [("stage.RecoilHist", "hist")],
+    ]
+    histogram_path = build_dir / "artifacts" / "histograms" / "stage.RecoilHist.json"
+    assert json.loads(histogram_path.read_text(encoding="utf-8")) == {"entries": 4}
+
+
+def test_local_execution_retains_wider_scope_event_stream_and_invokes_merge(
+    toy_workflow: dict[str, Any],
+    tmp_path,
+) -> None:
+    workflow = {
+        **_partitioned_workflow(toy_workflow),
+        "registry": {
+            **toy_workflow["registry"],
+            "product_handlers": {
+                "event_stream": {
+                    "boundary": {"retain": False, "representation": "value"},
+                    "merge": "tests.toy_components.transforms:merge_toy_event_streams",
+                }
+            },
+        },
+    }
+    workflow["analysis"]["stages"][0]["write"] = [
+        {"kind": "toy.write", "path": "dataset.json", "when": "dataset"},
+    ]
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    build_dir = tmp_path / "build"
+    compile_workflow_file(workflow_path, outdir=build_dir, chunk_size=1)
+
+    result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
+
+    assert result.success is True
+    outputs = result.outputs["value_store"]
+    assert isinstance(outputs, list)
+    assert all(
+        ("stage.Scale", "stream") in item.value_store()
+        for item in outputs
+        if isinstance(item, PartitionBoundaryResult)
+    )
+    payload = json.loads(
+        (build_dir / "artifacts" / "files" / "dataset.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["scaled_pt"] == [24, 36, 42, 56]
+
+
+def test_partition_writer_manifest_uses_boundary_artifact_references(
+    tmp_path,
+) -> None:
+    plan = ExecutionPlan()
+    _add_node(
+        plan,
+        "write.skim",
+        role="sink",
+        outputs={"artifact": "artifact"},
+    )
+    registry = resolve_runtime_registry({})
+    boundary = plan_partition_boundary(plan, runtime_registry=registry)
+    partition = _partition()
+    output = OutputResult(
+        kind="root_tree",
+        path="artifacts/files/skim/toy/0_0.root",
+        metadata={
+                "writer_manifest": {
+                    "kind": "root_tree",
+                    "name": "skim",
+                    "node_id": "write.skim",
+                    "input_node": "stage.Select",
+                    "tree": "Events",
+                    "path": "artifacts/files/skim/toy/0_0.root",
+                    "path_type": "relative_to_outdir",
+                    "dataset": "toy",
+                "partition": 0,
+                "attempt": 0,
+                "entries": 1,
+                "size_bytes": 12,
+                "format": "root",
+            }
+        },
+    )
+    value_store = {
+        ("write.skim", "artifact"): output,
+        ("stage.Select", "stream"): _Sentinel("stream"),
+    }
+    products = extract_boundary_products(
+        plan,
+        value_store,
+        partition=partition,
+        boundary=boundary,
+        runtime_registry=registry,
+    )
+    compact_store = boundary_products_to_value_store(products)
+
+    from hepflow.runtime.writer_manifests import write_writer_manifests  # noqa: PLC0415
+
+    write_writer_manifests(
+        plan,
+        stores=[compact_store],
+        partitions=[partition],
+        outdir=tmp_path,
+    )
+
+    assert compact_store == {("write.skim", "artifact"): output}
+    manifest = json.loads(
+        (tmp_path / "artifacts" / "files" / "skim" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["datasets"]["toy"]["files"][0]["path"] == (
+        "artifacts/files/skim/toy/0_0.root"
+    )
+
+
+def test_execute_plan_locally_returns_partition_boundary_results(
+    toy_workflow: dict[str, Any],
+    tmp_path,
+) -> None:
+    workflow = _histogram_workflow(toy_workflow)
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build", chunk_size=2)
+
+    results = execute_plan_locally(
+        plan,
+        registry_cfg=plan.registry,
+        ctx={"outdir": str(tmp_path / "build")},
+        partitions=plan.partitions,
+    )
+
+    assert all(isinstance(item, PartitionBoundaryResult) for item in results)
+    assert [
+        list(item.value_store())
+        for item in results
+        if isinstance(item, PartitionBoundaryResult)
+    ] == [[("stage.RecoilHist", "hist")], [("stage.RecoilHist", "hist")]]
 
 
 def _histogram_plan() -> ExecutionPlan:
@@ -342,6 +580,50 @@ def _boundary_registry() -> RuntimeRegistry:
     )
 
 
+def _partitioned_workflow(toy_workflow: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **toy_workflow,
+        "data": {
+            "datasets": [
+                {
+                    "name": "toydata",
+                    "files": ["toy://events"],
+                    "nevents": 4,
+                }
+            ]
+        },
+    }
+
+
+def _histogram_workflow(
+    toy_workflow: dict[str, Any],
+    *,
+    product_handlers: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        **_partitioned_workflow(toy_workflow),
+        "registry": {
+            **toy_workflow["registry"],
+            "product_handlers": product_handlers
+            or {
+                "histogram": {
+                    "boundary": {"retain": True, "representation": "value"},
+                    "merge": "tests.toy_components.transforms:merge_toy_histograms",
+                }
+            },
+        },
+        "analysis": {
+            "stages": [
+                {
+                    "id": "RecoilHist",
+                    "op": "hep.hist",
+                    "params": {"name": "recoil"},
+                }
+            ]
+        },
+    }
+
+
 def _partition() -> ExecutionPartition:
     return ExecutionPartition(
         id="events__toy__0",
@@ -352,3 +634,8 @@ def _partition() -> ExecutionPartition:
         start=0,
         stop=1,
     )
+
+
+class _Sentinel:
+    def __init__(self, name: str) -> None:
+        self.name = name

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from hepflow.model.lifecycle import normalize_lifecycle_event
@@ -17,6 +18,15 @@ _SCOPE_RANK = {
     "dataset": 1,
     "global": 2,
 }
+
+
+@dataclass(slots=True)
+class PartitionBoundaryResult:
+    partition: ExecutionPartition
+    products: list[BoundaryProduct]
+
+    def value_store(self) -> dict[tuple[str, str], Any]:
+        return boundary_products_to_value_store(self.products)
 
 
 def plan_partition_boundary(
@@ -99,6 +109,21 @@ def extract_boundary_products(
     return products
 
 
+def boundary_products_to_value_store(
+    products: list[BoundaryProduct],
+) -> dict[tuple[str, str], Any]:
+    return {
+        (product.node_id, product.output_name): product.value
+        for product in products
+    }
+
+
+def partition_boundary_results_to_value_stores(
+    results: list[PartitionBoundaryResult],
+) -> list[dict[tuple[str, str], Any]]:
+    return [result.value_store() for result in results]
+
+
 def format_partition_boundary(boundary: list[BoundaryOutputSpec]) -> str:
     lines = ["partition boundary:"]
     for spec in boundary:
@@ -106,6 +131,16 @@ def format_partition_boundary(boundary: list[BoundaryOutputSpec]) -> str:
         lines.append(
             f"  {spec.node_id}.{spec.output_name:<16} "
             f"{spec.kind:<10} {spec.policy.representation:<10} {reasons}"
+        )
+    return "\n".join(lines)
+
+
+def format_partition_boundary_result(result: PartitionBoundaryResult) -> str:
+    lines = [f"partition {result.partition.id} retained:"]
+    for product in result.products:
+        lines.append(
+            f"  {product.node_id}.{product.output_name:<16} "
+            f"{product.kind:<10} {product.representation}"
         )
     return "\n".join(lines)
 

@@ -5,6 +5,7 @@ from typing import Any
 from hepflow.backends.model import BackendResult
 from hepflow.model.plan import ExecutionPlan
 from hepflow.progress import ProgressReporter
+from hepflow.runtime.boundary import PartitionBoundaryResult
 from hepflow.runtime.engine import execute_plan_locally
 
 
@@ -55,13 +56,8 @@ def _value_store_summary(value: Any, *, plan: ExecutionPlan) -> dict[str, Any]:
     if isinstance(value, list):
         return {
             "partitions": [
-                {
-                    "partition": plan.partitions[index].to_dict()
-                    if index < len(plan.partitions)
-                    else {"index": index},
-                    "outputs": _store_outputs_summary(store),
-                }
-                for index, store in enumerate(value)
+                _partition_summary(item, index=index, plan=plan)
+                for index, item in enumerate(value)
             ]
         }
     if isinstance(value, dict):
@@ -70,6 +66,34 @@ def _value_store_summary(value: Any, *, plan: ExecutionPlan) -> dict[str, Any]:
         }
     return {
         "value_type": type(value).__name__,
+    }
+
+
+def _partition_summary(
+    item: Any,
+    *,
+    index: int,
+    plan: ExecutionPlan,
+) -> dict[str, Any]:
+    if isinstance(item, PartitionBoundaryResult):
+        return {
+            "partition": item.partition.to_dict(),
+            "outputs": [
+                {
+                    "node": product.node_id,
+                    "port": product.output_name,
+                    "kind": product.kind,
+                    "representation": product.representation,
+                    "type": type(product.value).__name__,
+                }
+                for product in item.products
+            ],
+        }
+    return {
+        "partition": plan.partitions[index].to_dict()
+        if index < len(plan.partitions)
+        else {"index": index},
+        "outputs": _store_outputs_summary(item),
     }
 
 

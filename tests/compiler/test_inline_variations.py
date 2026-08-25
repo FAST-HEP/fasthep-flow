@@ -306,10 +306,11 @@ def test_authored_inline_variation_compiles_to_one_plan_and_runs(
     }
     assert nodes["stage.B@up"]["params"]["factor"] == 10
 
-    value_store = run_plan_file(plan_path, outdir=build_dir).outputs["value_store"]
-    store = value_store[0] if isinstance(value_store, list) else value_store
-    assert store[("stage.C", "stream")]["c_pt"] == [72, 108, 126, 168]
-    assert store[("stage.C@up", "stream")]["c_pt"] == [360, 540, 630, 840]
+    result = run_plan_file(plan_path, outdir=build_dir)
+    assert result.success is True
+    stores = result.outputs["value_store"]
+    assert isinstance(stores, list)
+    assert [getattr(store, "products", None) for store in stores] == [[]]
 
 
 def test_inline_variation_export_collects_selected_fields_before_single_writer(
@@ -663,12 +664,17 @@ def test_inline_variation_collector_omits_inactive_mc_exports_for_data(
 
     compile_workflow_file(workflow_path, outdir=build_dir)
     result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)
-    stores = result.outputs["value_store"]
-    assert isinstance(stores, list)
-    data_store, mc_store = stores
-
-    data_collect = _only_collect_stream(data_store)
-    mc_collect = _only_collect_stream(mc_store)
+    assert result.success is True
+    data_collect = json.loads(
+        (build_dir / "artifacts" / "files" / "output" / "data" / "0_0.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    mc_collect = json.loads(
+        (build_dir / "artifacts" / "files" / "output" / "mc" / "0_0.json").read_text(
+            encoding="utf-8"
+        )
+    )
     assert "b_pt_up" not in data_collect
     assert "b_pt_up" in mc_collect
 
@@ -1163,16 +1169,6 @@ def _compiler_benchmark_metrics(
             _origin_count(dict(origin)) for origin in origins.values()
         ),
     }
-
-
-def _only_collect_stream(store: dict[Any, Any]) -> dict[str, Any]:
-    collect_streams = [
-        value
-        for (node_id, output_name), value in store.items()
-        if str(node_id).startswith("collect.") and output_name == "stream"
-    ]
-    assert len(collect_streams) == 1
-    return collect_streams[0]
 
 
 def _scale(

@@ -27,6 +27,12 @@ from hepflow.registry.loaders import (
     runtime_registry_from_config,
 )
 from hepflow.registry.runtime import RuntimeRegistry
+from hepflow.runtime.boundary import (
+    PartitionBoundaryResult,
+    extract_boundary_products,
+    partition_boundary_results_to_value_stores,
+    plan_partition_boundary,
+)
 from hepflow.runtime.handlers import run_observer, run_sink, run_source, run_transform
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
 from hepflow.runtime.materialize import materialize_final_products
@@ -363,7 +369,9 @@ def execute_plan_locally(
                 progress.run_failed(exc)
             raise
 
-    results: list[dict[tuple[str, str], Any]] = []
+    runtime_registry = runtime_registry_from_config(registry_cfg)
+    boundary_plan = plan_partition_boundary(plan, runtime_registry=runtime_registry)
+    results: list[PartitionBoundaryResult] = []
     try:
         for partition in partitions:
             partition_ctx = build_partition_context(
@@ -374,14 +382,26 @@ def execute_plan_locally(
             if progress is not None:
                 progress.running(partition.id)
             try:
+                value_store = execute_plan_partition(
+                    plan,
+                    ctx=partition_ctx,
+                    registry_cfg=registry_cfg,
+                    initial_values=initial_values,
+                    skip_roles=skip_roles,
+                    hook_manager=hook_manager,
+                )
+                boundary_products = extract_boundary_products(
+                    plan,
+                    value_store,
+                    partition=partition,
+                    boundary=boundary_plan,
+                    runtime_registry=runtime_registry,
+                )
+                del value_store
                 results.append(
-                    execute_plan_partition(
-                        plan,
-                        ctx=partition_ctx,
-                        registry_cfg=registry_cfg,
-                        initial_values=initial_values,
-                        skip_roles=skip_roles,
-                        hook_manager=hook_manager,
+                    PartitionBoundaryResult(
+                        partition=partition,
+                        products=boundary_products,
                     )
                 )
             except Exception:
@@ -395,7 +415,11 @@ def execute_plan_locally(
             progress.phase_started("finalizing")
 
         dataset_stores: list[dict[tuple[str, str], Any]] = []
-        grouped_results = group_partition_results_by_dataset(results, partitions)
+        boundary_stores = partition_boundary_results_to_value_stores(results)
+        grouped_results = group_partition_results_by_dataset(
+            boundary_stores,
+            [result.partition for result in results],
+        )
         for dataset_name, stores in grouped_results.items():
             dataset_value_store = merge_partition_value_stores_for_dataset(
                 plan,
@@ -441,8 +465,8 @@ def execute_plan_locally(
         )
         write_writer_manifests(
             plan,
-            stores=results,
-            partitions=partitions,
+            stores=boundary_stores,
+            partitions=[result.partition for result in results],
             outdir=str(base_ctx.get("outdir") or "."),
             runtime_provenance=recorder,
         )
