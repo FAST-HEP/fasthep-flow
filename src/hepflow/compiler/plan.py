@@ -16,6 +16,7 @@ from hepflow.compiler.execution import (
 )
 from hepflow.compiler.inline_variations import apply_inline_variation_branches_to_graph
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
+from hepflow.compiler.output_claims import validate_output_claims
 from hepflow.model.graph import get_graph_node
 from hepflow.model.lifecycle import WHEN_ALIASES
 from hepflow.model.plan import (
@@ -127,6 +128,7 @@ def build_execution_plan(
     plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
     _drop_compile_only_data_flow(plan.data_flow)
     apply_data_flow_to_sources(plan)
+    validate_output_claims(plan)
     plan.partitions = build_execution_partitions(plan, chunk_size=chunk_size)
     return plan
 
@@ -221,8 +223,7 @@ def build_execution_partitions(
 
     for source_node in source_nodes:
         source_name = str(
-            source_node.meta.get("source_name")
-            or source_node.id.removeprefix("read.")
+            source_node.meta.get("source_name") or source_node.id.removeprefix("read.")
         )
         if not datasets_by_name:
             continue
