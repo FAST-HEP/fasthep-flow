@@ -150,7 +150,7 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
     stage_nodes: dict[str, str] = {}
     transform_specs = dict((workflow.get("registry") or {}).get("transforms") or {})
 
-    pending_needs_edges: list[tuple[str, str, str]] = []
+    pending_needs_edges: list[tuple[str, str, str, str]] = []
 
     for stage in stages:
         stage_id = stage["id"]
@@ -173,6 +173,7 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                                 str(needed_stage_id),
                                 render_node.id,
                                 str(render_stage["id"]),
+                                "dependency",
                             )
                         )
             continue
@@ -181,10 +182,11 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
         add_graph_node(graph, stage_node)
         stage_nodes[stage_id] = stage_node.id
 
-        if "needs" in stage:
-            for needed_stage_id in list(stage.get("needs") or []):
+        needs = [str(needed) for needed in list(stage.get("needs") or [])]
+        if needs:
+            for needed_stage_id in needs:
                 pending_needs_edges.append(
-                    (str(needed_stage_id), stage_node.id, stage_id)
+                    (needed_stage_id, stage_node.id, stage_id, "dependency")
                 )
 
         explicit_from = stage.get("from", stage.get("in"))
@@ -225,7 +227,15 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                 input_name="stream",
             )
         else:
-            if "needs" not in stage:
+            if needs:
+                if len(needs) == 1:
+                    pending_needs_edges[-1] = (
+                        needs[0],
+                        stage_node.id,
+                        stage_id,
+                        "stream",
+                    )
+            else:
                 if previous_stage_stream_source is None:
                     previous_stage_stream_source = _resolve_initial_stage_stream(
                         workflow=workflow,
@@ -333,10 +343,10 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
 def _add_needs_edges(
     *,
     graph: nx.DiGraph,
-    pending_edges: list[tuple[str, str, str]],
+    pending_edges: list[tuple[str, str, str, str]],
     stage_nodes: dict[str, str],
 ) -> None:
-    for needed_stage_id, downstream_node_id, stage_id in pending_edges:
+    for needed_stage_id, downstream_node_id, stage_id, input_name in pending_edges:
         if needed_stage_id not in stage_nodes:
             raise ValueError(
                 f"Stage '{stage_id}' needs unknown stage id '{needed_stage_id}'"
@@ -346,7 +356,7 @@ def _add_needs_edges(
             stage_nodes[needed_stage_id],
             downstream_node_id,
             output="stream",
-            input_name="dependency",
+            input_name=input_name,
         )
 
 
@@ -438,7 +448,9 @@ def _lower_render_stage(
                 f"got {type(item).__name__}"
             )
         if "node" not in item:
-            raise ValueError(f"Render stage '{stage_id}' input is missing required 'node'")
+            raise ValueError(
+                f"Render stage '{stage_id}' input is missing required 'node'"
+            )
 
         upstream = _resolve_stage_input_reference(
             reference=str(item["node"]),
@@ -593,7 +605,9 @@ def _expand_hist_variation_axis(params: dict[str, Any]) -> dict[str, Any]:
 
     axis_name = str(variations.get("axis") or "variation")
     axes = list(params.get("axes") or [])
-    if axis_name not in {str(axis.get("name")) for axis in axes if isinstance(axis, dict)}:
+    if axis_name not in {
+        str(axis.get("name")) for axis in axes if isinstance(axis, dict)
+    }:
         weights = variations.get("weights")
         bins = None
         if isinstance(weights, dict):
@@ -684,7 +698,9 @@ def _resolve_initial_stage_stream(
     if len(stream_effective_nodes) == 1:
         return next(iter(stream_effective_nodes.values()))
 
-    raise ValueError("Multiple input streams available; set primary_stream or define a join.")
+    raise ValueError(
+        "Multiple input streams available; set primary_stream or define a join."
+    )
 
 
 def _resolve_stage_input_reference(
@@ -719,9 +735,7 @@ def _attach_top_level_observers(
             output_name = _preferred_observer_output(target_payload.outputs)
             safe_kind = _safe_graph_observer_name(kind)
             safe_target = _safe_graph_observer_name(target_node_id)
-            observer_node_id = (
-                f"observe.{safe_kind}.{observer_index}.{safe_target}"
-            )
+            observer_node_id = f"observe.{safe_kind}.{observer_index}.{safe_target}"
 
             params = {
                 key: value

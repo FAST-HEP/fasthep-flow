@@ -99,7 +99,9 @@ def infer_data_flow(
         dataset=None,
     )
 
-    datasets = dict(plan.context.get("datasets") or {}) if has_dataset_applicability else {}
+    datasets = (
+        dict(plan.context.get("datasets") or {}) if has_dataset_applicability else {}
+    )
     required_by_dataset: dict[str, dict[str, Any]] = {}
     lineage_by_dataset: dict[str, dict[str, dict[str, str]]] = {}
     input_fields_by_dataset: dict[str, dict[str, list[str]]] = {}
@@ -118,7 +120,9 @@ def infer_data_flow(
         )
         required_by_dataset[str(dataset_name)] = dataset_flow["required_sources"]
         lineage_by_dataset[str(dataset_name)] = dataset_flow["stream_lineage"]
-        input_fields_by_dataset[str(dataset_name)] = dataset_flow["input_fields_by_node"]
+        input_fields_by_dataset[str(dataset_name)] = dataset_flow[
+            "input_fields_by_node"
+        ]
 
     notes = [
         "Data flow is inferred for the primary event stream first; joined source branch decomposition is TODO.",
@@ -202,20 +206,23 @@ def _analyze_stream_data_flow(
             continue
 
         spec = component_spec_for_node(node, registry)
-        deps = (
-            parse_component_data_dependencies(
-                spec=spec,
-                params=_dependency_params_for_dataset(node.params, dataset=dataset),
-                dep_ctx=dep_ctx,
-            )
-            if spec is not None
-            else DataDependencyResult()
-        )
+        if spec is not None:
+            try:
+                deps = parse_component_data_dependencies(
+                    spec=spec,
+                    params=_dependency_params_for_dataset(node.params, dataset=dataset),
+                    dep_ctx=dep_ctx,
+                )
+            except Exception as exc:
+                raise ValueError(
+                    "Failed to parse data dependencies for "
+                    f"node {node.id!r} ({node.impl}): {exc}"
+                ) from exc
+        else:
+            deps = DataDependencyResult()
 
         stream_id = str(node.params.get("stream_id") or primary_stream)
-        omit_inactive_inputs = (
-            inactive_inputs_behavior_for_node(plan, node) == "omit"
-        )
+        omit_inactive_inputs = inactive_inputs_behavior_for_node(plan, node) == "omit"
         input_state = _primary_input_stream_state(
             plan=plan,
             node=node,
@@ -232,6 +239,14 @@ def _analyze_stream_data_flow(
             dataset=dataset,
             omit_inactive_inputs=omit_inactive_inputs,
         )
+        dependency_states = _event_stream_dependency_states(
+            plan=plan,
+            node=node,
+            active_ids=active_ids,
+            stream_states=stream_states,
+            dataset=dataset,
+            omit_inactive_inputs=omit_inactive_inputs,
+        )
         input_fields = list(input_state.fields) if input_state is not None else []
         input_origins = dict(input_state.origins) if input_state is not None else {}
         input_fields_by_node[node.id] = input_fields
@@ -239,6 +254,14 @@ def _analyze_stream_data_flow(
 
         for consumed in sorted(deps.consumes):
             consumers[consumed].append(node.id)
+            dependency_origin = _dependency_origin(consumed, dependency_states)
+            if dependency_origin is not None:
+                effective_input_fields = _merge_ordered_fields(
+                    [effective_input_fields, [consumed]]
+                )
+                input_origins[consumed] = dependency_origin
+                continue
+
             origin = input_origins.get(consumed)
 
             if (
@@ -341,7 +364,9 @@ def _dependency_params_for_dataset(
 
 def apply_data_flow_to_sources(plan: ExecutionPlan) -> None:
     required_sources = (plan.data_flow or {}).get("required_sources") or {}
-    required_by_dataset = (plan.data_flow or {}).get("required_sources_by_dataset") or {}
+    required_by_dataset = (plan.data_flow or {}).get(
+        "required_sources_by_dataset"
+    ) or {}
 
     for node in plan.nodes:
         if node.role != "source":
@@ -562,6 +587,66 @@ def _event_stream_input_states(
     return states
 
 
+def _event_stream_dependency_states(
+    *,
+    plan: ExecutionPlan,
+    node: ExecutionNode,
+    active_ids: set[str],
+    stream_states: dict[StreamRef, StreamState],
+    dataset: dict[str, Any] | None,
+    omit_inactive_inputs: bool,
+) -> list[StreamState]:
+    states: list[StreamState] = []
+    seen: set[StreamRef] = set()
+    for ref in node.inputs:
+        if ref.input_name != "dependency":
+            continue
+        active_ref = ref
+        if ref.node_id not in active_ids:
+            if omit_inactive_inputs:
+                continue
+            active_ref = resolve_active_input_ref(plan, ref, dataset=dataset)
+        if active_ref.node_id not in active_ids or active_ref.output_name != "stream":
+            continue
+        stream_ref = _stream_ref(active_ref)
+        if stream_ref in seen:
+            continue
+        state = stream_states.get(stream_ref)
+        if state is None:
+            continue
+        states.append(state)
+        seen.add(stream_ref)
+    return states
+
+
+def _dependency_origin(
+    field: str,
+    dependency_states: list[StreamState],
+) -> dict[str, Any] | None:
+    origins = [
+        dict(state.origins[field])
+        for state in dependency_states
+        if field in state.origins
+        and state.origins[field].get("kind") not in {"source", "alias"}
+    ]
+    if not origins:
+        return None
+    unique: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for origin in origins:
+        key = origin_key(origin)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(origin)
+    if len(unique) == 1:
+        return unique[0]
+    return {
+        "kind": "stream_scoped",
+        "origins": unique,
+    }
+
+
 def _event_stream_input_count(plan: ExecutionPlan, node: ExecutionNode) -> int:
     return sum(
         1
@@ -610,9 +695,8 @@ def _transform_stream_state(
     for produced in sorted(deps.produces):
         if produced not in output_fields:
             continue
-        if (
-            node.impl == "hep.project_fields"
-            and produced in aliases_by_stream.get(stream_id, {})
+        if node.impl == "hep.project_fields" and produced in aliases_by_stream.get(
+            stream_id, {}
         ):
             origins[produced] = {
                 "kind": "alias",
@@ -656,9 +740,7 @@ def _lineage_behavior(spec: RuntimeComponentSpec | None) -> str:
     if behavior in {"preserve", "require_equal", "new", "source"}:
         return behavior
     name = spec.name if spec is not None else "<unknown>"
-    raise ValueError(
-        f"Unsupported event-stream lineage behavior for {name!r}: {raw!r}"
-    )
+    raise ValueError(f"Unsupported event-stream lineage behavior for {name!r}: {raw!r}")
 
 
 def _field_propagation_behavior(spec: RuntimeComponentSpec | None) -> str:
@@ -694,7 +776,9 @@ def _output_lineage(
     behavior: str,
 ) -> StreamLineage:
     if behavior == "require_equal":
-        lineages = [state.lineage for state in input_states if state.lineage is not None]
+        lineages = [
+            state.lineage for state in input_states if state.lineage is not None
+        ]
         if not lineages:
             return _new_lineage(stream)
         first = lineages[0]
@@ -1245,7 +1329,9 @@ def _suffixes_for_rule(
             "'suffixes' and 'suffixes_from'"
         )
     if suffixes_from is not None:
-        if not isinstance(suffixes_from, str) or not suffixes_from.startswith("params."):
+        if not isinstance(suffixes_from, str) or not suffixes_from.startswith(
+            "params."
+        ):
             raise ValueError(
                 f"field_prefix suffixes_from for {spec.name!r} must reference params.*"
             )
@@ -1339,7 +1425,9 @@ def _expression_values(
     expressions: list[str] = []
     for item in values:
         if not isinstance(item, str) or not item.strip():
-            raise ValueError(f"{source} for {spec.name!r} contains an invalid expression")
+            raise ValueError(
+                f"{source} for {spec.name!r} contains an invalid expression"
+            )
         expressions.append(item.strip())
     return expressions
 
@@ -1380,7 +1468,9 @@ def _scoped_expression_dependencies(
             None,
         )
         if matched_prefix is None:
-            expected = sorted([*allowed, *(f"{item}<field>" for item in symbol_prefixes)])
+            expected = sorted(
+                [*allowed, *(f"{item}<field>" for item in symbol_prefixes)]
+            )
             raise ValueError(
                 f"Unsupported scoped expression symbol {symbol!r} for {spec.name!r}; "
                 f"expected one of {expected}"
@@ -1392,7 +1482,9 @@ def _scoped_expression_dependencies(
                 "does not include a field suffix"
             )
         prefixes_from = rule.get("prefixes_from")
-        if not isinstance(prefixes_from, str) or not prefixes_from.startswith("params."):
+        if not isinstance(prefixes_from, str) or not prefixes_from.startswith(
+            "params."
+        ):
             raise ValueError(
                 f"scoped_expr rule for {spec.name!r} requires "
                 "'prefixes_from' referencing params.*"
@@ -1491,7 +1583,9 @@ def _template_provided_symbols(
     when_true = rule.get("when_true")
     if when_true is not None:
         if not isinstance(when_true, str) or not when_true.startswith("params."):
-            raise ValueError(f"template when_true for {spec.name!r} must reference params.*")
+            raise ValueError(
+                f"template when_true for {spec.name!r} must reference params.*"
+            )
         try:
             values = _values_from_param_reference(params, source=when_true, spec=spec)
         except TypeError:
@@ -1507,7 +1601,9 @@ def _template_provided_symbols(
             )
         if any(
             value is False
-            for value in _values_from_param_reference(params, source=condition, spec=spec)
+            for value in _values_from_param_reference(
+                params, source=condition, spec=spec
+            )
         ):
             return set()
 
