@@ -39,7 +39,8 @@ The defining property is that it **consumes a workflow product for an external e
 
 ## Sinks in a workflow
 
-Sinks are commonly attached to the stage whose product they should consume.
+Sinks are ordinary workflow nodes with `role: sink`. A sink declares the
+registered operation it uses, the upstream node it consumes, and its lifecycle.
 
 For example, the NASA exoplanet workflow produces a small console table:
 
@@ -52,42 +53,61 @@ For example, the NASA exoplanet workflow produces a small console table:
       - planet_name
       - planet_radius
       - planet_period
-  write:
-    - kind: workshop.console_table
-      path: snippets/planets.txt
-      when: final
-      fields:
-        - name
-        - planet_name
-        - planet_radius
-        - planet_period
-      columns:
-        - template: "{name} {planet_name}"
-          header: Planet
-        - field: planet_radius
-          header: Radius [Earth radii]
-          format: ".3f"
-        - field: planet_period
-          header: Period [days]
-          format: ".3f"
-      limit: 12
+- id: WritePlanetTable
+  role: sink
+  op: workshop.console_table
+  needs: [PlanetTable]
+  params:
+    path: snippets/planets.txt
+    fields:
+      - name
+      - planet_name
+      - planet_radius
+      - planet_period
+    columns:
+      - template: "{name} {planet_name}"
+        header: Planet
+      - field: planet_radius
+        header: Radius [Earth radii]
+        format: ".3f"
+      - field: planet_period
+        header: Period [days]
+        format: ".3f"
+    limit: 12
+  when: final
 ```
 
 The `PlanetTable` transform produces the data; `workshop.console_table` consumes that product and creates the final representation.
 
-Compilation turns this into a separate sink node:
+Compilation lowers this to a sink node:
 
 ```{mermaid}
 flowchart LR
     Filter["<b>stage.EarthSizedPlanets</b>"]:::transform
     Project["<b>stage.PlanetTable</b>"]:::transform
-    Table["<b>write.PlanetTable.0</b><br/>workshop.console_table"]:::sink
+    Table["<b>stage.WritePlanetTable</b><br/>workshop.console_table"]:::sink
     Artifact["<b>planets.txt</b>"]:::artifact
 
     Filter --> Project --> Table --> Artifact
 ```
 
-The sink is therefore explicit in the execution graph even though the workflow syntax keeps it close to the stage whose output it consumes.
+The `needs` edge selects the upstream stage. If that stage provides one primary
+event stream, Flow binds it to the sink's `target` input. For sinks that consume
+a named product port, use explicit `from`:
+
+```yaml
+- id: WriteHistSummary
+  role: sink
+  op: workshop.console_table
+  from:
+    - { node: MassHistogram, port: hist, as: target }
+  params:
+    path: snippets/mass.txt
+  when: final
+```
+
+Attached `write` blocks remain available as a convenience form. Compilation
+normalizes them to the same sink-node contract.
 
 ```{note}
 Turning a histogram into a PNG file or a D2 graph into an SVG file follows the same principle: the sink consumes a workflow product and outputs one or more artifacts.
@@ -107,13 +127,17 @@ For example, a workflow may select events and then persist the resulting stream:
   params:
     ...
 
-  write:
-    - kind: root_tree
-      path: selected_events.root
-      fields:
-        - EventNumber
-        - Muon_Pt
-        - Muon_Eta
+- id: WriteSelectedEvents
+  role: sink
+  op: root_tree
+  needs: [SelectedEvents]
+  params:
+    path: selected_events.root
+    keep:
+      - EventNumber
+      - Muon_Pt
+      - Muon_Eta
+  when: partition
 ```
 
 Conceptually:
@@ -205,9 +229,9 @@ when: final
 In the NASA example, the console table is a final output:
 
 ```yaml
-write:
-  - kind: workshop.console_table
-    when: final
+role: sink
+op: workshop.console_table
+when: final
 ```
 
 Compilation resolves this workflow-level lifecycle into the corresponding execution scope.

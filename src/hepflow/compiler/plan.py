@@ -116,6 +116,7 @@ def build_execution_plan(
             )
         )
 
+    _validate_connected_scopes(plan)
     plan.context = build_plan_context(
         plan,
         datasets_by_name=context_datasets_by_name,
@@ -170,6 +171,43 @@ def build_plan_from_normalized(
 def _drop_compile_only_data_flow(data_flow: dict[str, Any]) -> None:
     data_flow.pop("input_fields_by_node", None)
     data_flow.pop("input_fields_by_dataset", None)
+
+
+def _validate_connected_scopes(plan: ExecutionPlan) -> None:
+    for consumer in plan.nodes:
+        for ref in consumer.inputs:
+            if ref.input_name == "dependency":
+                continue
+            producer = plan.node_index.get(ref.node_id)
+            if producer is None:
+                raise ValueError(
+                    f"Node {consumer.id!r} input references unknown producer "
+                    f"{ref.node_id!r}"
+                )
+            if ref.output_name not in producer.outputs:
+                raise ValueError(
+                    f"Node {consumer.id!r} input references missing output "
+                    f"{ref.node_id}.{ref.output_name}"
+                )
+            if not _connected_scopes_compatible(producer, consumer):
+                raise ValueError(
+                    f"Node {consumer.id!r} with input scope {consumer.input_scope!r} "
+                    f"cannot consume {ref.node_id}.{ref.output_name} from output "
+                    f"scope {producer.output_scope!r}"
+                )
+
+
+def _connected_scopes_compatible(
+    producer: ExecutionNode,
+    consumer: ExecutionNode,
+) -> bool:
+    if consumer.role != "transform":
+        return True
+    if consumer.input_scope != "partition":
+        return True
+    if producer.role == "source":
+        return True
+    return producer.output_scope != "global"
 
 
 def _normalize_execution_hooks(

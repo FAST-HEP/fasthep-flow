@@ -157,6 +157,290 @@ def test_transform_stage_accepts_multiple_product_inputs() -> None:
     assert [ref.output_name for ref in compare.inputs] == ["product", "product"]
 
 
+def test_standalone_sink_stage_resolves_from_sink_registry(
+    toy_workflow: dict[str, Any],
+) -> None:
+    workflow = dict(toy_workflow)
+    workflow["registry"] = {
+        **dict(toy_workflow["registry"]),
+        "transforms": {
+            **dict(toy_workflow["registry"]["transforms"]),
+            "root_tree": {
+                "spec": "tests.toy_components.transforms:TOY_SCALE_SPEC",
+                "impl": "tests.toy_components.transforms:run_toy_scale",
+            },
+        },
+        "sinks": {
+            **dict(toy_workflow["registry"]["sinks"]),
+            "root_tree": {
+                "spec": "tests.toy_components.sinks:TOY_WRITE_SPEC",
+                "impl": "tests.toy_components.sinks:run_toy_write",
+            },
+        },
+    }
+    workflow["analysis"] = {
+        "stages": [
+            {"id": "Scale", "op": "toy.scale", "params": {"factor": 2}},
+            {
+                "id": "WriteDebug",
+                "role": "sink",
+                "op": "root_tree",
+                "needs": ["Scale"],
+                "params": {"path": "debug.root", "keep": ["scaled_pt"]},
+                "when": "partition_end",
+            },
+        ]
+    }
+
+    normalized = normalize_workflow(workflow)
+    graph, plan = build_plan_from_normalized(normalized)
+
+    graph_node = graph.nodes["stage.WriteDebug"]["payload"]
+    plan_node = plan.get_node("stage.WriteDebug")
+    assert normalized["analysis"]["stages"][1]["role"] == "sink"
+    assert graph_node.role == "sink"
+    assert graph_node.impl == "root_tree"
+    assert graph_node.outputs == {"artifact": "artifact"}
+    assert plan_node.params == {
+        "path": "debug.root",
+        "keep": ["scaled_pt"],
+        "when": "partition_end",
+    }
+    assert [(ref.node_id, ref.output_name, ref.input_name) for ref in plan_node.inputs] == [
+        ("stage.Scale", "stream", "target")
+    ]
+
+
+def test_nodes_without_role_remain_transforms_with_transform_registry(
+    toy_workflow: dict[str, Any],
+) -> None:
+    workflow = dict(toy_workflow)
+    workflow["registry"] = {
+        **dict(toy_workflow["registry"]),
+        "transforms": {
+            **dict(toy_workflow["registry"]["transforms"]),
+            "root_tree": {
+                "spec": "tests.toy_components.transforms:TOY_SCALE_SPEC",
+                "impl": "tests.toy_components.transforms:run_toy_scale",
+            },
+        },
+        "sinks": {
+            **dict(toy_workflow["registry"]["sinks"]),
+            "root_tree": {
+                "spec": "tests.toy_components.sinks:TOY_WRITE_SPEC",
+                "impl": "tests.toy_components.sinks:run_toy_write",
+            },
+        },
+    }
+    workflow["analysis"] = {
+        "stages": [
+            {"id": "RootTreeNamedTransform", "op": "root_tree"},
+        ]
+    }
+
+    graph = lower_workflow_to_graph(normalize_workflow(workflow))
+    graph_node = graph.nodes["stage.RootTreeNamedTransform"]["payload"]
+
+    assert graph_node.role == "transform"
+    assert graph_node.outputs == {"stream": "event_stream"}
+
+
+def test_standalone_sink_explicit_from_can_consume_named_product() -> None:
+    workflow = normalize_workflow(
+        {
+            "version": "1.0",
+            "registry": {
+                **_toy_product_registry(),
+                "sinks": {
+                    "toy.write": {
+                        "spec": "tests.toy_components.sinks:TOY_WRITE_SPEC",
+                        "impl": "tests.toy_components.sinks:run_toy_write",
+                    }
+                },
+            },
+            "sources": {},
+            "analysis": {
+                "stages": [
+                    {
+                        "id": "Product",
+                        "op": "toy.product",
+                        "from": [],
+                        "params": {"dataset": "sample"},
+                    },
+                    {
+                        "id": "WriteProduct",
+                        "role": "sink",
+                        "op": "toy.write",
+                        "from": [{"node": "Product", "port": "product"}],
+                        "params": {"path": "product.json"},
+                    },
+                ]
+            },
+        }
+    )
+
+    _, plan = build_plan_from_normalized(workflow)
+    sink = plan.get_node("stage.WriteProduct")
+
+    assert [(ref.node_id, ref.output_name, ref.input_name) for ref in sink.inputs] == [
+        ("stage.Product", "product", "target")
+    ]
+
+
+def test_same_stream_can_feed_histogram_and_standalone_sink(
+    toy_workflow: dict[str, Any],
+) -> None:
+    workflow = dict(toy_workflow)
+    workflow["analysis"] = {
+        "stages": [
+            {"id": "Scale", "op": "toy.scale", "params": {"factor": 2}},
+            {"id": "Hist", "op": "hep.hist", "needs": ["Scale"]},
+            {
+                "id": "WriteScale",
+                "role": "sink",
+                "op": "toy.write",
+                "needs": ["Scale"],
+                "params": {"path": "scale.json"},
+            },
+        ]
+    }
+
+    _, plan = build_plan_from_normalized(normalize_workflow(workflow))
+    hist = plan.get_node("stage.Hist")
+    sink = plan.get_node("stage.WriteScale")
+
+    assert [(ref.node_id, ref.output_name, ref.input_name) for ref in hist.inputs] == [
+        ("stage.Scale", "stream", "stream")
+    ]
+    assert [(ref.node_id, ref.output_name, ref.input_name) for ref in sink.inputs] == [
+        ("stage.Scale", "stream", "target")
+    ]
+
+
+def test_incompatible_transform_input_scope_fails_during_compilation() -> None:
+    workflow = normalize_workflow(
+        {
+            "version": "1.0",
+            "registry": {
+                **_toy_product_registry(),
+                "transforms": {
+                    **_toy_product_registry()["transforms"],
+                    "hep.hist": {
+                        "spec": "tests.toy_components.transforms:TOY_HIST_SPEC",
+                        "impl": "tests.toy_components.transforms:run_toy_hist",
+                    },
+                },
+            },
+            "sources": {},
+            "analysis": {
+                "stages": [
+                    {
+                        "id": "Product",
+                        "op": "toy.product",
+                        "from": [],
+                        "params": {"dataset": "sample"},
+                    },
+                    {
+                        "id": "Hist",
+                        "op": "hep.hist",
+                        "from": [{"node": "Product", "port": "product", "as": "stream"}],
+                    },
+                ]
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match=r"cannot consume .* from output scope 'global'"):
+        build_plan_from_normalized(workflow)
+
+
+def test_standalone_sink_requires_unambiguous_primary_stream(
+    toy_workflow: dict[str, Any],
+) -> None:
+    workflow = dict(toy_workflow)
+    workflow["analysis"] = {
+        "stages": [
+            {
+                "id": "Product",
+                "op": "toy.product",
+                "from": [],
+                "params": {"dataset": "sample"},
+            },
+            {
+                "id": "WriteMissing",
+                "role": "sink",
+                "op": "toy.write",
+                "needs": ["Product"],
+                "params": {"path": "missing.json"},
+            },
+        ]
+    }
+    workflow["registry"] = {
+        **dict(toy_workflow["registry"]),
+        **_toy_product_registry(),
+        "sinks": dict(toy_workflow["registry"]["sinks"]),
+    }
+
+    with pytest.raises(ValueError, match="none of its needs provide a primary stream"):
+        lower_workflow_to_graph(normalize_workflow(workflow))
+
+    workflow["analysis"] = {
+        "stages": [
+            {"id": "Left", "op": "toy.scale"},
+            {"id": "Right", "op": "toy.scale", "from": "events"},
+            {
+                "id": "WriteAmbiguous",
+                "role": "sink",
+                "op": "toy.write",
+                "needs": ["Left", "Right"],
+                "params": {"path": "ambiguous.json"},
+            },
+        ]
+    }
+
+    with pytest.raises(ValueError, match="multiple needed stages provide a primary stream"):
+        lower_workflow_to_graph(normalize_workflow(workflow))
+
+
+def test_sidecar_and_standalone_sinks_lower_to_same_contract(
+    toy_workflow: dict[str, Any],
+) -> None:
+    sidecar_graph = lower_workflow_to_graph(normalize_workflow(toy_workflow))
+
+    standalone = dict(toy_workflow)
+    standalone["analysis"] = {
+        "stages": [
+            {"id": "Scale", "op": "toy.scale", "params": {"factor": 2}},
+            {
+                "id": "WriteScale",
+                "role": "sink",
+                "op": "toy.write",
+                "needs": ["Scale"],
+                "params": {"path": "output.json"},
+                "when": "final",
+            },
+        ]
+    }
+    standalone_graph = lower_workflow_to_graph(normalize_workflow(standalone))
+
+    sidecar = sidecar_graph.nodes["write.Scale.0"]["payload"]
+    standalone_sink = standalone_graph.nodes["stage.WriteScale"]["payload"]
+    assert sidecar.role == standalone_sink.role == "sink"
+    assert sidecar.impl == standalone_sink.impl == "toy.write"
+    assert sidecar.params == standalone_sink.params
+    assert sidecar.outputs == standalone_sink.outputs == {"artifact": "artifact"}
+    assert list(sidecar_graph.in_edges("write.Scale.0", data=True)) == [
+        ("stage.Scale", "write.Scale.0", {"output": "stream", "input_name": "target"})
+    ]
+    assert list(standalone_graph.in_edges("stage.WriteScale", data=True)) == [
+        (
+            "stage.Scale",
+            "stage.WriteScale",
+            {"output": "stream", "input_name": "target"},
+        )
+    ]
+
+
 def test_top_level_sinks_errors_with_supported_syntax(
     toy_workflow: dict[str, Any],
 ) -> None:

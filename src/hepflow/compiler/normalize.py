@@ -664,6 +664,14 @@ def _normalize_analysis_execution(analysis: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(stage_raw, dict):
             raise ValueError(f"analysis.stages[{idx}] must be a mapping")
         stage = dict(stage_raw)
+        if "role" in stage:
+            role = _required_string(stage.get("role"), f"analysis.stages[{idx}].role")
+            if role not in {"transform", "sink", "source"}:
+                raise ValueError(
+                    f"analysis.stages[{idx}].role must be one of "
+                    "'transform', 'sink', or 'source'"
+                )
+            stage["role"] = role
         if "needs" in stage:
             stage["needs"] = _normalize_stage_needs(
                 stage.get("needs"),

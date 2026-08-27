@@ -148,15 +148,27 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
     previous_stage_stream_source: str | None = None
 
     stage_nodes: dict[str, str] = {}
-    transform_specs = dict((workflow.get("registry") or {}).get("transforms") or {})
+    registry = dict(workflow.get("registry") or {})
+    transform_specs = dict(registry.get("transforms") or {})
+    sink_specs = dict(registry.get("sinks") or {})
 
     pending_needs_edges: list[tuple[str, str, str, str]] = []
 
     for stage in stages:
         stage_id = stage["id"]
         op = stage["op"]
+        role = str(stage.get("role") or "transform")
+        if role == "source":
+            raise ValueError(
+                f"Stage '{stage_id}' declares role 'source', but first-class "
+                "source nodes are not supported yet"
+            )
+        if role not in {"transform", "sink"}:
+            raise ValueError(
+                f"Stage '{stage_id}' declares unsupported role {role!r}"
+            )
 
-        if str(op).startswith("hep.render."):
+        if role == "transform" and str(op).startswith("hep.render."):
             for render_stage in _expand_render_variation_stages(stage):
                 render_node = _lower_render_stage(
                     graph=graph,
@@ -178,10 +190,14 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                         )
             continue
 
-        stage_node = _make_stage_node(stage, registry=transform_specs)
+        if role == "sink":
+            stage_node = _make_sink_stage_node(stage, registry=sink_specs)
+        else:
+            stage_node = _make_stage_node(stage, registry=transform_specs)
         add_graph_node(graph, stage_node)
         stage_nodes[stage_id] = stage_node.id
 
+        has_explicit_needs = "needs" in stage
         needs = [str(needed) for needed in list(stage.get("needs") or [])]
         if needs:
             for needed_stage_id in needs:
@@ -211,7 +227,10 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                     upstream_stage_node,
                     stage_node.id,
                     output=str(item.get("port", "stream")),
-                    input_name=str(item.get("as", item.get("port", "stream"))),
+                    input_name=_default_input_name(
+                        role=role,
+                        item=item,
+                    ),
                 )
         elif explicit_from is not None:
             upstream_stage_node = _resolve_stage_input_reference(
@@ -224,11 +243,30 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                 upstream_stage_node,
                 stage_node.id,
                 output="stream",
-                input_name="stream",
+                input_name="target" if role == "sink" else "stream",
             )
         else:
-            if needs:
-                if len(needs) == 1:
+            if has_explicit_needs:
+                if role == "sink":
+                    if not needs:
+                        raise ValueError(
+                            f"Sink stage '{stage_id}' requires 'needs' or explicit "
+                            "'from' to bind its target input"
+                        )
+                    upstream_stage_node = _resolve_implicit_sink_target(
+                        graph=graph,
+                        stage_id=stage_id,
+                        needs=needs,
+                        stage_nodes=stage_nodes,
+                    )
+                    add_graph_edge(
+                        graph,
+                        upstream_stage_node,
+                        stage_node.id,
+                        output="stream",
+                        input_name="target",
+                    )
+                elif len(needs) == 1:
                     pending_needs_edges[-1] = (
                         needs[0],
                         stage_node.id,
@@ -236,6 +274,11 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                         "stream",
                     )
             else:
+                if role == "sink":
+                    raise ValueError(
+                        f"Sink stage '{stage_id}' requires 'needs' or explicit 'from' "
+                        "to bind its target input"
+                    )
                 if previous_stage_stream_source is None:
                     previous_stage_stream_source = _resolve_initial_stage_stream(
                         workflow=workflow,
@@ -248,6 +291,9 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                     output="stream",
                     input_name="stream",
                 )
+
+        if role == "sink":
+            continue
 
         if "stream" in stage_node.outputs:
             previous_stage_stream_source = stage_node.id
@@ -272,13 +318,15 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
             )
 
         for idx, write_cfg in enumerate(_as_list(stage.get("write"))):
-            write_node = _make_write_node(
+            write_stage = _write_sidecar_as_sink_stage(
                 node_id=f"write.{stage_id}.{idx}",
                 stage_id=stage_id,
                 write_cfg=write_cfg,
                 output_defs=output_defs,
             )
-            _inherit_applicability(write_node, stage_node)
+            write_node = _make_sink_stage_node(write_stage, registry=sink_specs)
+            if "applies_to" not in write_stage:
+                _inherit_applicability(write_node, stage_node)
             add_graph_node(graph, write_node)
 
             upstream_node_id, output_name = _resolve_attachment_source(
@@ -415,6 +463,41 @@ def _make_stage_node(stage: dict[str, Any], *, registry: dict[str, Any]) -> Grap
         impl=op,
         params=params,
         outputs=_stage_outputs(op, registry=registry),
+        meta=meta,
+    )
+
+
+def _make_sink_stage_node(stage: dict[str, Any], *, registry: dict[str, Any]) -> GraphNode:
+    stage = deepcopy(stage)
+
+    stage_id = str(stage["id"])
+    op = str(stage["op"])
+    params = deepcopy(stage.get("params", {}))
+    params["when"] = normalize_lifecycle_event(
+        stage.get("when", params.get("when", "partition"))
+    )
+
+    meta: dict[str, Any] = {
+        "stage_id": str(stage.get("_meta_stage_id") or stage_id),
+        "workflow_op": op,
+    }
+    if "_meta_workflow_kind" in stage:
+        meta["workflow_kind"] = stage["_meta_workflow_kind"]
+        meta.pop("workflow_op", None)
+    if "_meta_output_layout" in stage:
+        meta["output_layout"] = stage["_meta_output_layout"]
+    execution = normalize_stage_execution(stage.get("execution"))
+    if execution is not None:
+        meta["execution"] = execution
+    if "applies_to" in stage:
+        meta["applies_to"] = deepcopy(stage["applies_to"])
+
+    return GraphNode(
+        id=str(stage.get("_graph_node_id") or f"stage.{stage_id}"),
+        role="sink",
+        impl=op,
+        params=params,
+        outputs=_sink_outputs(op, registry=registry),
         meta=meta,
     )
 
@@ -841,13 +924,13 @@ def _make_inspect_node(
     )
 
 
-def _make_write_node(
+def _write_sidecar_as_sink_stage(
     *,
     node_id: str,
     stage_id: str,
     write_cfg: dict[str, Any],
     output_defs: dict[str, dict[str, Any]],
-) -> GraphNode:
+) -> dict[str, Any]:
     write_cfg = deepcopy(write_cfg)
 
     layout_name = write_cfg.pop("use", None)
@@ -867,24 +950,24 @@ def _make_write_node(
         }
 
     kind = write_cfg.pop("kind")
-    write_cfg.pop("from", None)
-    write_cfg["when"] = normalize_lifecycle_event(write_cfg.get("when", "partition"))
+    from_cfg = write_cfg.pop("from", None)
+    when = write_cfg.pop("when", "partition")
 
-    meta: dict[str, Any] = {
-        "stage_id": stage_id,
-        "workflow_kind": kind,
+    sink_stage: dict[str, Any] = {
+        "id": node_id,
+        "role": "sink",
+        "op": kind,
+        "params": write_cfg,
+        "when": when,
+        "_graph_node_id": node_id,
+        "_meta_stage_id": stage_id,
+        "_meta_workflow_kind": kind,
     }
     if layout_name is not None:
-        meta["output_layout"] = layout_name
-
-    return GraphNode(
-        id=node_id,
-        role="sink",
-        impl=kind,
-        params=write_cfg,
-        outputs={"artifact": "artifact"},
-        meta=meta,
-    )
+        sink_stage["_meta_output_layout"] = layout_name
+    if from_cfg is not None:
+        sink_stage["from"] = from_cfg
+    return sink_stage
 
 
 def _make_render_node(
@@ -955,6 +1038,44 @@ def _resolve_attachment_source(
     return stage_nodes[current_stage_id], _default_attachment_output(current_outputs)
 
 
+def _default_input_name(*, role: str, item: dict[str, Any]) -> str:
+    if "as" in item:
+        return str(item["as"])
+    if role == "sink":
+        return "target"
+    return str(item.get("port", "stream"))
+
+
+def _resolve_implicit_sink_target(
+    *,
+    graph: nx.DiGraph,
+    stage_id: str,
+    needs: list[str],
+    stage_nodes: dict[str, str],
+) -> str:
+    candidates: list[str] = []
+    for needed_stage_id in needs:
+        upstream_node_id = stage_nodes.get(needed_stage_id)
+        if upstream_node_id is None:
+            continue
+        upstream_node = graph.nodes[upstream_node_id]["payload"]
+        if "stream" in upstream_node.outputs:
+            candidates.append(upstream_node_id)
+
+    if not candidates:
+        raise ValueError(
+            f"Sink stage '{stage_id}' could not bind implicit target input: "
+            "none of its needs provide a primary stream"
+        )
+    if len(candidates) > 1:
+        raise ValueError(
+            f"Sink stage '{stage_id}' could not bind implicit target input: "
+            f"multiple needed stages provide a primary stream ({', '.join(candidates)}); "
+            "use explicit 'from'"
+        )
+    return candidates[0]
+
+
 def _default_attachment_output(outputs: dict[str, str]) -> str:
     if "stream" in outputs:
         return "stream"
@@ -984,13 +1105,22 @@ def _stage_outputs(op: str, *, registry: dict[str, Any]) -> dict[str, str]:
     return {"stream": "event_stream"}
 
 
+def _sink_outputs(op: str, *, registry: dict[str, Any]) -> dict[str, str]:
+    spec = _registered_spec(op, registry=registry)
+    if spec is not None:
+        outputs = _outputs_from_spec(spec)
+        if outputs:
+            return outputs
+    return {"artifact": "artifact"}
+
+
 def _registered_spec(op: str, *, registry: dict[str, Any]) -> dict[str, Any] | None:
     entry = registry.get(op)
     if not isinstance(entry, dict) or not isinstance(entry.get("spec"), str):
         return None
     spec = load_object(str(entry["spec"]))
     if not isinstance(spec, dict):
-        raise TypeError(f"Registered transform spec for {op!r} must be a mapping")
+        raise TypeError(f"Registered component spec for {op!r} must be a mapping")
     return spec
 
 
@@ -1009,7 +1139,7 @@ def _outputs_from_spec(spec: dict[str, Any]) -> dict[str, str]:
         if kind == "artifact":
             return {"artifact": kind}
         raise ValueError(
-            f"Registered transform spec for {spec.get('name', '<unknown>')!r} "
+            f"Registered component spec for {spec.get('name', '<unknown>')!r} "
             f"declares single result kind {kind!r} without an output port"
         )
 

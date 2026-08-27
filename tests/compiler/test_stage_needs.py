@@ -49,7 +49,7 @@ def test_single_need_replaces_implicit_previous_stage_dependency(
 
     assert graph.has_edge("stage.A", "stage.C")
     assert not graph.has_edge("stage.B", "stage.C")
-    assert graph.edges["stage.A", "stage.C"]["input_name"] == "dependency"
+    assert graph.edges["stage.A", "stage.C"]["input_name"] == "stream"
 
 
 def test_multiple_needs_add_all_dependencies(toy_registry: dict[str, Any]) -> None:
@@ -129,7 +129,7 @@ def test_needs_plus_spec_derived_data_flow_are_both_preserved(
     consume = plan.get_node("stage.Consume")
 
     assert [(ref.node_id, ref.input_name) for ref in consume.inputs] == [
-        ("stage.Produce", "dependency")
+        ("stage.Produce", "stream")
     ]
     assert plan.data_flow["consumers"]["scaled_pt"] == ["stage.Consume"]
 
@@ -179,6 +179,34 @@ def test_dependency_only_edges_are_not_bound_as_runtime_inputs(
     result = run_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     assert result.success
+
+
+def test_empty_event_stream_still_publishes_stream_value(
+    toy_registry: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    workflow = _workflow(
+        toy_registry,
+        [
+            _stage("Scale", params={"source": "pt", "output": "scaled_pt"}),
+            _stage("Hist", op="hep.hist", needs=["Scale"]),
+            {
+                "id": "WriteEmpty",
+                "role": "sink",
+                "op": "toy.write",
+                "needs": ["Scale"],
+                "params": {"path": "empty.json"},
+            },
+        ],
+        datasets={"empty": {"files": ["empty.root"], "nevents": "0"}},
+    )
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+
+    result = run_workflow_file(workflow_path, outdir=tmp_path / "build")
+
+    assert result.success
+    assert (tmp_path / "build" / "artifacts" / "files" / "empty.json").exists()
 
 
 def test_unknown_needed_stage_id_fails_clearly(toy_registry: dict[str, Any]) -> None:
@@ -240,7 +268,7 @@ def test_needs_keeps_existing_inactive_node_bypass_semantics(
 
     assert ref.node_id == "stage.A"
     assert resolved.node_id == "read.events"
-    assert resolved.input_name == "dependency"
+    assert resolved.input_name == "stream"
 
 
 def test_normalized_workflow_preserves_explicit_needs(

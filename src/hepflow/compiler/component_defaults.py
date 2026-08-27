@@ -30,7 +30,8 @@ def apply_component_param_defaults(
         if not op:
             normalized_stages.append(item)
             continue
-        spec = _component_spec(registry, op)
+        role = str(item.get("role") or "transform")
+        spec = _component_spec(registry, role, op)
         if spec is not None:
             params = dict(item.get("params") or {})
             if _should_normalize_params(spec):
@@ -54,13 +55,15 @@ def apply_component_param_defaults(
 
 def _component_spec(
     registry: dict[str, Any],
+    role: str,
     op: str,
 ) -> RuntimeComponentSpec | None:
-    transforms = registry.get("transforms")
-    if not isinstance(transforms, dict) or op not in transforms:
+    registry_section = "sinks" if role == "sink" else "transforms"
+    entries = registry.get(registry_section)
+    if not isinstance(entries, dict) or op not in entries:
         return None
     try:
-        spec, _impl = load_runtime_spec_and_impl(registry, "transforms", op)
+        spec, _impl = load_runtime_spec_and_impl(registry, registry_section, op)
         return RuntimeComponentSpec.from_obj(spec)
     except Exception:
         return None
@@ -158,4 +161,3 @@ def _with_stage_id_defaults(
         if param_name not in out:
             out[param_name] = stage_id
     return out
-
