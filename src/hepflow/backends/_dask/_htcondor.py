@@ -24,6 +24,14 @@ MISSING_DASK_JOBQUEUE_MESSAGE = (
     "extra or add dask-jobqueue to the environment."
 )
 
+_HTCONDOR_FIXED_DIRECTIVES = {
+    "transfer_executable": "False",
+    "transfer_output_files": '""',
+    "Stream_Output": "True",
+    "Stream_Error": "True",
+}
+_HTCONDOR_RUNTIME_DIRECTIVES = {"Output", "Error", "Log"}
+
 
 def normalize_dask_htcondor_config(execution: dict[str, Any]) -> dict[str, Any]:
     pools = _resolve_htcondor_worker_pools(execution)
@@ -116,8 +124,15 @@ def _prepare_htcondor_pool_specs(
         name: {"workers": spec["workers"], "job_kwargs": dict(spec["job_kwargs"])}
         for name, spec in pool_specs.items()
     }
+    worker_env_kwargs = _htcondor_worker_environment_kwargs(
+        execution,
+        build_paths=build_paths,
+    )
+    paths = _htcondor_execution_paths(build_paths)
+    for path in [build_paths.dask_htcondor_dir("submit"), *paths.values()]:
+        path.mkdir(parents=True, exist_ok=True)
 
-    for spec in prepared.values():
+    for name, spec in prepared.items():
         job_kwargs = spec["job_kwargs"]
         log_directory = job_kwargs.get("log_directory")
         if log_directory is not None:
@@ -126,18 +141,33 @@ def _prepare_htcondor_pool_specs(
                 log_path = build_paths.root / log_path
                 job_kwargs["log_directory"] = str(log_path)
             log_path.mkdir(parents=True, exist_ok=True)
-
-    worker_env_kwargs = _htcondor_worker_environment_kwargs(
-        execution,
-        build_paths=build_paths,
-    )
-    if worker_env_kwargs:
-        for spec in prepared.values():
-            spec["job_kwargs"] = _merge_htcondor_job_kwargs(
-                worker_env_kwargs,
-                spec["job_kwargs"],
-            )
+        if worker_env_kwargs:
+            job_kwargs = _merge_htcondor_job_kwargs(worker_env_kwargs, job_kwargs)
+            spec["job_kwargs"] = job_kwargs
+        job_kwargs["submit_directory"] = str(build_paths.dask_htcondor_dir("submit"))
+        job_kwargs["job_extra_directives"] = _merge_htcondor_directives(
+            dict(job_kwargs.get("job_extra_directives") or {}),
+            _htcondor_bootstrap_directives(paths),
+            f"HTCondor worker pool {name!r}",
+        )
     return prepared
+
+
+def _htcondor_execution_paths(build_paths: BuildPaths) -> dict[str, Path]:
+    return {
+        "logs": build_paths.dask_htcondor_dir("logs"),
+        "out": build_paths.dask_htcondor_dir("out"),
+        "err": build_paths.dask_htcondor_dir("err"),
+    }
+
+
+def _htcondor_bootstrap_directives(paths: dict[str, Path]) -> dict[str, str]:
+    return {
+        **_HTCONDOR_FIXED_DIRECTIVES,
+        "Output": str((paths["out"] / "worker-$(ClusterId).$(ProcId).out").resolve()),
+        "Error": str((paths["err"] / "worker-$(ClusterId).$(ProcId).err").resolve()),
+        "Log": str((paths["logs"] / "worker-$(ClusterId).log").resolve()),
+    }
 
 
 def _htcondor_worker_environment_kwargs(
@@ -158,11 +188,7 @@ def _htcondor_worker_environment_kwargs(
             worker_env_dir=spec.worker_env_dir,
         )
     )
-    log_paths = {
-        "logs": build_paths.root / "debug" / "distributed" / "htcondor" / "logs",
-        "out": build_paths.root / "debug" / "distributed" / "htcondor" / "out",
-        "err": build_paths.root / "debug" / "distributed" / "htcondor" / "err",
-    }
+    log_paths = _htcondor_execution_paths(build_paths)
     for path in log_paths.values():
         path.mkdir(parents=True, exist_ok=True)
     return build_htcondor_worker_environment_job_kwargs(worker_env, log_paths=log_paths)
@@ -178,10 +204,11 @@ def _merge_htcondor_job_kwargs(
             current = merged.get(key)
             current_directives = current if isinstance(current, dict) else {}
             pool_directives = value if isinstance(value, dict) else {}
-            merged[key] = {
-                **current_directives,
-                **pool_directives,
-            }
+            merged[key] = _merge_htcondor_directives(
+                current_directives,
+                pool_directives,
+                "HTCondor worker environment",
+            )
         elif key in {"job_script_prologue", "worker_extra_args"}:
             current = merged.get(key)
             current_items = current if isinstance(current, list) else []
@@ -213,8 +240,6 @@ def _htcondor_cluster_options(
         cores = int(cores)
 
     log_directory = config.get("log_directory")
-    if log_directory is None:
-        log_directory = "debug/dask/htcondor"
 
     cluster_options: dict[str, Any] = {}
     if cores is not None:
@@ -226,14 +251,18 @@ def _htcondor_cluster_options(
     if log_directory is not None:
         cluster_options["log_directory"] = log_directory
 
-    job_extra_directives: dict[str, Any] = {"transfer_executable": "False"}
+    job_extra_directives: dict[str, Any] = dict(_HTCONDOR_FIXED_DIRECTIVES)
     if config.get("queue") is not None:
         job_extra_directives["+JobFlavour"] = f'"{config["queue"]}"'
     if config.get("job_extra_directives") is not None:
         raw_directives = config["job_extra_directives"]
         if not isinstance(raw_directives, dict):
             raise ValueError("execution.config.job_extra_directives must be a mapping")
-        job_extra_directives.update(raw_directives)
+        job_extra_directives = _merge_htcondor_directives(
+            job_extra_directives,
+            raw_directives,
+            "execution.config.job_extra_directives",
+        )
     if resources.get("gpus") is not None:
         job_extra_directives.setdefault("request_gpus", resources["gpus"])
     if job_extra_directives:
@@ -254,6 +283,32 @@ def _validate_htcondor_config_options(config: dict[str, Any]) -> None:
             "backend. Use execution.config.queue for site job flavours or "
             "execution.config.job_extra_directives for explicit HTCondor ClassAds."
         )
+
+
+def _merge_htcondor_directives(
+    base: dict[str, Any],
+    overlay: dict[str, Any],
+    source: str,
+) -> dict[str, Any]:
+    merged = dict(base)
+    fixed_by_lower = {key.lower(): key for key in _HTCONDOR_FIXED_DIRECTIVES}
+    runtime_by_lower = {key.lower(): key for key in _HTCONDOR_RUNTIME_DIRECTIVES}
+    for key, value in overlay.items():
+        key_lower = str(key).lower()
+        fixed_key = fixed_by_lower.get(key_lower)
+        if fixed_key is not None:
+            expected = _HTCONDOR_FIXED_DIRECTIVES[fixed_key]
+            if str(value) != expected:
+                raise ValueError(
+                    f"{source} cannot override HTCondor invariant {fixed_key}={expected}"
+                )
+        runtime_key = runtime_by_lower.get(key_lower)
+        if runtime_key is not None and key in base and str(value) != str(base[key]):
+            raise ValueError(
+                f"{source} cannot override HTCondor invariant {runtime_key}"
+            )
+        merged[key] = value
+    return merged
 
 
 def _worker_extra_args(raw: Any) -> list[str]:

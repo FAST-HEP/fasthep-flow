@@ -20,6 +20,16 @@ from hepflow.model.plan import ExecutionPlan
 from hepflow.runtime.config import _runtime_execution_with_overrides
 
 
+def _bootstrap_directives(**extra: Any) -> dict[str, Any]:
+    return {
+        "transfer_executable": "False",
+        "transfer_output_files": '""',
+        "Stream_Output": "True",
+        "Stream_Error": "True",
+        **extra,
+    }
+
+
 def test_htcondor_resources_map_to_cluster_options() -> None:
     config = normalize_dask_htcondor_config(
         {
@@ -46,10 +56,9 @@ def test_htcondor_resources_map_to_cluster_options() -> None:
         "memory": "4GB",
         "disk": "10GB",
         "log_directory": "debug/dask/htcondor",
-        "job_extra_directives": {
-            "transfer_executable": "False",
-            "+JobFlavour": '"workday"',
-        },
+        "job_extra_directives": _bootstrap_directives(
+            **{"+JobFlavour": '"workday"'},
+        ),
         "worker_extra_args": ["--resources", "resource.default=1"],
     }
     assert "walltime" not in config["cluster_options"]
@@ -70,6 +79,43 @@ def test_htcondor_unsupported_walltime_fails_clearly() -> None:
         )
 
 
+def test_htcondor_conflicting_transfer_executable_fails_clearly() -> None:
+    with pytest.raises(
+        ValueError,
+        match="cannot override HTCondor invariant transfer_executable=False",
+    ):
+        normalize_dask_htcondor_config(
+            {
+                "backend": "dask",
+                "strategy": "htcondor",
+                "resources": {"default": {"cpus": 1, "memory": "4GB", "disk": "10GB"}},
+                "config": {
+                    "workers": 20,
+                    "job_extra_directives": {"transfer_executable": "True"},
+                },
+            }
+        )
+
+
+def test_htcondor_conflicting_output_log_override_fails_clearly(
+    tmp_path: Path,
+) -> None:
+    execution = {
+        "backend": "dask",
+        "strategy": "htcondor",
+        "resources": {"default": {"cpus": 1, "memory": "4GB", "disk": "10GB"}},
+        "config": {"workers": 1, "job_extra_directives": {"Output": "worker.out"}},
+    }
+    config = normalize_dask_htcondor_config(execution)
+
+    with pytest.raises(ValueError, match="cannot override HTCondor invariant Output"):
+        _prepare_htcondor_pool_specs(
+            config["pool_specs"],
+            execution=execution,
+            build_paths=BuildPaths(root=tmp_path),
+        )
+
+
 def test_htcondor_default_pool_does_not_request_gpus() -> None:
     config = normalize_dask_htcondor_config(
         {
@@ -84,10 +130,9 @@ def test_htcondor_default_pool_does_not_request_gpus() -> None:
     )
 
     assert config["workers"] == 100
-    assert config["cluster_options"]["job_extra_directives"] == {
-        "transfer_executable": "False",
-        "+JobFlavour": '"workday"'
-    }
+    assert config["cluster_options"]["job_extra_directives"] == _bootstrap_directives(
+        **{"+JobFlavour": '"workday"'},
+    )
     assert config["cluster_options"]["worker_extra_args"] == [
         "--resources",
         "resource.default=1",
@@ -121,10 +166,9 @@ def test_htcondor_high_memory_pool_requests_high_memory() -> None:
     assert config["cluster_options"]["cores"] == 8
     assert config["cluster_options"]["memory"] == "128GB"
     assert config["cluster_options"]["disk"] == "100GB"
-    assert config["cluster_options"]["job_extra_directives"] == {
-        "transfer_executable": "False",
-        "+JobFlavour": '"long"'
-    }
+    assert config["cluster_options"]["job_extra_directives"] == _bootstrap_directives(
+        **{"+JobFlavour": '"long"'},
+    )
     assert config["cluster_options"]["worker_extra_args"] == [
         "--resources",
         "resource.high_memory=1",
@@ -160,11 +204,10 @@ def test_htcondor_gpu_pool_requests_gpus_and_advertises_dask_resource() -> None:
     assert config["cluster_options"]["cores"] == 4
     assert config["cluster_options"]["memory"] == "16GB"
     assert config["cluster_options"]["disk"] == "20GB"
-    assert config["cluster_options"]["job_extra_directives"] == {
-        "transfer_executable": "False",
-        "+JobFlavour": '"gpu"',
-        "request_gpus": 1,
-    }
+    assert config["cluster_options"]["job_extra_directives"] == _bootstrap_directives(
+        **{"+JobFlavour": '"gpu"'},
+        request_gpus=1,
+    )
     assert config["cluster_options"]["worker_extra_args"] == [
         "--resources",
         "GPU=1,resource.gpu=1",
@@ -193,11 +236,9 @@ def test_htcondor_multiple_pools_create_pooled_specs() -> None:
     assert sorted(config["pool_specs"]) == ["default", "gpu"]
     assert config["pool_specs"]["default"]["job_kwargs"]["memory"] == "4GB"
     assert config["pool_specs"]["gpu"]["job_kwargs"]["memory"] == "16GB"
-    assert config["pool_specs"]["gpu"]["job_kwargs"]["job_extra_directives"] == {
-        "transfer_executable": "False",
-        "+JobFlavour": '"workday"',
-        "request_gpus": 1,
-    }
+    assert config["pool_specs"]["gpu"]["job_kwargs"]["job_extra_directives"] == (
+        _bootstrap_directives(**{"+JobFlavour": '"workday"'}, request_gpus=1)
+    )
     assert config["pool_specs"]["gpu"]["job_kwargs"]["worker_extra_args"] == [
         "--resources",
         "GPU=1,resource.gpu=1",
@@ -287,10 +328,36 @@ def test_htcondor_cluster_scales_workers_and_computes_tasks(
     assert job_kwargs["cores"] == 2
     assert job_kwargs["memory"] == "8GB"
     assert job_kwargs["disk"] == "12GB"
-    assert job_kwargs["job_extra_directives"] == {
-        "transfer_executable": "False",
-        "+JobFlavour": '"workday"'
-    }
+    assert job_kwargs["job_extra_directives"] == _bootstrap_directives(
+        **{"+JobFlavour": '"workday"'},
+        Output=str(
+            tmp_path
+            / "execution"
+            / "dask"
+            / "htcondor"
+            / "out"
+            / "worker-$(ClusterId).$(ProcId).out"
+        ),
+        Error=str(
+            tmp_path
+            / "execution"
+            / "dask"
+            / "htcondor"
+            / "err"
+            / "worker-$(ClusterId).$(ProcId).err"
+        ),
+        Log=str(
+            tmp_path
+            / "execution"
+            / "dask"
+            / "htcondor"
+            / "logs"
+            / "worker-$(ClusterId).log"
+        ),
+    )
+    assert job_kwargs["submit_directory"] == str(
+        tmp_path / "execution" / "dask" / "htcondor" / "submit"
+    )
     assert "python" not in job_kwargs
 
 
@@ -325,6 +392,34 @@ def test_htcondor_packed_pixi_environment_kwargs_added_when_requested(
         "/debug/distributed/htcondor/env.sh"
     )
     assert directives["transfer_executable"] == "False"
+    assert directives["transfer_output_files"] == '""'
+
+
+def test_htcondor_prefix_environment_preparation_not_implemented(
+    tmp_path: Path,
+) -> None:
+    execution = {
+        "backend": "dask",
+        "strategy": "htcondor",
+        "resources": {"default": {"cpus": 1, "memory": "4GB"}},
+        "config": {"workers": 1},
+        "environment": {
+            "type": "packed-pixi",
+            "mode": "prefix",
+            "environment": "default",
+        },
+    }
+    config = normalize_dask_htcondor_config(execution)
+
+    with pytest.raises(
+        NotImplementedError,
+        match="mode 'prefix' is planned but runtime preparation is not implemented yet",
+    ):
+        _prepare_htcondor_pool_specs(
+            config["pool_specs"],
+            execution=execution,
+            build_paths=BuildPaths(root=tmp_path),
+        )
 
 
 def test_cli_workers_override_htcondor_config_workers() -> None:

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
+from shutil import copyfile
 from typing import Any, ClassVar
 
 from distributed import Scheduler
@@ -177,7 +180,32 @@ class DaskPooledHTCondorCluster(DaskPooledCluster):
             raise RuntimeError(
                 "Dask pooled HTCondor cluster requires dask-jobqueue."
             ) from exc
-        return HTCondorJob
+
+        class FastHEPHTCondorJob(HTCondorJob):  # type: ignore[misc, valid-type]
+            def __init__(
+                self,
+                *args: Any,
+                submit_directory: str | Path | None = None,
+                **kwargs: Any,
+            ) -> None:
+                self._fasthep_submit_directory = (
+                    Path(submit_directory) if submit_directory is not None else None
+                )
+                super().__init__(*args, **kwargs)
+
+            @contextmanager
+            def job_file(self) -> Any:
+                with super().job_file() as filename:
+                    if self._fasthep_submit_directory is not None:
+                        self._fasthep_submit_directory.mkdir(
+                            parents=True,
+                            exist_ok=True,
+                        )
+                        target = self._fasthep_submit_directory / f"{self.name}.submit"
+                        copyfile(filename, target)
+                    yield filename
+
+        return FastHEPHTCondorJob
 
 
 class DaskPooledSlurmCluster(DaskPooledCluster):

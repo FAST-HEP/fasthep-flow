@@ -14,6 +14,7 @@ from hepflow.model.execution import (
     StageExecutionConfig,
 )
 from hepflow.model.lifecycle import WHEN_ALIASES
+from hepflow.model.worker_environment import worker_environment_plan_from_execution
 
 
 def normalize_global_execution(raw: Any) -> dict[str, Any]:
@@ -66,7 +67,7 @@ def normalize_global_execution(raw: Any) -> dict[str, Any]:
     environment_raw = raw.get("environment", {})
     if not isinstance(environment_raw, dict):
         raise ValueError("execution.environment must be a mapping")
-    environment = dict(environment_raw)
+    environment = _normalize_worker_environment(environment_raw)
 
     pools = _normalize_execution_pools(
         raw.get("pools"),
@@ -110,6 +111,15 @@ def normalize_stage_execution(raw: Any) -> dict[str, Any] | None:
         timeout=timeout,
         modifiers=normalise_execution_modifiers(modifiers_raw),
     ).to_dict()
+
+
+def _normalize_worker_environment(raw: dict[str, Any]) -> dict[str, Any]:
+    if not raw:
+        return {}
+    plan = worker_environment_plan_from_execution({"environment": raw})
+    if plan is None:
+        return {}
+    return plan.to_dict()
 
 
 def normalise_execution_modifiers(raw: Any) -> list[ExecutionModifier]:

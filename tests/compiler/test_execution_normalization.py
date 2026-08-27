@@ -334,9 +334,8 @@ def test_packed_pixi_worker_environment_spec_written_at_compile(
             "strategy": "htcondor",
             "environment": {
                 "type": "packed-pixi",
+                "mode": "prefix",
                 "environment": "default",
-                "archive_path": "debug/distributed/htcondor/env.sh",
-                "worker_env_dir": "worker-env",
             },
         },
     }
@@ -352,9 +351,8 @@ def test_packed_pixi_worker_environment_spec_written_at_compile(
     )
     assert worker_env == {
         "type": "packed-pixi",
+        "mode": "prefix",
         "environment": "default",
-        "archive_path": "debug/distributed/htcondor/env.sh",
-        "worker_env_dir": "worker-env",
     }
 
 

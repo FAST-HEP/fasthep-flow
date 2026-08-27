@@ -75,6 +75,19 @@ def test_build_paths_debug_path() -> None:
     )
 
 
+def test_build_paths_execution_path() -> None:
+    paths = BuildPaths(root=Path("build"))
+
+    assert paths.execution_dir() == Path("build/execution")
+    assert paths.worker_environments_dir() == Path(
+        "build/execution/worker-environments"
+    )
+    assert paths.dask_htcondor_dir("submit") == Path(
+        "build/execution/dask/htcondor/submit"
+    )
+    assert BuildPaths(root=Path("build/execution")).root == Path("build")
+
+
 def test_build_paths_run_summary_without_variation() -> None:
     paths = BuildPaths(root=Path("build"))
 
@@ -95,4 +108,5 @@ def test_ensure_build_layout_creates_variation_parents(tmp_path: Path) -> None:
     assert (tmp_path / "build" / "artifacts" / "nominal" / "histograms").is_dir()
     assert (tmp_path / "build" / "reports" / "nominal" / "schema").is_dir()
     assert (tmp_path / "build" / "render" / "specs" / "nominal").is_dir()
+    assert (tmp_path / "build" / "execution" / "nominal").is_dir()
     assert (tmp_path / "build" / "debug" / "nominal" / "logs").is_dir()

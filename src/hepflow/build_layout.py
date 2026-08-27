@@ -98,6 +98,29 @@ class BuildPaths:
     def debug(self, kind: str, filename: str | Path) -> Path:
         return self.debug_dir(kind) / filename
 
+    def execution_dir(self, kind: str | None = None) -> Path:
+        path = self.root / "execution"
+        if self.variation:
+            path = path / self.variation
+        if kind:
+            path = path / kind
+        return path
+
+    def worker_environments_dir(self) -> Path:
+        return self.execution_dir("worker-environments")
+
+    def dask_execution_dir(self, kind: str | None = None) -> Path:
+        path = self.execution_dir("dask")
+        if kind:
+            path = path / kind
+        return path
+
+    def dask_htcondor_dir(self, kind: str | None = None) -> Path:
+        path = self.dask_execution_dir("htcondor")
+        if kind:
+            path = path / kind
+        return path
+
     def compile_dir(self) -> Path:
         return self.root / "compile"
 
@@ -136,7 +159,7 @@ def output_variation_from_context(context: Mapping[str, Any] | None) -> str | No
 
 def build_root(path: str | Path) -> Path:
     candidate = Path(path)
-    if candidate.name in {"compile", "graph", "render", "reports", "debug"}:
+    if candidate.name in {"compile", "graph", "render", "reports", "debug", "execution"}:
         return candidate.parent
     return candidate
 
@@ -224,6 +247,11 @@ def ensure_build_layout(root: str | Path, *, variation: str | None = None) -> No
         paths.report_dir("schema"),
         paths.report_dir("diagnostics"),
         paths.report_dir("provenance"),
+        paths.worker_environments_dir(),
+        paths.dask_htcondor_dir("submit"),
+        paths.dask_htcondor_dir("logs"),
+        paths.dask_htcondor_dir("out"),
+        paths.dask_htcondor_dir("err"),
         paths.debug_dir("dask"),
         paths.debug_dir("performance"),
         paths.debug_dir("logs"),

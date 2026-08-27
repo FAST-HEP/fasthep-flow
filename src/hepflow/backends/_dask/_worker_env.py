@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from hepflow.model.worker_environment import worker_environment_plan_from_execution
+
 
 @dataclass(slots=True, frozen=True)
 class PackedPixiEnvironmentSpec:
@@ -102,6 +104,7 @@ def build_htcondor_worker_environment_job_kwargs(
             "should_transfer_files": "YES",
             "when_to_transfer_output": "ON_EXIT",
             "transfer_executable": "False",
+            "transfer_output_files": '""',
             "transfer_input_files": transfer_files,
             "Output": str(
                 (log_paths["out"] / "worker-$(ClusterId).$(ProcId).out").resolve()
@@ -157,24 +160,20 @@ def x509_proxy_from_environment(
 def packed_pixi_environment_spec_from_execution(
     execution: Mapping[str, Any],
 ) -> PackedPixiEnvironmentSpec | None:
-    raw = execution.get("environment")
-    if not isinstance(raw, Mapping):
+    plan = worker_environment_plan_from_execution(execution)
+    if plan is None:
         return None
-    if raw.get("type") != "packed-pixi":
+    if plan.type != "packed-pixi":
         return None
-    environment = raw.get("environment", "default")
-    if not isinstance(environment, str) or not environment.strip():
-        raise ValueError("execution.environment.environment must be a string")
-    archive_path = raw.get("archive_path", "debug/distributed/htcondor/env.sh")
-    if not isinstance(archive_path, str) or not archive_path.strip():
-        raise ValueError("execution.environment.archive_path must be a string")
-    worker_env_dir = raw.get("worker_env_dir", "worker-env")
-    if not isinstance(worker_env_dir, str) or not worker_env_dir.strip():
-        raise ValueError("execution.environment.worker_env_dir must be a string")
+    if plan.mode == "prefix":
+        raise NotImplementedError(
+            "execution.environment mode 'prefix' is planned but runtime preparation "
+            "is not implemented yet"
+        )
     return PackedPixiEnvironmentSpec(
-        environment=environment.strip(),
-        archive_path=archive_path.strip(),
-        worker_env_dir=worker_env_dir.strip(),
+        environment=plan.environment,
+        archive_path=plan.archive_path or "execution/worker-environments/env.sh",
+        worker_env_dir=plan.worker_env_dir or "worker-env",
     )
 
 

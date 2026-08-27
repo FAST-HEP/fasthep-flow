@@ -252,6 +252,7 @@ def test_htcondor_worker_environment_job_kwargs_include_transfer_directives(
     assert directives["should_transfer_files"] == "YES"
     assert directives["when_to_transfer_output"] == "ON_EXIT"
     assert directives["transfer_executable"] == "False"
+    assert directives["transfer_output_files"] == '""'
     assert directives["transfer_input_files"].endswith("/env.sh")
     assert "out/worker-$(ClusterId).$(ProcId).out" in directives["Output"]
     assert "err/worker-$(ClusterId).$(ProcId).err" in directives["Error"]

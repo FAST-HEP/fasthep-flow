@@ -6,13 +6,11 @@ from typing import Any
 
 import networkx as nx
 
-from hepflow.backends._dask._worker_env import (
-    packed_pixi_environment_spec_from_execution,
-)
 from hepflow.build_layout import BuildPaths
 from hepflow.compiler.compile_hooks import run_compile_hooks
 from hepflow.compiler.graph_artifacts import _lowered_graph_to_json
 from hepflow.model.plan import ExecutionPlan
+from hepflow.model.worker_environment import worker_environment_plan_from_execution
 from hepflow.utils import write_json, write_yaml
 
 
@@ -99,7 +97,7 @@ def write_worker_environment_artifact(
     plan: ExecutionPlan,
     compile_path: Path,
 ) -> None:
-    spec = packed_pixi_environment_spec_from_execution(plan.execution)
+    spec = worker_environment_plan_from_execution(plan.execution)
     if spec is None:
         return
     write_json(spec.to_dict(), compile_path / "worker_environment.json")
