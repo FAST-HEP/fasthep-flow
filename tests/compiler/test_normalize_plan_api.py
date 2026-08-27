@@ -157,6 +157,68 @@ def test_transform_stage_accepts_multiple_product_inputs() -> None:
     assert [ref.output_name for ref in compare.inputs] == ["product", "product"]
 
 
+def test_partition_transform_accepts_global_side_product_input() -> None:
+    workflow = normalize_workflow(
+        {
+            "version": "1.0",
+            "registry": {
+                **_toy_product_registry(),
+                "sources": {
+                    "toy.source": {
+                        "spec": "tests.toy_components.sources:TOY_SOURCE_SPEC",
+                        "impl": "tests.toy_components.sources:run_toy_source",
+                    },
+                },
+                "transforms": {
+                    **_toy_product_registry()["transforms"],
+                    "toy.scale": {
+                        "spec": "tests.toy_components.transforms:TOY_SCALE_SPEC",
+                        "impl": "tests.toy_components.transforms:run_toy_scale",
+                    },
+                },
+            },
+            "data": {"datasets": {"sample": {"files": ["sample.root"]}}},
+            "sources": {
+                "events": {
+                    "kind": "toy.source",
+                    "stream_type": "event_stream",
+                }
+            },
+            "analysis": {
+                "stages": [
+                    {
+                        "id": "Product",
+                        "op": "toy.product",
+                        "from": [],
+                    },
+                    {
+                        "id": "UseProduct",
+                        "op": "toy.scale",
+                        "from": [
+                            {"node": "events", "port": "stream", "as": "stream"},
+                            {"node": "Product", "port": "product", "as": "weights"},
+                        ],
+                        "params": {"source": "pt", "output": "scaled_pt"},
+                    },
+                ]
+            },
+        }
+    )
+
+    _, plan = build_plan_from_normalized(workflow)
+    use_product = plan.get_node("stage.UseProduct")
+
+    assert plan.get_node("stage.Product").output_scope == "global"
+    assert use_product.input_scope == "partition"
+    assert {
+        (ref.node_id, ref.output_name, ref.input_name)
+        for ref in use_product.inputs
+    } == {
+        ("read.events", "stream", "stream"),
+        ("stage.Product", "product", "weights"),
+    }
+
+
 def test_standalone_sink_stage_resolves_from_sink_registry(
     toy_workflow: dict[str, Any],
 ) -> None:
@@ -317,7 +379,7 @@ def test_same_stream_can_feed_histogram_and_standalone_sink(
     ]
 
 
-def test_incompatible_transform_input_scope_fails_during_compilation() -> None:
+def test_global_side_product_bound_as_stream_fails_during_compilation() -> None:
     workflow = normalize_workflow(
         {
             "version": "1.0",
@@ -343,7 +405,9 @@ def test_incompatible_transform_input_scope_fails_during_compilation() -> None:
                     {
                         "id": "Hist",
                         "op": "hep.hist",
-                        "from": [{"node": "Product", "port": "product", "as": "stream"}],
+                        "from": [
+                            {"node": "Product", "port": "product", "as": "stream"}
+                        ],
                     },
                 ]
             },

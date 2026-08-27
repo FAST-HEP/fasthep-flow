@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 import yaml
+from tests.toy_components import transforms as toy_transforms
 
 from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.build_layout import ensure_build_layout, plan_path
@@ -19,7 +20,7 @@ from hepflow.compiler.inline_variations import apply_inline_variation_branches_t
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
-from hepflow.model.plan import ExecutionPlan
+from hepflow.model.plan import ExecutionPartition, ExecutionPlan
 from hepflow.runtime.engine import execute_plan_locally
 from hepflow.utils import write_yaml
 
@@ -123,7 +124,64 @@ def test_inline_variation_keeps_shared_nominal_side_input(
         ("stream", "stage.B@up"),
         ("weights", "stage.SharedWeights"),
     }
+    nominal_c = plan.get_node("stage.C")
+    assert {
+        (ref.input_name, ref.node_id)
+        for ref in nominal_c.inputs
+    } == {
+        ("stream", "stage.B"),
+        ("weights", "stage.SharedWeights"),
+    }
+    assert plan.get_node("stage.SharedWeights").output_scope == "global"
+    assert plan.get_node("stage.SharedWeights").outputs == {"product": "toy_product"}
     assert "stage.SharedWeights@up" not in plan.node_index
+
+
+def test_global_side_product_is_produced_once_for_partition_run(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _inline_plan(
+        _registry_with_product(toy_registry),
+        [
+            {
+                "id": "SharedWeights",
+                "op": "toy.product",
+                "from": [],
+                "params": {"value": "weights"},
+            },
+            {
+                **_scale("UseWeights", source="pt", output="scaled_pt"),
+                "from": [
+                    {"node": "events", "port": "stream", "as": "stream"},
+                    {"node": "SharedWeights", "port": "product", "as": "weights"},
+                ],
+            },
+        ],
+        fields=["pt"],
+        variations=[],
+    )
+    plan.partitions = [
+        ExecutionPartition(
+            id="events__sample__0",
+            dataset="sample",
+            file="sample.root",
+            source="events",
+            part="0_0",
+        ),
+        ExecutionPartition(
+            id="events__sample__1",
+            dataset="sample",
+            file="sample-2.root",
+            source="events",
+            part="1_0",
+        ),
+    ]
+    toy_transforms.TOY_PRODUCT_CALLS.clear()
+
+    summaries = execute_plan_locally(plan, partitions=plan.partitions)
+
+    assert len(summaries) == 2
+    assert toy_transforms.TOY_PRODUCT_CALLS == ["weights"]
 
 
 def test_inline_variation_preserves_same_field_names_across_streams(

@@ -15,6 +15,7 @@ from hepflow.runtime.engine import (
     build_partition_context,
     execute_dataset_sinks,
     execute_final_nodes,
+    execute_global_side_product_nodes,
     execute_plan_partition,
     group_partition_results_by_dataset,
     merge_partition_value_stores,
@@ -53,7 +54,16 @@ class DaskBackend:
         base_ctx.setdefault("runtime_resources", {})
         resolved_resources = base_ctx.setdefault("resolved_resources", {})
         base_ctx.setdefault("resources", resolved_resources)
-        tasks = build_dask_graph(plan, base_ctx=base_ctx)
+        global_side_values = execute_global_side_product_nodes(
+            plan,
+            ctx=base_ctx,
+            registry_cfg=plan.registry,
+        )
+        tasks = build_dask_graph(
+            plan,
+            base_ctx=base_ctx,
+            initial_values=global_side_values,
+        )
 
         try:
             if reporter is not None:
@@ -139,6 +149,7 @@ def build_dask_graph(
     plan: ExecutionPlan,
     *,
     base_ctx: dict[str, Any],
+    initial_values: dict[tuple[str, str], Any] | None = None,
 ) -> list[Any]:
     from dask import delayed  # noqa: PLC0415
 
@@ -157,6 +168,7 @@ def build_dask_graph(
                     partition,
                     base_ctx=base_ctx,
                     registry_cfg=plan.registry,
+                    initial_values=initial_values,
                 )
         else:
             task = delayed(_execute_partition_task)(
@@ -164,6 +176,7 @@ def build_dask_graph(
                 partition,
                 base_ctx=base_ctx,
                 registry_cfg=plan.registry,
+                initial_values=initial_values,
             )
         tasks.append(task)
     return tasks
@@ -440,6 +453,7 @@ def _execute_partition_task(
     *,
     base_ctx: dict[str, Any],
     registry_cfg: dict[str, Any] | None,
+    initial_values: dict[tuple[str, str], Any] | None = None,
 ) -> dict[str, Any]:
     partition_ctx = build_partition_context(
         plan,
@@ -454,8 +468,11 @@ def _execute_partition_task(
         plan,
         ctx=partition_ctx,
         registry_cfg=registry_cfg,
+        initial_values=initial_values,
         hook_manager=hook_manager,
     )
+    for key in dict(initial_values or {}):
+        value_store.pop(key, None)
     partition_ctx["_hook_summary"] = hook_manager.usage_summary()
     partition_meta = partition.to_context()
     for warning in warnings:

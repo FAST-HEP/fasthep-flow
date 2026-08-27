@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -206,7 +207,40 @@ def test_empty_event_stream_still_publishes_stream_value(
     result = run_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     assert result.success
-    assert (tmp_path / "build" / "artifacts" / "files" / "empty.json").exists()
+    summary = yaml.safe_load((tmp_path / "build" / "run_summary.yaml").read_text())
+    [partition] = summary["partitions"]
+    assert partition["partition"] == {
+        "id": "events__empty__0",
+        "dataset": "empty",
+        "file": "empty.root",
+        "source": "events",
+        "part": "0_0",
+        "start": 0,
+        "stop": 0,
+    }
+    assert {
+        (output["node"], output["port"], output["kind"])
+        for output in partition["outputs"]
+    } >= {
+        ("stage.Scale", "stream", "event_stream"),
+        ("stage.WriteEmpty", "artifact", "artifact"),
+    }
+
+    provenance_manifest = json.loads(
+        (tmp_path / "build" / "artifacts" / "provenance" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    [record] = provenance_manifest["records"]
+    assert record["node_id"] == "stage.WriteEmpty"
+    artifact_path = tmp_path / "build" / record["artifact"]
+    assert artifact_path.exists()
+    assert json.loads(artifact_path.read_text(encoding="utf-8")) == {
+        "dataset": "empty",
+        "params": {"stream_type": "event_stream"},
+        "pt": [],
+        "scaled_pt": [],
+    }
 
 
 def test_unknown_needed_stage_id_fails_clearly(toy_registry: dict[str, Any]) -> None:

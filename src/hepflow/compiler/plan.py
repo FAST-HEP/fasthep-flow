@@ -189,7 +189,13 @@ def _validate_connected_scopes(plan: ExecutionPlan) -> None:
                     f"Node {consumer.id!r} input references missing output "
                     f"{ref.node_id}.{ref.output_name}"
                 )
-            if not _connected_scopes_compatible(producer, consumer):
+            output_kind = producer.outputs[ref.output_name]
+            if not _connected_scopes_compatible(
+                producer,
+                consumer,
+                output_kind,
+                input_name=ref.input_name,
+            ):
                 raise ValueError(
                     f"Node {consumer.id!r} with input scope {consumer.input_scope!r} "
                     f"cannot consume {ref.node_id}.{ref.output_name} from output "
@@ -200,6 +206,9 @@ def _validate_connected_scopes(plan: ExecutionPlan) -> None:
 def _connected_scopes_compatible(
     producer: ExecutionNode,
     consumer: ExecutionNode,
+    output_kind: str,
+    *,
+    input_name: str,
 ) -> bool:
     if consumer.role != "transform":
         return True
@@ -207,7 +216,13 @@ def _connected_scopes_compatible(
         return True
     if producer.role == "source":
         return True
-    return producer.output_scope != "global"
+    if producer.output_scope != "global":
+        return True
+    return _is_reusable_global_side_product(output_kind, input_name=input_name)
+
+
+def _is_reusable_global_side_product(kind: str, *, input_name: str) -> bool:
+    return input_name != "stream" and kind != "event_stream"
 
 
 def _normalize_execution_hooks(

@@ -466,12 +466,16 @@ def run_toy_string_config(
     return {"stream": {**stream, "config": config}}
 
 
+TOY_PRODUCT_CALLS: list[str] = []
+
+
 def run_toy_product(
     *,
     dataset: str | None = None,
     value: str = "product",
     ctx: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    TOY_PRODUCT_CALLS.append(value)
     datasets = dict((ctx or {}).get("datasets") or {})
     dataset_record = datasets.get(dataset or "", {})
     return {

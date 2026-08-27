@@ -125,6 +125,8 @@ def execute_plan_partition(
     for node in active_plan_nodes_for_context(plan, ctx=ctx):
         if node.role in skip_roles:
             continue
+        if _node_outputs_already_available(node, value_store):
+            continue
         inputs: dict[str, Any] = {}
         try:
             if node.role == "source":
@@ -398,6 +400,17 @@ def execute_plan_locally(
 
     runtime_registry = runtime_registry_from_config(registry_cfg)
     boundary_plan = plan_partition_boundary(plan, runtime_registry=runtime_registry)
+    global_side_values = execute_global_side_product_nodes(
+        plan,
+        ctx=base_ctx,
+        registry_cfg=registry_cfg,
+        initial_values=initial_values,
+        hook_manager=hook_manager,
+    )
+    partition_initial_values = {
+        **dict(initial_values or {}),
+        **global_side_values,
+    }
     dataset_accumulators: dict[str, ProductAccumulator] = {}
     dataset_order: list[str] = []
     partition_summaries: list[PartitionExecutionSummary] = []
@@ -415,7 +428,7 @@ def execute_plan_locally(
                     plan,
                     ctx=partition_ctx,
                     registry_cfg=registry_cfg,
-                    initial_values=initial_values,
+                    initial_values=partition_initial_values,
                     skip_roles=skip_roles,
                     hook_manager=hook_manager,
                 )
@@ -647,6 +660,78 @@ def merge_partition_value_stores_for_dataset(
         )
 
     return merged
+
+
+def execute_global_side_product_nodes(
+    plan: ExecutionPlan,
+    *,
+    ctx: dict[str, Any],
+    registry_cfg: dict[str, Any] | None = None,
+    initial_values: dict[tuple[str, str], Any] | None = None,
+    hook_manager: HookManager | None = None,
+) -> dict[tuple[str, str], Any]:
+    registry_cfg = registry_cfg or plan.registry
+    value_store: dict[tuple[str, str], Any] = dict(initial_values or {})
+    hook_manager = hook_manager or HookManager.from_plan(plan)
+    recorder = ensure_runtime_provenance(ctx)
+
+    for node in active_plan_nodes_for_context(plan, ctx=ctx):
+        if not _is_global_side_product_node(node):
+            continue
+        if _node_outputs_already_available(node, value_store):
+            continue
+        inputs = _collect_inputs(node, value_store, plan=plan, ctx=ctx)
+        input_products = _collect_input_products(node, plan=plan, ctx=ctx)
+        with (
+            _input_products_context(ctx, input_products),
+            hook_manager.around_node(node=node, inputs=inputs, ctx=ctx),
+        ):
+            hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
+            with _operation_context(recorder, node=node, ctx=ctx):
+                result = run_transform(
+                    transform_name=node.impl,
+                    inputs=inputs,
+                    params=node.params,
+                    registry_cfg=registry_cfg,
+                    ctx=ctx,
+                )
+            _store_node_outputs(
+                node.id,
+                node.outputs,
+                result,
+                value_store,
+                ctx=ctx,
+            )
+            hook_manager.after_node(
+                node=node,
+                inputs=inputs,
+                outputs=result,
+                ctx=ctx,
+            )
+
+    return {
+        key: value
+        for key, value in value_store.items()
+        if key not in dict(initial_values or {})
+    }
+
+
+def _is_global_side_product_node(node: ExecutionNode) -> bool:
+    return (
+        node.role == "transform"
+        and node.input_scope == "global"
+        and node.output_scope == "global"
+        and any(kind != "event_stream" for kind in node.outputs.values())
+    )
+
+
+def _node_outputs_already_available(
+    node: ExecutionNode,
+    value_store: dict[tuple[str, str], Any],
+) -> bool:
+    return node.output_scope == "global" and all(
+        (node.id, output_name) in value_store for output_name in node.outputs
+    )
 
 
 def execute_dataset_sinks(
