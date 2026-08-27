@@ -24,6 +24,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "conda-pack",
     "dask",
     "distributed",
     "dask-jobqueue",
