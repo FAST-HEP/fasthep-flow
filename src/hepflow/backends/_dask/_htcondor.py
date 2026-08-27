@@ -206,6 +206,8 @@ def _htcondor_cluster_options(
     config: dict[str, Any],
     dask_resources: dict[str, Any],
 ) -> dict[str, Any]:
+    _validate_htcondor_config_options(config)
+
     cores = resources.get("cpus", config.get("cores"))
     if cores is not None:
         cores = int(cores)
@@ -221,12 +223,10 @@ def _htcondor_cluster_options(
         cluster_options["memory"] = resources["memory"]
     if resources.get("disk") is not None:
         cluster_options["disk"] = resources["disk"]
-    if config.get("walltime") is not None:
-        cluster_options["walltime"] = config["walltime"]
     if log_directory is not None:
         cluster_options["log_directory"] = log_directory
 
-    job_extra_directives: dict[str, Any] = {}
+    job_extra_directives: dict[str, Any] = {"transfer_executable": "False"}
     if config.get("queue") is not None:
         job_extra_directives["+JobFlavour"] = f'"{config["queue"]}"'
     if config.get("job_extra_directives") is not None:
@@ -245,6 +245,15 @@ def _htcondor_cluster_options(
         cluster_options["worker_extra_args"] = worker_extra_args
 
     return cluster_options
+
+
+def _validate_htcondor_config_options(config: dict[str, Any]) -> None:
+    if config.get("walltime") is not None:
+        raise ValueError(
+            "execution.config.walltime is not supported by the Dask HTCondor "
+            "backend. Use execution.config.queue for site job flavours or "
+            "execution.config.job_extra_directives for explicit HTCondor ClassAds."
+        )
 
 
 def _worker_extra_args(raw: Any) -> list[str]:

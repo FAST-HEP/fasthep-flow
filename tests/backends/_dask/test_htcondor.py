@@ -35,7 +35,6 @@ def test_htcondor_resources_map_to_cluster_options() -> None:
             "config": {
                 "workers": 20,
                 "queue": "workday",
-                "walltime": "02:00:00",
                 "log_directory": "debug/dask/htcondor",
             },
         }
@@ -46,11 +45,29 @@ def test_htcondor_resources_map_to_cluster_options() -> None:
         "cores": 1,
         "memory": "4GB",
         "disk": "10GB",
-        "walltime": "02:00:00",
         "log_directory": "debug/dask/htcondor",
-        "job_extra_directives": {"+JobFlavour": '"workday"'},
+        "job_extra_directives": {
+            "transfer_executable": "False",
+            "+JobFlavour": '"workday"',
+        },
         "worker_extra_args": ["--resources", "resource.default=1"],
     }
+    assert "walltime" not in config["cluster_options"]
+
+
+def test_htcondor_unsupported_walltime_fails_clearly() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"execution\.config\.walltime is not supported by the Dask HTCondor backend",
+    ):
+        normalize_dask_htcondor_config(
+            {
+                "backend": "dask",
+                "strategy": "htcondor",
+                "resources": {"default": {"cpus": 1, "memory": "4GB", "disk": "10GB"}},
+                "config": {"workers": 20, "walltime": "02:00:00"},
+            }
+        )
 
 
 def test_htcondor_default_pool_does_not_request_gpus() -> None:
@@ -68,6 +85,7 @@ def test_htcondor_default_pool_does_not_request_gpus() -> None:
 
     assert config["workers"] == 100
     assert config["cluster_options"]["job_extra_directives"] == {
+        "transfer_executable": "False",
         "+JobFlavour": '"workday"'
     }
     assert config["cluster_options"]["worker_extra_args"] == [
@@ -92,10 +110,10 @@ def test_htcondor_high_memory_pool_requests_high_memory() -> None:
                 "preprocess": {
                     "resources": "high_memory",
                     "workers": 2,
-                    "config": {"queue": "long", "walltime": "04:00:00"},
+                    "config": {"queue": "long"},
                 }
             },
-            "config": {"queue": "workday", "walltime": "02:00:00"},
+            "config": {"queue": "workday"},
         }
     )
 
@@ -103,8 +121,8 @@ def test_htcondor_high_memory_pool_requests_high_memory() -> None:
     assert config["cluster_options"]["cores"] == 8
     assert config["cluster_options"]["memory"] == "128GB"
     assert config["cluster_options"]["disk"] == "100GB"
-    assert config["cluster_options"]["walltime"] == "04:00:00"
     assert config["cluster_options"]["job_extra_directives"] == {
+        "transfer_executable": "False",
         "+JobFlavour": '"long"'
     }
     assert config["cluster_options"]["worker_extra_args"] == [
@@ -131,10 +149,10 @@ def test_htcondor_gpu_pool_requests_gpus_and_advertises_dask_resource() -> None:
                 "gpu": {
                     "resources": "gpu",
                     "workers": 2,
-                    "config": {"queue": "gpu", "walltime": "01:00:00"},
+                    "config": {"queue": "gpu"},
                 }
             },
-            "config": {"queue": "workday", "walltime": "02:00:00"},
+            "config": {"queue": "workday"},
         }
     )
 
@@ -142,8 +160,8 @@ def test_htcondor_gpu_pool_requests_gpus_and_advertises_dask_resource() -> None:
     assert config["cluster_options"]["cores"] == 4
     assert config["cluster_options"]["memory"] == "16GB"
     assert config["cluster_options"]["disk"] == "20GB"
-    assert config["cluster_options"]["walltime"] == "01:00:00"
     assert config["cluster_options"]["job_extra_directives"] == {
+        "transfer_executable": "False",
         "+JobFlavour": '"gpu"',
         "request_gpus": 1,
     }
@@ -176,6 +194,7 @@ def test_htcondor_multiple_pools_create_pooled_specs() -> None:
     assert config["pool_specs"]["default"]["job_kwargs"]["memory"] == "4GB"
     assert config["pool_specs"]["gpu"]["job_kwargs"]["memory"] == "16GB"
     assert config["pool_specs"]["gpu"]["job_kwargs"]["job_extra_directives"] == {
+        "transfer_executable": "False",
         "+JobFlavour": '"workday"',
         "request_gpus": 1,
     }
@@ -269,6 +288,7 @@ def test_htcondor_cluster_scales_workers_and_computes_tasks(
     assert job_kwargs["memory"] == "8GB"
     assert job_kwargs["disk"] == "12GB"
     assert job_kwargs["job_extra_directives"] == {
+        "transfer_executable": "False",
         "+JobFlavour": '"workday"'
     }
     assert "python" not in job_kwargs
