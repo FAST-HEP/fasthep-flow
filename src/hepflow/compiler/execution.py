@@ -69,6 +69,11 @@ def normalize_global_execution(raw: Any) -> dict[str, Any]:
         raise ValueError("execution.environment must be a mapping")
     environment = _normalize_worker_environment(environment_raw)
 
+    staging_raw = raw.get("staging", {})
+    if not isinstance(staging_raw, dict):
+        raise ValueError("execution.staging must be a mapping")
+    staging = _normalize_execution_staging(staging_raw)
+
     pools = _normalize_execution_pools(
         raw.get("pools"),
         resources=resources,
@@ -82,6 +87,7 @@ def normalize_global_execution(raw: Any) -> dict[str, Any]:
         resources=resources,
         pools=pools,
         environment=environment,
+        staging=staging,
         config=config,
     ).to_dict()
 
@@ -120,6 +126,13 @@ def _normalize_worker_environment(raw: dict[str, Any]) -> dict[str, Any]:
     if plan is None:
         return {}
     return plan.to_dict()
+
+
+def _normalize_execution_staging(raw: dict[str, Any]) -> dict[str, Any]:
+    mode = raw.get("mode", "shared")
+    if mode not in {"shared", "transfer"}:
+        raise ValueError("execution.staging.mode must be 'shared' or 'transfer'")
+    return {"mode": mode}
 
 
 def normalise_execution_modifiers(raw: Any) -> list[ExecutionModifier]:
@@ -237,6 +250,7 @@ def resolve_workflow_execution(
                 "resources": {},
                 "pools": {},
                 "environment": {},
+                "staging": {"mode": "shared"},
                 "config": {},
             },
         }
@@ -331,6 +345,7 @@ def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:
         "resources": {},
         "pools": {},
         "environment": {},
+        "staging": {"mode": "shared"},
         "config": {},
     }
     for layer in layers:
@@ -339,6 +354,7 @@ def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:
         resources = dict(execution.pop("resources", {}) or {})
         pools = dict(execution.pop("pools", {}) or {})
         environment = dict(execution.pop("environment", {}) or {})
+        staging = dict(execution.pop("staging", {}) or {})
         profiles = list(execution.pop("profiles", []) or [])
         merged.update(
             {key: value for key, value in execution.items() if value is not None}
@@ -355,6 +371,10 @@ def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:
         merged["environment"] = {
             **dict(merged.get("environment") or {}),
             **environment,
+        }
+        merged["staging"] = {
+            **dict(merged.get("staging") or {}),
+            **staging,
         }
         merged["config"] = {
             **dict(merged.get("config") or {}),

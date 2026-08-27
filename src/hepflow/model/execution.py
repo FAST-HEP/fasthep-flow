@@ -12,6 +12,7 @@ class ExecutionConfig:
     resources: dict[str, dict[str, Any]] = field(default_factory=dict)
     pools: dict[str, dict[str, Any]] = field(default_factory=dict)
     environment: dict[str, Any] = field(default_factory=dict)
+    staging: dict[str, Any] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

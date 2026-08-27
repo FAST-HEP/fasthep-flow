@@ -12,10 +12,10 @@ from hepflow.backends._dask._pools import (
     resolve_dask_worker_pools,
 )
 from hepflow.backends._dask._worker_env import (
-    PackedPixiEnvironmentSpec,
-    build_htcondor_worker_environment_job_kwargs,
-    build_packed_pixi_worker_environment,
-    packed_pixi_environment_spec_from_execution,
+    StagedExecutionFiles,
+    prepare_staged_execution_files,
+    prepare_worker_environment,
+    validate_transfer_file_basenames,
 )
 from hepflow.build_layout import BuildPaths
 
@@ -124,9 +124,14 @@ def _prepare_htcondor_pool_specs(
         name: {"workers": spec["workers"], "job_kwargs": dict(spec["job_kwargs"])}
         for name, spec in pool_specs.items()
     }
-    worker_env_kwargs = _htcondor_worker_environment_kwargs(
+    worker_environment = prepare_worker_environment(
         execution,
         build_paths=build_paths,
+    )
+    staged_files = prepare_staged_execution_files(
+        worker_environment,
+        build_paths=build_paths,
+        staging=dict(execution.get("staging") or {}),
     )
     paths = _htcondor_execution_paths(build_paths)
     for path in [build_paths.dask_htcondor_dir("submit"), *paths.values()]:
@@ -141,8 +146,11 @@ def _prepare_htcondor_pool_specs(
                 log_path = build_paths.root / log_path
                 job_kwargs["log_directory"] = str(log_path)
             log_path.mkdir(parents=True, exist_ok=True)
-        if worker_env_kwargs:
-            job_kwargs = _merge_htcondor_job_kwargs(worker_env_kwargs, job_kwargs)
+        if staged_files:
+            job_kwargs = _merge_htcondor_job_kwargs(
+                _htcondor_staged_execution_kwargs(staged_files),
+                job_kwargs,
+            )
             spec["job_kwargs"] = job_kwargs
         job_kwargs["submit_directory"] = str(build_paths.dask_htcondor_dir("submit"))
         job_kwargs["job_extra_directives"] = _merge_htcondor_directives(
@@ -170,28 +178,25 @@ def _htcondor_bootstrap_directives(paths: dict[str, Path]) -> dict[str, str]:
     }
 
 
-def _htcondor_worker_environment_kwargs(
-    execution: dict[str, Any],
-    *,
-    build_paths: BuildPaths,
+def _htcondor_staged_execution_kwargs(
+    staging: StagedExecutionFiles,
 ) -> dict[str, object]:
-    spec = packed_pixi_environment_spec_from_execution(execution)
-    if spec is None:
-        return {}
-    archive_path = Path(spec.archive_path)
-    if not archive_path.is_absolute():
-        archive_path = build_paths.root / archive_path
-    worker_env = build_packed_pixi_worker_environment(
-        PackedPixiEnvironmentSpec(
-            environment=spec.environment,
-            archive_path=str(archive_path),
-            worker_env_dir=spec.worker_env_dir,
+    validate_transfer_file_basenames(staging.transfer_files)
+    job_directives: dict[str, str] = {}
+    if staging.transfer_files:
+        transfer_files = ",".join(str(path.resolve()) for path in staging.transfer_files)
+        job_directives.update(
+            {
+                "should_transfer_files": "YES",
+                "when_to_transfer_output": "ON_EXIT",
+                "transfer_input_files": transfer_files,
+            }
         )
-    )
-    log_paths = _htcondor_execution_paths(build_paths)
-    for path in log_paths.values():
-        path.mkdir(parents=True, exist_ok=True)
-    return build_htcondor_worker_environment_job_kwargs(worker_env, log_paths=log_paths)
+    return {
+        "python": staging.python,
+        "job_extra_directives": job_directives,
+        "job_script_prologue": list(staging.bootstrap_commands),
+    }
 
 
 def _merge_htcondor_job_kwargs(

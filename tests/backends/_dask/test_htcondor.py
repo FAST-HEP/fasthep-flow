@@ -15,6 +15,7 @@ from hepflow.backends._dask._htcondor import (
     compute_with_htcondor,
     normalize_dask_htcondor_config,
 )
+from hepflow.backends._dask._worker_env import PreparedWorkerEnvironment
 from hepflow.build_layout import BuildPaths
 from hepflow.model.plan import ExecutionPlan
 from hepflow.runtime.config import _runtime_execution_with_overrides
@@ -361,9 +362,35 @@ def test_htcondor_cluster_scales_workers_and_computes_tasks(
     assert "python" not in job_kwargs
 
 
-def test_htcondor_packed_pixi_environment_kwargs_added_when_requested(
+def test_htcondor_shared_environment_adds_no_transfer_inputs(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    archive = tmp_path / "env.tar.gz"
+    bootstrap = tmp_path / "bootstrap.sh"
+    manifest = tmp_path / "manifest.json"
+    for path in [archive, bootstrap, manifest]:
+        path.write_text("x", encoding="utf-8")
+
+    def fake_prepare_worker_environment(
+        execution: dict[str, Any],
+        *,
+        build_paths: BuildPaths,
+    ) -> PreparedWorkerEnvironment:
+        return PreparedWorkerEnvironment(
+            python="./worker-env/bin/python",
+            bootstrap_commands=["set -e", f". {bootstrap}"],
+            transfer_files=[],
+            env={},
+            environment_manifest=manifest,
+            environment_archive=archive,
+            bootstrap_script=bootstrap,
+        )
+
+    monkeypatch.setattr(
+        "hepflow.backends._dask._htcondor.prepare_worker_environment",
+        fake_prepare_worker_environment,
+    )
     execution = {
         "backend": "dask",
         "strategy": "htcondor",
@@ -371,9 +398,8 @@ def test_htcondor_packed_pixi_environment_kwargs_added_when_requested(
         "config": {"workers": 1},
         "environment": {
             "type": "packed-pixi",
+            "mode": "prefix",
             "environment": "default",
-            "archive_path": "debug/distributed/htcondor/env.sh",
-            "worker_env_dir": "worker-env",
         },
     }
     config = normalize_dask_htcondor_config(execution)
@@ -388,21 +414,64 @@ def test_htcondor_packed_pixi_environment_kwargs_added_when_requested(
     assert job_kwargs["python"] == "./worker-env/bin/python"
     assert "job_script_prologue" in job_kwargs
     directives = job_kwargs["job_extra_directives"]
-    assert directives["transfer_input_files"].endswith(
-        "/debug/distributed/htcondor/env.sh"
-    )
+    assert "transfer_input_files" not in directives
     assert directives["transfer_executable"] == "False"
     assert directives["transfer_output_files"] == '""'
 
 
-def test_htcondor_prefix_environment_preparation_not_implemented(
+def test_htcondor_prefix_environment_translates_prepared_environment(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    env_archive = tmp_path / "execution" / "worker-environments" / "env" / "environment.tar.gz"
+    bootstrap = tmp_path / "execution" / "worker-environments" / "env" / "bootstrap.sh"
+    manifest = tmp_path / "execution" / "worker-environments" / "env" / "manifest.json"
+    wheelhouse = tmp_path / "execution" / "applications" / "app" / "wheelhouse"
+    compile_dir = tmp_path / "compile"
+    for path in [env_archive, bootstrap, manifest]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+    wheelhouse.mkdir(parents=True)
+    (wheelhouse / "pkg.whl").write_text("wheel", encoding="utf-8")
+    compile_dir.mkdir()
+    for name in ["plan.yaml", "normalized.yaml", "deps.yaml"]:
+        (compile_dir / name).write_text(name, encoding="utf-8")
+
+    calls = 0
+
+    def fake_prepare_worker_environment(
+        execution: dict[str, Any],
+        *,
+        build_paths: BuildPaths,
+    ) -> PreparedWorkerEnvironment:
+        nonlocal calls
+        calls += 1
+        return PreparedWorkerEnvironment(
+            python="./worker-env/bin/python",
+            bootstrap_commands=["set -e", ". ./bootstrap.sh"],
+            transfer_files=[env_archive, bootstrap, wheelhouse],
+            env={},
+            environment_manifest=manifest,
+            environment_archive=env_archive,
+            bootstrap_script=bootstrap,
+            application_wheelhouse=wheelhouse,
+            application_manifest=None,
+        )
+
+    monkeypatch.setattr(
+        "hepflow.backends._dask._htcondor.prepare_worker_environment",
+        fake_prepare_worker_environment,
+    )
     execution = {
         "backend": "dask",
         "strategy": "htcondor",
         "resources": {"default": {"cpus": 1, "memory": "4GB"}},
-        "config": {"workers": 1},
+        "pools": {
+            "default": {"resources": "default", "workers": 1},
+            "second": {"resources": "default", "workers": 1},
+        },
+        "config": {},
+        "staging": {"mode": "transfer"},
         "environment": {
             "type": "packed-pixi",
             "mode": "prefix",
@@ -411,15 +480,29 @@ def test_htcondor_prefix_environment_preparation_not_implemented(
     }
     config = normalize_dask_htcondor_config(execution)
 
-    with pytest.raises(
-        NotImplementedError,
-        match="mode 'prefix' is planned but runtime preparation is not implemented yet",
-    ):
-        _prepare_htcondor_pool_specs(
-            config["pool_specs"],
-            execution=execution,
-            build_paths=BuildPaths(root=tmp_path),
-        )
+    prepared = _prepare_htcondor_pool_specs(
+        config["pool_specs"],
+        execution=execution,
+        build_paths=BuildPaths(root=tmp_path),
+    )
+
+    assert calls == 1
+    for spec in prepared.values():
+        job_kwargs = spec["job_kwargs"]
+        assert job_kwargs["python"] == "./worker-env/bin/python"
+        assert job_kwargs["job_script_prologue"][:3] == [
+            "set -e",
+            "mkdir -p compile",
+            "tar -xzf compile.tar.gz -C compile",
+        ]
+        directives = job_kwargs["job_extra_directives"]
+        assert "execution/staging/compile.tar.gz" in directives["transfer_input_files"]
+        assert "execution/staging/environment.tar.gz" in directives["transfer_input_files"]
+        assert "execution/staging/application" in directives["transfer_input_files"]
+        assert directives["transfer_executable"] == "False"
+        assert directives["transfer_output_files"] == '""'
+        for item in directives["transfer_input_files"].split(","):
+            assert Path(item).exists()
 
 
 def test_cli_workers_override_htcondor_config_workers() -> None:

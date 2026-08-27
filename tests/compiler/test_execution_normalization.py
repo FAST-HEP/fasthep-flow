@@ -21,6 +21,7 @@ def test_missing_execution_block_gives_defaults(toy_workflow: dict[str, Any]) ->
         "resources": {},
         "pools": {},
         "environment": {},
+        "staging": {"mode": "shared"},
         "config": {},
     }
 
@@ -60,6 +61,7 @@ def test_global_execution_normalization_preserves_metadata(
     assert normalized["execution"] == {
         **workflow["execution"],
         "environment": {},
+        "staging": {"mode": "shared"},
         "pools": {
             "default": {
                 "resources": "default",
@@ -118,6 +120,11 @@ def test_global_execution_normalization_preserves_metadata(
         ),
         ({"config": []}, "execution.config must be a mapping"),
         ({"environment": []}, "execution.environment must be a mapping"),
+        ({"staging": []}, "execution.staging must be a mapping"),
+        (
+            {"staging": {"mode": "elsewhere"}},
+            "execution.staging.mode must be 'shared' or 'transfer'",
+        ),
     ],
 )
 def test_invalid_global_execution_errors(

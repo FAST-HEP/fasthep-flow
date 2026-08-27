@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import sys
+import types
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -12,12 +15,22 @@ from hepflow.backends._dask._pooled import (
     normalize_pooled_worker_pools,
 )
 from hepflow.backends._dask._worker_env import (
+    EditableDistribution,
     PackedPixiEnvironmentSpec,
+    PreparedWorkerEnvironment,
     WorkerCredential,
     build_htcondor_worker_environment_job_kwargs,
     build_packed_pixi_worker_environment,
+    discover_editable_distributions,
+    pack_relocatable_prefix,
+    prepare_staged_execution_files,
+    prepare_worker_environment,
+    resolve_pixi_prefix,
+    stage_editable_wheels,
+    verify_transfer_files,
     x509_proxy_from_environment,
 )
+from hepflow.build_layout import BuildPaths
 
 
 class FakeJob:
@@ -384,6 +397,282 @@ def test_htcondor_worker_environment_transfer_basenames_must_be_unique(
 
     with pytest.raises(ValueError, match="unique basenames"):
         build_htcondor_worker_environment_job_kwargs(env, log_paths=paths)
+
+
+def test_resolve_pixi_prefix_uses_current_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prefix = tmp_path / "prefix"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "python").write_text("", encoding="utf-8")
+    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
+    monkeypatch.setenv("CONDA_PREFIX", str(prefix))
+
+    assert resolve_pixi_prefix("default") == prefix.resolve()
+
+
+def test_resolve_pixi_prefix_uses_project_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prefix = tmp_path / ".pixi" / "envs" / "analysis"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "python").write_text("", encoding="utf-8")
+    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
+    monkeypatch.setenv("CONDA_PREFIX", str(tmp_path / "other"))
+    monkeypatch.setenv("PIXI_PROJECT_ROOT", str(tmp_path))
+
+    assert resolve_pixi_prefix("analysis") == prefix.resolve()
+
+
+def test_resolve_pixi_prefix_errors_for_missing_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PIXI_PROJECT_ROOT", str(tmp_path))
+
+    with pytest.raises(FileNotFoundError, match="Pixi environment prefix does not exist"):
+        resolve_pixi_prefix("missing")
+
+
+def test_pack_relocatable_prefix_uses_conda_pack(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_pack(**kwargs: Any) -> None:
+        calls.append(kwargs)
+        Path(str(kwargs["output"])).write_text("archive", encoding="utf-8")
+
+    monkeypatch.setitem(sys.modules, "conda_pack", types.SimpleNamespace(pack=fake_pack))
+    archive = pack_relocatable_prefix(tmp_path / "prefix", tmp_path / "env.tar.gz")
+
+    assert archive == tmp_path / "env.tar.gz"
+    assert calls == [
+        {
+            "prefix": str(tmp_path / "prefix"),
+            "output": str(tmp_path / "env.tar.gz"),
+            "force": True,
+            "ignore_editable_packages": True,
+        }
+    ]
+
+
+def test_discover_editable_distributions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    site = tmp_path / "site-packages"
+    dist_info = site / "fasthep_workshop-1.2.3.dist-info"
+    dist_info.mkdir(parents=True)
+    (dist_info / "METADATA").write_text(
+        "Name: fasthep-workshop\nVersion: 1.2.3\n",
+        encoding="utf-8",
+    )
+    source = tmp_path / "src" / "workshop"
+    source.mkdir(parents=True)
+    (source / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+    (dist_info / "direct_url.json").write_text(
+        json.dumps({"url": f"file://{source}", "dir_info": {"editable": True}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.sysconfig.get_path",
+        lambda *args, **kwargs: str(site),
+    )
+
+    assert discover_editable_distributions(tmp_path / "prefix") == [
+        EditableDistribution(
+            name="fasthep-workshop",
+            version="1.2.3",
+            source_path=source.resolve(),
+        )
+    ]
+
+
+def test_stage_editable_wheels_records_hashes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "src"
+    source.mkdir()
+
+    def fake_run(cmd: list[str], *, check: bool) -> None:
+        assert check is True
+        outdir = Path(cmd[cmd.index("--outdir") + 1])
+        outdir.mkdir(parents=True, exist_ok=True)
+        (outdir / "fasthep_workshop-1.0.0-py3-none-any.whl").write_text(
+            "wheel",
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.subprocess.run",
+        fake_run,
+    )
+    files, manifest = stage_editable_wheels(
+        [
+            EditableDistribution(
+                name="fasthep-workshop",
+                version="1.0.0",
+                source_path=source,
+            )
+        ],
+        application_dir=tmp_path / "applications" / "app",
+    )
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert files == [tmp_path / "applications" / "app" / "wheelhouse"]
+    assert payload["packages"][0]["name"] == "fasthep-workshop"
+    assert payload["wheels"][0]["sha256"]
+
+
+def test_prepare_prefix_environment_creates_archive_bootstrap_and_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prefix = tmp_path / "prefix"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "python").write_text("", encoding="utf-8")
+    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
+    monkeypatch.setenv("CONDA_PREFIX", str(prefix))
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.pack_relocatable_prefix",
+        lambda prefix, output: output.write_text("archive", encoding="utf-8") or output,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.discover_editable_distributions",
+        lambda prefix: [],
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.required_fasthep_imports",
+        lambda prefix, editables: ["distributed", "hepflow"],
+    )
+
+    prepared = prepare_worker_environment(
+        {
+            "environment": {
+                "type": "packed-pixi",
+                "mode": "prefix",
+                "environment": "default",
+            }
+        },
+        build_paths=BuildPaths(root=tmp_path / "build"),
+    )
+
+    assert prepared is not None
+    assert prepared.python == "./worker-env/bin/python"
+    assert prepared.transfer_files == []
+    assert prepared.environment_archive is not None
+    assert prepared.bootstrap_script is not None
+    bootstrap = prepared.bootstrap_script
+    script = bootstrap.read_text(encoding="utf-8")
+    assert 'tar -xzf "$ENV_ARCHIVE" -C worker-env' in script
+    assert "./worker-env/bin/conda-unpack" in script
+    assert script.index("conda-unpack") < script.index("distributed.cli.dask_worker")
+    manifest = json.loads(prepared.environment_manifest.read_text(encoding="utf-8"))
+    assert manifest["archive"]["sha256"]
+    assert manifest["worker_python"] == "./worker-env/bin/python"
+
+
+def test_shared_staging_transfers_no_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prefix = tmp_path / "prefix"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "python").write_text("", encoding="utf-8")
+    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
+    monkeypatch.setenv("CONDA_PREFIX", str(prefix))
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.pack_relocatable_prefix",
+        lambda prefix, output: output.write_text("archive", encoding="utf-8") or output,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.discover_editable_distributions",
+        lambda prefix: [],
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.required_fasthep_imports",
+        lambda prefix, editables: ["distributed", "hepflow"],
+    )
+    prepared = prepare_worker_environment(
+        {
+            "environment": {
+                "type": "packed-pixi",
+                "mode": "prefix",
+                "environment": "default",
+            }
+        },
+        build_paths=BuildPaths(root=tmp_path / "build"),
+    )
+
+    staged = prepare_staged_execution_files(
+        prepared,
+        build_paths=BuildPaths(root=tmp_path / "build"),
+        staging={"mode": "shared"},
+    )
+
+    assert staged is not None
+    assert staged.transfer_files == []
+    assert "FASTHEP_ENV_ARCHIVE=" in staged.bootstrap_commands[1]
+
+
+def test_transfer_staging_creates_compile_environment_application_manifest(
+    tmp_path: Path,
+) -> None:
+    build_paths = BuildPaths(root=tmp_path / "build")
+    build_paths.compile_dir().mkdir(parents=True)
+    for name in ["plan.yaml", "normalized.yaml", "deps.yaml"]:
+        build_paths.compile_file(name).write_text(name, encoding="utf-8")
+    env_dir = build_paths.worker_environments_dir() / "env"
+    env_dir.mkdir(parents=True)
+    archive = env_dir / "environment.tar.gz"
+    bootstrap = env_dir / "bootstrap.sh"
+    archive.write_text("archive", encoding="utf-8")
+    bootstrap.write_text("bootstrap", encoding="utf-8")
+    wheelhouse = build_paths.applications_dir() / "app" / "wheelhouse"
+    wheelhouse.mkdir(parents=True)
+    (wheelhouse / "pkg.whl").write_text("wheel", encoding="utf-8")
+    manifest = env_dir / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    prepared = PreparedWorkerEnvironment(
+        python="./worker-env/bin/python",
+        bootstrap_commands=[],
+        transfer_files=[],
+        env={},
+        environment_manifest=manifest,
+        environment_archive=archive,
+        bootstrap_script=bootstrap,
+        application_wheelhouse=wheelhouse,
+    )
+
+    staged = prepare_staged_execution_files(
+        prepared,
+        build_paths=build_paths,
+        staging={"mode": "transfer"},
+    )
+
+    assert staged is not None
+    names = {path.name for path in staged.transfer_files}
+    assert names == {"compile.tar.gz", "environment.tar.gz", "bootstrap.sh", "application"}
+    assert staged.bootstrap_commands[:3] == [
+        "set -e",
+        "mkdir -p compile",
+        "tar -xzf compile.tar.gz -C compile",
+    ]
+    assert all(not Path(item).is_absolute() for item in staged.bootstrap_commands)
+    payload = json.loads(staged.manifest.read_text(encoding="utf-8"))
+    assert payload["compile"]["sha256"]
+    assert payload["environment"]["sha256"]
+    assert payload["application"]["wheelhouse"]["sha256"]
+
+
+def test_verify_transfer_files_fails_before_submit(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="Staged transfer input does not exist"):
+        verify_transfer_files([tmp_path / "missing.tar.gz"])
 
 
 def test_manual_script_uses_shared_worker_env_helpers() -> None:
