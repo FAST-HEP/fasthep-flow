@@ -94,18 +94,28 @@ class ProgressReporter:
         self._dispatch(update)
         return update
 
-    def phase_started(self, phase: str) -> ProgressUpdate:
+    def phase_started(
+        self,
+        phase: str,
+        *,
+        detail: dict[str, Any] | None = None,
+    ) -> ProgressUpdate:
         phase = _phase(phase)
         with self._lock:
             self._phase = phase
-            update = self._update("phase_started", phase=phase)
+            update = self._update("phase_started", phase=phase, detail=detail)
         self._dispatch(update)
         return update
 
-    def phase_completed(self, phase: str) -> ProgressUpdate:
+    def phase_completed(
+        self,
+        phase: str,
+        *,
+        detail: dict[str, Any] | None = None,
+    ) -> ProgressUpdate:
         phase = _phase(phase)
         with self._lock:
-            update = self._update("phase_completed", phase=phase)
+            update = self._update("phase_completed", phase=phase, detail=detail)
             if self._phase == phase:
                 self._phase = None
         self._dispatch(update)

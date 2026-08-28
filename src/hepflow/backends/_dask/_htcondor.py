@@ -12,6 +12,7 @@ from hepflow.backends._dask._pools import (
     resolve_dask_worker_pools,
 )
 from hepflow.backends._dask._worker_env import (
+    DistributedPreparationProgress,
     StagedExecutionFiles,
     prepare_staged_execution_files,
     prepare_worker_environment,
@@ -90,6 +91,7 @@ def compute_with_htcondor(
     *,
     execution: dict[str, Any],
     build_paths: BuildPaths,
+    progress: Any | None = None,
 ) -> tuple[list[Any], str | None, dict[str, Any]]:
     try:
         import dask_jobqueue  # noqa: F401, PLC0415
@@ -103,6 +105,7 @@ def compute_with_htcondor(
         htcondor_config["pool_specs"],
         execution=execution,
         build_paths=build_paths,
+        progress=progress,
     )
 
     cluster = DaskPooledHTCondorCluster(pools=pool_specs)
@@ -116,6 +119,8 @@ def compute_with_htcondor(
             timeout=float(htcondor_config["worker_start_timeout"]),
             build_paths=build_paths,
         )
+        if progress is not None:
+            progress.phase_started("executing")
         results, dashboard_link = compute_with_client(client, tasks)
         return results, dashboard_link, htcondor_config
     finally:
@@ -128,6 +133,34 @@ def _prepare_htcondor_pool_specs(
     *,
     execution: dict[str, Any],
     build_paths: BuildPaths,
+    progress: Any | None = None,
+) -> dict[str, dict[str, Any]]:
+    staging_mode = str(dict(execution.get("staging") or {}).get("mode") or "shared")
+    preparation_progress = DistributedPreparationProgress(progress)
+    preparation_progress.step(
+        "resolving_editable_snapshots",
+        staging_mode=staging_mode,
+    )
+    try:
+        return _prepare_htcondor_pool_specs_impl(
+            pool_specs,
+            execution=execution,
+            build_paths=build_paths,
+            preparation_progress=preparation_progress,
+            staging_mode=staging_mode,
+        )
+    except BaseException as exc:
+        preparation_progress.fail(exc)
+        raise
+
+
+def _prepare_htcondor_pool_specs_impl(
+    pool_specs: dict[str, dict[str, Any]],
+    *,
+    execution: dict[str, Any],
+    build_paths: BuildPaths,
+    preparation_progress: DistributedPreparationProgress,
+    staging_mode: str,
 ) -> dict[str, dict[str, Any]]:
     prepared = {
         name: {"workers": spec["workers"], "job_kwargs": dict(spec["job_kwargs"])}
@@ -136,11 +169,21 @@ def _prepare_htcondor_pool_specs(
     worker_environment = prepare_worker_environment(
         execution,
         build_paths=build_paths,
+        progress=preparation_progress,
+    )
+    preparation_progress.step(
+        "preparing_compilation_and_staging_files",
+        staging_mode=staging_mode,
     )
     staged_files = prepare_staged_execution_files(
         worker_environment,
         build_paths=build_paths,
         staging=dict(execution.get("staging") or {}),
+    )
+    preparation_progress.step(
+        "ready_to_submit_workers",
+        staging_mode=staging_mode,
+        transfer_file_count=len(staged_files.transfer_files) if staged_files else 0,
     )
     paths = _htcondor_execution_paths(build_paths)
     for path in [build_paths.dask_htcondor_dir("submit"), *paths.values()]:
@@ -167,6 +210,11 @@ def _prepare_htcondor_pool_specs(
             _htcondor_bootstrap_directives(paths),
             f"HTCondor worker pool {name!r}",
         )
+    preparation_progress.complete(
+        prepared=worker_environment,
+        staged=staged_files,
+        staging_mode=staging_mode,
+    )
     return prepared
 
 

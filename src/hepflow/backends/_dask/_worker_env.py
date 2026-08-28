@@ -14,11 +14,14 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from importlib import metadata
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from hepflow.build_layout import BuildPaths
 from hepflow.model.worker_environment import worker_environment_plan_from_execution
 from hepflow.utils import write_json
+
+DISTRIBUTED_PREPARATION_PHASE = "Preparing distributed execution"
 
 
 @dataclass(slots=True, frozen=True)
@@ -82,6 +85,55 @@ class StagedExecutionFiles:
     manifest: Path
 
 
+class DistributedPreparationProgress:
+    def __init__(self, reporter: Any | None = None) -> None:
+        self._reporter = reporter
+        self._started = monotonic()
+        self.active_step: str | None = None
+
+    def step(self, step: str, **detail: Any) -> None:
+        self.active_step = step
+        if self._reporter is None:
+            return
+        self._reporter.phase_started(
+            DISTRIBUTED_PREPARATION_PHASE,
+            detail={"step": step, **_safe_progress_detail(detail)},
+        )
+
+    def complete(
+        self,
+        *,
+        prepared: PreparedWorkerEnvironment | None,
+        staged: StagedExecutionFiles | None,
+        staging_mode: str,
+    ) -> None:
+        if self._reporter is None:
+            return
+        detail = {
+            "status": "completed",
+            "elapsed_seconds": monotonic() - self._started,
+            "staging_mode": staging_mode,
+            **distributed_preparation_size_summary(prepared, staged),
+        }
+        self._reporter.phase_completed(
+            DISTRIBUTED_PREPARATION_PHASE,
+            detail=detail,
+        )
+
+    def fail(self, exc: BaseException) -> None:
+        if self._reporter is None:
+            return
+        self._reporter.phase_completed(
+            DISTRIBUTED_PREPARATION_PHASE,
+            detail={
+                "status": "failed",
+                "active_step": self.active_step,
+                "elapsed_seconds": monotonic() - self._started,
+                "exception_type": type(exc).__name__,
+            },
+        )
+
+
 def pack_pixi_environment(
     output_file: Path,
     *,
@@ -109,6 +161,7 @@ def prepare_worker_environment(
     execution: Mapping[str, Any],
     *,
     build_paths: BuildPaths,
+    progress: DistributedPreparationProgress | None = None,
 ) -> PreparedWorkerEnvironment | None:
     plan = worker_environment_plan_from_execution(execution)
     if plan is None:
@@ -154,6 +207,12 @@ def prepare_worker_environment(
     editable_snapshot: EditableSnapshot | None = None
     shared_pythonpath: list[Path] = []
     if editables and staging_mode == "transfer":
+        if progress is not None:
+            progress.step(
+                "resolving_editable_snapshots",
+                staging_mode=staging_mode,
+                editable_count=len(editables),
+            )
         editable_snapshot = build_editable_snapshot(
             editables,
             output_file=environment_dir / "editable-snapshot.tar.gz",
@@ -184,6 +243,13 @@ def prepare_worker_environment(
     elif editables:
         shared_pythonpath = [item.source_path for item in editables]
 
+    if progress is not None:
+        progress.step(
+            "packing_worker_environment",
+            staging_mode=staging_mode,
+            editable_count=len(editables),
+            editable_snapshot=editable_snapshot is not None,
+        )
     pack_relocatable_prefix(prefix, archive_path)
     validate_packed_prefix_archive(
         archive_path,
@@ -426,6 +492,29 @@ def prepare_transfer_staging(
         env={},
         manifest=manifest_path,
     )
+
+
+def distributed_preparation_size_summary(
+    prepared: PreparedWorkerEnvironment | None,
+    staged: StagedExecutionFiles | None,
+) -> dict[str, Any]:
+    worker_environment: dict[str, int] = {}
+    if prepared is not None and prepared.environment_archive is not None:
+        worker_environment["prefix_archive_bytes"] = prepared.environment_archive.stat().st_size
+    if prepared is not None and prepared.editable_snapshot_archive is not None:
+        worker_environment["editable_snapshot_bytes"] = (
+            prepared.editable_snapshot_archive.stat().st_size
+        )
+
+    staging: dict[str, Any] = {"transfer_file_count": 0, "transfer_bytes": 0}
+    if staged is not None:
+        staging["transfer_file_count"] = len(staged.transfer_files)
+        staging["transfer_bytes"] = sum(_path_size(path) for path in staged.transfer_files)
+
+    return {
+        "worker_environment": worker_environment,
+        "staging": staging,
+    }
 
 
 def build_compile_bundle(compile_dir: Path, output_file: Path) -> Path:
@@ -817,6 +906,26 @@ def _directory_record(path: Path) -> dict[str, Any]:
         "sha256": digest.hexdigest(),
         "files": files,
     }
+
+
+def _path_size(path: Path) -> int:
+    if path.is_file():
+        return path.stat().st_size
+    if path.is_dir():
+        return sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
+    return 0
+
+
+def _safe_progress_detail(detail: dict[str, Any]) -> dict[str, Any]:
+    safe: dict[str, Any] = {}
+    for key, value in detail.items():
+        if isinstance(value, Path):
+            continue
+        if isinstance(value, str | int | float | bool) or value is None:
+            safe[key] = value
+        elif isinstance(value, dict):
+            safe[key] = _safe_progress_detail(value)
+    return safe
 
 
 def _shell_quote(value: str) -> str:

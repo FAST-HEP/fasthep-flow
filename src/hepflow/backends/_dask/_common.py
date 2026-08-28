@@ -68,7 +68,8 @@ class DaskBackend:
         try:
             if reporter is not None:
                 reporter.run_started(detail={"backend": "dask", "strategy": strategy})
-                reporter.phase_started("executing")
+                if strategy != "htcondor":
+                    reporter.phase_started("executing")
 
             dashboard_link: str | None = None
             strategy_config: dict[str, Any] | None = None
@@ -80,6 +81,7 @@ class DaskBackend:
                     tasks,
                     execution=plan.execution,
                     build_paths=BuildPaths.from_ctx(base_ctx),
+                    progress=reporter,
                 )
             elif strategy == "slurm":
                 compute_with_slurm = import_module(

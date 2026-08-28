@@ -19,6 +19,7 @@ from hepflow.backends._dask._htcondor import (
 from hepflow.backends._dask._worker_env import PreparedWorkerEnvironment
 from hepflow.build_layout import BuildPaths
 from hepflow.model.plan import ExecutionPlan
+from hepflow.progress import ProgressReporter, ProgressUpdate
 from hepflow.runtime.config import _runtime_execution_with_overrides
 
 
@@ -478,7 +479,9 @@ def test_htcondor_shared_environment_adds_no_transfer_inputs(
         execution: dict[str, Any],
         *,
         build_paths: BuildPaths,
+        progress: Any | None = None,
     ) -> PreparedWorkerEnvironment:
+        del progress
         return PreparedWorkerEnvironment(
             python="./worker-env/bin/python",
             bootstrap_commands=["set -e", f". {bootstrap}"],
@@ -548,7 +551,9 @@ def test_htcondor_prefix_environment_translates_prepared_environment(
         execution: dict[str, Any],
         *,
         build_paths: BuildPaths,
+        progress: Any | None = None,
     ) -> PreparedWorkerEnvironment:
+        del progress
         nonlocal calls
         calls += 1
         return PreparedWorkerEnvironment(
@@ -611,6 +616,156 @@ def test_htcondor_prefix_environment_translates_prepared_environment(
             assert Path(item).exists()
 
 
+def test_htcondor_preparation_progress_reports_order_and_sizes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    prepared_env = _prepared_worker_environment(tmp_path, include_snapshot=True)
+    build_paths = BuildPaths(root=tmp_path)
+    build_paths.compile_dir().mkdir(parents=True)
+    for name in ["plan.yaml", "normalized.yaml", "deps.yaml"]:
+        build_paths.compile_file(name).write_text(name, encoding="utf-8")
+
+    def fake_prepare_worker_environment(
+        execution: dict[str, Any],
+        *,
+        build_paths: BuildPaths,
+        progress: Any | None = None,
+    ) -> PreparedWorkerEnvironment:
+        del execution, build_paths
+        assert progress is not None
+        progress.step("packing_worker_environment", staging_mode="transfer")
+        return prepared_env
+
+    monkeypatch.setattr(
+        "hepflow.backends._dask._htcondor.prepare_worker_environment",
+        fake_prepare_worker_environment,
+    )
+    sink = _CollectSink()
+    reporter = ProgressReporter([], sinks=[sink])
+    config = normalize_dask_htcondor_config(_htcondor_execution(staging="transfer"))
+
+    _prepare_htcondor_pool_specs(
+        config["pool_specs"],
+        execution=_htcondor_execution(staging="transfer"),
+        build_paths=build_paths,
+        progress=reporter,
+    )
+    reporter.close()
+
+    events = [
+        update.event for update in sink.updates
+        if update.event.phase == "Preparing distributed execution"
+    ]
+    assert [event.kind for event in events] == [
+        "phase_started",
+        "phase_started",
+        "phase_started",
+        "phase_started",
+        "phase_completed",
+    ]
+    assert [event.detail.get("step") for event in events[:-1]] == [
+        "resolving_editable_snapshots",
+        "packing_worker_environment",
+        "preparing_compilation_and_staging_files",
+        "ready_to_submit_workers",
+    ]
+    completed = events[-1].detail
+    assert completed["status"] == "completed"
+    assert completed["staging_mode"] == "transfer"
+    assert completed["elapsed_seconds"] >= 0
+    assert completed["worker_environment"]["prefix_archive_bytes"] == 7
+    assert completed["worker_environment"]["editable_snapshot_bytes"] == 8
+    assert completed["staging"]["transfer_file_count"] == 4
+    assert completed["staging"]["transfer_bytes"] > 0
+
+
+def test_htcondor_preparation_progress_shared_mode_omits_snapshot_and_transfer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    prepared_env = _prepared_worker_environment(tmp_path, include_snapshot=False)
+
+    def fake_prepare_worker_environment(
+        execution: dict[str, Any],
+        *,
+        build_paths: BuildPaths,
+        progress: Any | None = None,
+    ) -> PreparedWorkerEnvironment:
+        del execution, build_paths, progress
+        return prepared_env
+
+    monkeypatch.setattr(
+        "hepflow.backends._dask._htcondor.prepare_worker_environment",
+        fake_prepare_worker_environment,
+    )
+    sink = _CollectSink()
+    reporter = ProgressReporter([], sinks=[sink])
+    config = normalize_dask_htcondor_config(_htcondor_execution())
+
+    _prepare_htcondor_pool_specs(
+        config["pool_specs"],
+        execution=_htcondor_execution(),
+        build_paths=BuildPaths(root=tmp_path),
+        progress=reporter,
+    )
+    reporter.close()
+
+    completed = next(
+        update.event.detail for update in sink.updates
+        if update.event.kind == "phase_completed"
+        and update.event.phase == "Preparing distributed execution"
+    )
+    assert completed["staging_mode"] == "shared"
+    assert "editable_snapshot_bytes" not in completed["worker_environment"]
+    assert completed["staging"] == {"transfer_file_count": 0, "transfer_bytes": 0}
+
+
+def test_htcondor_preparation_progress_reports_failure_and_reraises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class SnapshotFailure(RuntimeError):
+        pass
+
+    def fake_prepare_worker_environment(
+        execution: dict[str, Any],
+        *,
+        build_paths: BuildPaths,
+        progress: Any | None = None,
+    ) -> PreparedWorkerEnvironment:
+        del execution, build_paths
+        assert progress is not None
+        progress.step("packing_worker_environment")
+        raise SnapshotFailure("snapshot failed")
+
+    monkeypatch.setattr(
+        "hepflow.backends._dask._htcondor.prepare_worker_environment",
+        fake_prepare_worker_environment,
+    )
+    sink = _CollectSink()
+    reporter = ProgressReporter([], sinks=[sink])
+    config = normalize_dask_htcondor_config(_htcondor_execution(staging="transfer"))
+
+    with pytest.raises(SnapshotFailure, match="snapshot failed"):
+        _prepare_htcondor_pool_specs(
+            config["pool_specs"],
+            execution=_htcondor_execution(staging="transfer"),
+            build_paths=BuildPaths(root=tmp_path),
+            progress=reporter,
+        )
+    reporter.close()
+
+    failed = next(
+        update.event.detail for update in sink.updates
+        if update.event.kind == "phase_completed"
+        and update.event.phase == "Preparing distributed execution"
+    )
+    assert failed["status"] == "failed"
+    assert failed["active_step"] == "packing_worker_environment"
+    assert failed["exception_type"] == "SnapshotFailure"
+
+
 def test_cli_workers_override_htcondor_config_workers() -> None:
     execution = _runtime_execution_with_overrides(
         {
@@ -642,10 +797,12 @@ def test_dask_backend_dispatches_to_htcondor(
         *,
         execution: dict[str, Any],
         build_paths: BuildPaths,
+        progress: Any | None = None,
     ) -> tuple[list[Any], str | None, dict[str, Any]]:
         calls["tasks"] = tasks
         calls["execution"] = execution
         calls["build_paths"] = build_paths
+        calls["progress"] = progress
         return [], None, {"workers": 2, "cluster_options": {}}
 
     monkeypatch.setattr(
@@ -671,9 +828,60 @@ def test_dask_backend_dispatches_to_htcondor(
     result = DaskBackend().run(plan)
 
     assert calls["execution"] == plan.execution
+    assert calls["progress"] is None
     assert result.strategy == "htcondor"
     assert result.summary["strategy"] == "htcondor"
     assert result.summary["backend"]["htcondor"] == {
         "workers": 2,
         "cluster_options": {},
     }
+
+
+class _CollectSink:
+    def __init__(self) -> None:
+        self.updates: list[ProgressUpdate] = []
+
+    def handle(self, update: ProgressUpdate) -> None:
+        self.updates.append(update)
+
+
+def _prepared_worker_environment(
+    tmp_path: Path,
+    *,
+    include_snapshot: bool,
+) -> PreparedWorkerEnvironment:
+    env_dir = tmp_path / "execution" / "worker-environments" / "env"
+    env_dir.mkdir(parents=True, exist_ok=True)
+    prefix = env_dir / "prefix.tar.gz"
+    bootstrap = env_dir / "bootstrap.sh"
+    manifest = env_dir / "manifest.json"
+    prefix.write_text("prefix\n", encoding="utf-8")
+    bootstrap.write_text("bootstrap\n", encoding="utf-8")
+    manifest.write_text("{}", encoding="utf-8")
+    snapshot = None
+    if include_snapshot:
+        snapshot = env_dir / "editable-snapshot.tar.gz"
+        snapshot.write_text("snapshot", encoding="utf-8")
+    return PreparedWorkerEnvironment(
+        python="./worker-env/bin/python",
+        bootstrap_commands=["set -e", ". ./bootstrap.sh"],
+        transfer_files=[],
+        env={},
+        environment_manifest=manifest,
+        environment_archive=prefix,
+        bootstrap_script=bootstrap,
+        editable_snapshot_archive=snapshot,
+    )
+
+
+def _htcondor_execution(*, staging: str = "shared") -> dict[str, Any]:
+    execution = {
+        "backend": "dask",
+        "strategy": "htcondor",
+        "resources": {"default": {"cpus": 1, "memory": "4GB"}},
+        "config": {"workers": 1},
+        "environment": {"type": "packed-pixi", "mode": "prefix"},
+    }
+    if staging != "shared":
+        execution["staging"] = {"mode": staging}
+    return execution
