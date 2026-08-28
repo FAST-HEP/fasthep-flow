@@ -24,6 +24,13 @@ class ProfileSource:
 class ProfileInclude:
     name: str
     optional: bool = False
+    backends: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileExpansion:
+    names: list[str]
+    skipped_optional: list[dict[str, str]]
 
 
 def project_profile_dir(root: Path) -> Path:
@@ -63,15 +70,29 @@ def expand_profile_names(
     project_root: Path,
 ) -> list[str]:
     """Expand profile includes while preserving explicit profile order."""
+    return expand_profile_names_with_provenance(
+        names,
+        project_root=project_root,
+    ).names
+
+
+def expand_profile_names_with_provenance(
+    names: list[str],
+    *,
+    project_root: Path,
+) -> ProfileExpansion:
+    """Expand profile includes and report optional includes skipped as missing."""
     expanded: list[str] = []
+    skipped_optional: list[dict[str, str]] = []
     for name in names:
         _expand_profile_name(
             name,
             project_root=project_root,
             stack=[],
             expanded=expanded,
+            skipped_optional=skipped_optional,
         )
-    return expanded
+    return ProfileExpansion(names=expanded, skipped_optional=skipped_optional)
 
 
 def load_profile_config(
@@ -230,6 +251,7 @@ def _expand_profile_name(
     project_root: Path,
     stack: list[str],
     expanded: list[str],
+    skipped_optional: list[dict[str, str]],
 ) -> None:
     if name in stack:
         cycle = " -> ".join([*stack, name])
@@ -251,9 +273,18 @@ def _expand_profile_name(
                 project_root=project_root,
                 stack=[*stack, name],
                 expanded=expanded,
+                skipped_optional=skipped_optional,
             )
-        except FileNotFoundError:
+        except FileNotFoundError as exc:
             if include.optional:
+                skipped_optional.append(
+                    {
+                        "profile": include.name,
+                        "included_by": name,
+                        "backends": ",".join(include.backends),
+                        "reason": str(exc),
+                    }
+                )
                 continue
             raise
 
@@ -281,8 +312,18 @@ def _profile_includes(config: dict[str, Any], name: str) -> list[ProfileInclude]
                 raise ValueError(
                     f"Profile {name!r} includes[{index}].optional must be a boolean"
                 )
+            provides = item.get("provides") or {}
+            if not isinstance(provides, dict):
+                raise ValueError(
+                    f"Profile {name!r} includes[{index}].provides must be a mapping"
+                )
+            backends = _provided_backend_names(provides, name, index)
             includes.append(
-                ProfileInclude(name=include_name.strip(), optional=optional)
+                ProfileInclude(
+                    name=include_name.strip(),
+                    optional=optional,
+                    backends=tuple(backends),
+                )
             )
             continue
         if not isinstance(item, str) or not item.strip():
@@ -290,3 +331,25 @@ def _profile_includes(config: dict[str, Any], name: str) -> list[ProfileInclude]
                 f"Profile {name!r} includes[{index}] must be a non-empty string"
             )
     return includes
+
+
+def _provided_backend_names(
+    provides: dict[str, Any],
+    profile_name: str,
+    include_index: int,
+) -> list[str]:
+    raw = provides.get("backends") or []
+    if not isinstance(raw, list):
+        raise ValueError(
+            f"Profile {profile_name!r} includes[{include_index}].provides.backends "
+            "must be a list of strings"
+        )
+    backends: list[str] = []
+    for backend_index, item in enumerate(raw):
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(
+                f"Profile {profile_name!r} includes[{include_index}]"
+                f".provides.backends[{backend_index}] must be a non-empty string"
+            )
+        backends.append(item.strip())
+    return backends

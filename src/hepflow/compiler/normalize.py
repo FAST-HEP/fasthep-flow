@@ -954,6 +954,13 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
             raise ValueError(
                 f"registry.backends[{name!r}].impl must be 'module:object'"
             )
+        spec_ref = entry.get("spec")
+        if spec_ref is not None and (
+            not isinstance(spec_ref, str) or ":" not in spec_ref
+        ):
+            raise ValueError(
+                f"registry.backends[{name!r}].spec must be 'module:object'"
+            )
 
     for name, entry in hooks.items():
         if not isinstance(name, str) or not name.strip():

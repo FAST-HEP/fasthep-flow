@@ -112,17 +112,14 @@ class BuildPaths:
     def staging_dir(self) -> Path:
         return self.execution_dir("staging")
 
-    def dask_execution_dir(self, kind: str | None = None) -> Path:
-        path = self.execution_dir("dask")
-        if kind:
-            path = path / kind
+    def execution_backend_dir(self, backend: str, *parts: str | Path) -> Path:
+        path = self.execution_dir(backend)
+        for part in parts:
+            path = path / part
         return path
 
-    def dask_htcondor_dir(self, kind: str | None = None) -> Path:
-        path = self.dask_execution_dir("htcondor")
-        if kind:
-            path = path / kind
-        return path
+    def build_dir(self, relative_path: str | Path) -> Path:
+        return self.root / validate_build_relative_path(relative_path)
 
     def compile_dir(self) -> Path:
         return self.root / "compile"
@@ -235,9 +232,14 @@ def write_run_summary(
     write_yaml(deepcopy(summary), str(paths.run_summary()))
 
 
-def ensure_build_layout(root: str | Path, *, variation: str | None = None) -> None:
+def ensure_build_layout(
+    root: str | Path,
+    *,
+    variation: str | None = None,
+    backend_directories: Any = (),
+) -> None:
     paths = BuildPaths(root=Path(root), variation=variation)
-    for path in [
+    base_paths = [
         paths.artifact_dir("plots"),
         paths.artifact_dir("histograms"),
         paths.artifact_dir("cutflows"),
@@ -252,15 +254,36 @@ def ensure_build_layout(root: str | Path, *, variation: str | None = None) -> No
         paths.report_dir("provenance"),
         paths.worker_environments_dir(),
         paths.staging_dir(),
-        paths.dask_htcondor_dir("submit"),
-        paths.dask_htcondor_dir("logs"),
-        paths.dask_htcondor_dir("out"),
-        paths.dask_htcondor_dir("err"),
-        paths.debug_dir("dask"),
         paths.debug_dir("performance"),
         paths.debug_dir("logs"),
-    ]:
+    ]
+    for path in [*base_paths, *backend_declared_build_paths(paths, backend_directories)]:
         path.mkdir(parents=True, exist_ok=True)
+
+
+def backend_declared_build_paths(
+    paths: BuildPaths,
+    backend_directories: Any,
+) -> list[Path]:
+    return [
+        paths.build_dir(relative_path)
+        for relative_path in tuple(backend_directories or ())
+    ]
+
+
+def validate_build_relative_path(path: str | Path) -> Path:
+    relative_path = Path(path)
+    if relative_path.is_absolute():
+        raise ValueError(
+            f"Backend build directory must be relative to the build root: {path!r}"
+        )
+    if any(part in {"", ".", ".."} for part in relative_path.parts):
+        raise ValueError(
+            f"Backend build directory must not contain traversal: {path!r}"
+        )
+    if not relative_path.parts:
+        raise ValueError("Backend build directory must not be empty")
+    return relative_path
 
 
 def resolve_plan_path(path: str | Path) -> Path:

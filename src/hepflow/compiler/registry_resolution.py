@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from hepflow.compiler.profiles import (
-    expand_profile_names,
+    expand_profile_names_with_provenance,
     load_profile_registry_layer,
     normalize_profile_names,
 )
@@ -29,10 +29,11 @@ def resolve_workflow_registry(
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
 
-    profile_names = expand_profile_names(
+    profile_expansion = expand_profile_names_with_provenance(
         normalize_profile_names(use_block.get("profiles")),
         project_root=project_root,
     )
+    profile_names = profile_expansion.names
     builtin_registry = {
         **default_expr_registry_config(),
         **default_runtime_registry_config(),
@@ -50,5 +51,8 @@ def resolve_workflow_registry(
             path=str(workflow_path),
         ),
     ]
-    return merge_registry_layers(layers)
-
+    result = merge_registry_layers(layers)
+    result.provenance["optional_profiles_skipped"] = (
+        profile_expansion.skipped_optional
+    )
+    return result

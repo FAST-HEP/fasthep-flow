@@ -666,7 +666,7 @@ def test_run_plan_file_uses_variation_namespace_by_default(
         build_dir / "artifacts" / "trigger_eff_up" / "files" / "output.json"
     ).exists()
     assert (build_dir / "reports" / "trigger_eff_up" / "schema").exists()
-    assert (build_dir / "debug" / "trigger_eff_up" / "dask").exists()
+    assert (build_dir / "debug" / "trigger_eff_up").exists()
     assert not (build_dir / "trigger_eff_up" / "artifacts").exists()
     assert not (build_dir / "artifacts" / "files").exists()
 

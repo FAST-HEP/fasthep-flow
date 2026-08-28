@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -14,6 +15,14 @@ class BackendResult:
     success: bool
     outputs: dict[str, Any] = field(default_factory=dict)
     summary: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class BackendSpec:
+    """Dependency-light compile-time contract for a backend implementation."""
+
+    validate_execution: Callable[[dict[str, Any]], None] | None = None
+    build_directories: tuple[str, ...] = field(default_factory=tuple)
 
 
 class Backend(Protocol):

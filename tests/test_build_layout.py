@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hepflow.build_layout import BuildPaths, ensure_build_layout
+import pytest
+
+from hepflow.build_layout import (
+    BuildPaths,
+    ensure_build_layout,
+    validate_build_relative_path,
+)
 
 
 def test_build_paths_artifact_without_variation() -> None:
@@ -82,7 +88,7 @@ def test_build_paths_execution_path() -> None:
     assert paths.worker_environments_dir() == Path(
         "build/execution/worker-environments"
     )
-    assert paths.dask_htcondor_dir("submit") == Path(
+    assert paths.execution_backend_dir("dask", "htcondor", "submit") == Path(
         "build/execution/dask/htcondor/submit"
     )
     assert BuildPaths(root=Path("build/execution")).root == Path("build")
@@ -108,5 +114,26 @@ def test_ensure_build_layout_creates_variation_parents(tmp_path: Path) -> None:
     assert (tmp_path / "build" / "artifacts" / "nominal" / "histograms").is_dir()
     assert (tmp_path / "build" / "reports" / "nominal" / "schema").is_dir()
     assert (tmp_path / "build" / "render" / "specs" / "nominal").is_dir()
-    assert (tmp_path / "build" / "execution" / "nominal").is_dir()
-    assert (tmp_path / "build" / "debug" / "nominal" / "logs").is_dir()
+
+
+def test_ensure_build_layout_creates_backend_declared_directories(
+    tmp_path: Path,
+) -> None:
+    ensure_build_layout(
+        tmp_path / "build",
+        backend_directories=[
+            "execution/dask/htcondor/submit",
+            "execution/dask/htcondor/logs",
+            "debug/dask",
+        ],
+    )
+
+    assert (tmp_path / "build" / "execution" / "dask" / "htcondor" / "submit").is_dir()
+    assert (tmp_path / "build" / "execution" / "dask" / "htcondor" / "logs").is_dir()
+    assert (tmp_path / "build" / "debug" / "dask").is_dir()
+
+
+@pytest.mark.parametrize("path", ["/tmp/outside", "../outside", "execution/../x"])
+def test_backend_declared_build_directories_reject_unsafe_paths(path: str) -> None:
+    with pytest.raises(ValueError, match="build directory"):
+        validate_build_relative_path(path)

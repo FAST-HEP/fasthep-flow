@@ -4,7 +4,11 @@ from typing import Any, cast
 
 import networkx as nx
 
-from hepflow.backends.loaders import backend_key
+from hepflow.backends.loaders import (
+    backend_build_directories,
+    validate_backend_execution,
+)
+from hepflow.build_layout import validate_build_relative_path
 from hepflow.compiler.compile_hooks import run_param_compile_hooks
 from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.data_flow import (
@@ -131,25 +135,27 @@ def build_execution_plan(
     _drop_compile_only_data_flow(plan.data_flow)
     apply_data_flow_to_sources(plan)
     validate_output_claims(plan)
-    _validate_backend_available(plan.execution, plan.registry)
+    _validate_backend_policy(plan)
     plan.partitions = build_execution_partitions(plan, chunk_size=chunk_size)
     return plan
 
 
-def _validate_backend_available(
-    execution: dict[str, Any],
-    registry: dict[str, Any],
+def _validate_backend_policy(
+    plan: ExecutionPlan,
 ) -> None:
-    key = backend_key(execution)
-    backends = dict((registry or {}).get("backends") or {})
-    if key in backends:
-        return
-    if key == "dask":
-        raise ValueError(
-            "Dask backend requires fasthep-distributed. Install "
-            "fasthep-distributed and enable a profile that registers backend 'dask'."
-        )
-    raise KeyError(f"Unknown backend strategy '{key}'")
+    validate_backend_execution(
+        plan.registry,
+        plan.execution,
+        provenance=plan.provenance,
+    )
+    build_directories = backend_build_directories(
+        plan.registry,
+        plan.execution,
+        provenance=plan.provenance,
+    )
+    for directory in build_directories:
+        validate_build_relative_path(directory)
+    plan.provenance["backend_build_directories"] = list(build_directories)
 
 
 def build_plan_from_normalized(

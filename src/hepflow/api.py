@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from hepflow.backends.loaders import load_backend
+from hepflow.backends.loaders import backend_build_directories, load_backend
 from hepflow.backends.model import BackendResult
 from hepflow.build_layout import (
     BuildPaths,
@@ -161,8 +161,15 @@ def make_plan_file(
             chunk_size=chunk_size,
         )
 
-    ensure_build_layout(out_path)
     graph, plan = build_plan_from_normalized(normalized, chunk_size=chunk_size)
+    ensure_build_layout(
+        out_path,
+        backend_directories=backend_build_directories(
+            plan.registry,
+            plan.execution,
+            provenance=plan.provenance,
+        ),
+    )
 
     write_compile_artifacts(
         plan=plan,
@@ -285,7 +292,6 @@ def run_plan_file(
         Path(outdir) if outdir is not None else default_run_outdir_for_plan(plan_file)
     )
     build_paths = BuildPaths.from_plan(plan, outdir=out_path)
-    ensure_build_layout(build_paths.root, variation=build_paths.variation)
     runtime_execution = _runtime_execution_with_overrides(
         plan.execution,
         backend=backend,
@@ -294,6 +300,15 @@ def run_plan_file(
         workers=workers,
     )
     execution_plan.execution = runtime_execution
+    ensure_build_layout(
+        build_paths.root,
+        variation=build_paths.variation,
+        backend_directories=backend_build_directories(
+            execution_plan.registry,
+            execution_plan.execution,
+            provenance=execution_plan.provenance,
+        ),
+    )
 
     backend_impl = load_backend(execution_plan)
     run_ctx: dict[str, Any] = {
