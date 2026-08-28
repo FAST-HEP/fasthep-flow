@@ -590,7 +590,7 @@ backends:
     impl: hepflow.backends:Local
 
   dask:
-    impl: hepflow.backends:Dask
+    impl: fasthep_distributed._dask._common:DaskBackend
 ```
 
 Their contracts may gain richer planner-visible specifications as those interfaces stabilise.

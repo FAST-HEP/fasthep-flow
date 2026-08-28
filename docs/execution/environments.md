@@ -68,7 +68,7 @@ registry:
       impl: hepflow.backends:Local
 
     dask:
-      impl: hepflow.backends:Dask
+      impl: fasthep_distributed._dask._common:DaskBackend
 ```
 
 The runtime determines what work is ready according to Flow’s execution semantics. The backend maps that work onto the execution system and available resources.
@@ -92,9 +92,8 @@ This distinction allows execution infrastructure to change independently of the 
 
 ## Built-in and external backends
 
-The current local and Dask backend implementations are provided by `fasthep-flow`.
-
-They currently live in Flow because their responsibilities are considered domain-agnostic: they provide general mechanisms for executing planned work rather than HEP-specific analysis behaviour.
+The local backend implementation is provided by `fasthep-flow`. The Dask
+backend is provided by `fasthep-distributed`.
 
 This package boundary is not fundamental to the execution model.
 
@@ -106,7 +105,7 @@ backends:
     impl: hepflow.backends:Local
 
   dask:
-    impl: hepflow.backends:Dask
+    impl: fasthep_distributed._dask._common:DaskBackend
 ```
 
 The runtime therefore does not require backend implementations to come from `fasthep-flow` itself. An installed package can register additional backends in exactly the same way.
@@ -114,11 +113,12 @@ The runtime therefore does not require backend implementations to come from `fas
 Conceptually:
 ```
 fasthep-flow
-├── local backend
+└── local backend
+
+fasthep-distributed
 └── Dask backend
 
 external package
-├── specialised backend
 └── site or infrastructure integration
 ```
 

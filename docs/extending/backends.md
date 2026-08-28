@@ -66,10 +66,11 @@ backends:
     impl: hepflow.backends:Local
 
   dask:
-    impl: hepflow.backends:Dask
+    impl: fasthep_distributed._dask._common:DaskBackend
 ```
 
-The local backend executes a plan directly, while the Dask backend maps execution onto Dask infrastructure.
+The local backend executes a plan directly. When `fasthep-distributed` is
+installed, its Dask backend maps execution onto Dask infrastructure.
 
 The important abstraction is not either particular implementation, but the boundary they establish:
 
@@ -112,8 +113,9 @@ Keeping these concerns separate allows execution capabilities to be composed wit
 
 The backend interface is currently under active development.
 
-The existing local and Dask backends live in Flow because their execution models are domain-agnostic.
-However, the intention is for external packages to be able to provide backends through the same registry mechanism.
+The local backend lives in Flow because it is the baseline execution mechanism.
+External packages provide additional backends through the same registry
+mechanism.
 
 This requires a more explicit contract for:
 
