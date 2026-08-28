@@ -12,6 +12,7 @@ from hepflow.backends._dask._common import DaskBackend
 from hepflow.backends._dask._htcondor import (
     MISSING_DASK_JOBQUEUE_MESSAGE,
     _prepare_htcondor_pool_specs,
+    _wait_for_htcondor_workers,
     compute_with_htcondor,
     normalize_dask_htcondor_config,
 )
@@ -286,6 +287,9 @@ def test_htcondor_cluster_scales_workers_and_computes_tasks(
             calls["client_cluster"] = cluster
             self.closed = False
 
+        def wait_for_workers(self, n_workers: int, *, timeout: float) -> None:
+            calls["wait_for_workers"] = (n_workers, timeout)
+
         def compute(self, tasks: list[Any]) -> list[Any]:
             calls["computed_tasks"] = tasks
             return tasks
@@ -322,6 +326,8 @@ def test_htcondor_cluster_scales_workers_and_computes_tasks(
     assert results == [{"value_store": {}, "warnings": [], "hooks": {"enabled": []}}]
     assert dashboard_link == "http://scheduler.example/status"
     assert config["workers"] == 3
+    assert config["worker_start_timeout"] == 120
+    assert calls["wait_for_workers"] == (3, 120)
     assert calls["cluster"].scaled_to == {"default": 3}
     assert calls["cluster"].closed is True
     assert calls["client_closed"] is True
@@ -362,6 +368,102 @@ def test_htcondor_cluster_scales_workers_and_computes_tasks(
     assert "python" not in job_kwargs
 
 
+def test_htcondor_worker_start_timeout_is_configurable() -> None:
+    config = normalize_dask_htcondor_config(
+        {
+            "backend": "dask",
+            "strategy": "htcondor",
+            "resources": {"default": {"cpus": 1}},
+            "config": {"workers": 1, "worker_start_timeout": "30"},
+        }
+    )
+
+    assert config["worker_start_timeout"] == 30
+
+
+def test_wait_for_htcondor_workers_reports_timeout_details(tmp_path: Path) -> None:
+    class FakeClient:
+        def wait_for_workers(self, n_workers: int, *, timeout: float) -> None:
+            raise TimeoutError("no workers")
+
+        def scheduler_info(self) -> dict[str, Any]:
+            return {"workers": {"worker-a": {}, "worker-b": {}}}
+
+    with pytest.raises(
+        TimeoutError,
+        match=(
+            r"requested=3, connected=2, pools=default, high_memory, "
+            r"timeout=5s, logs="
+        ),
+    ):
+        _wait_for_htcondor_workers(
+            FakeClient(),
+            requested=3,
+            pool_names=["default", "high_memory"],
+            timeout=5,
+            build_paths=BuildPaths(root=tmp_path),
+        )
+
+
+def test_htcondor_timeout_closes_client_and_cluster(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+
+    class FakePooledHTCondorCluster:
+        def __init__(self, *, pools: dict[str, Any]) -> None:
+            calls["cluster"] = self
+            self.closed = False
+
+        def scale(self, workers: dict[str, int]) -> None:
+            calls["scaled"] = workers
+
+        def close(self) -> None:
+            self.closed = True
+            calls["cluster_closed"] = True
+
+    class FakeClient:
+        dashboard_link = None
+
+        def __init__(self, cluster: FakePooledHTCondorCluster) -> None:
+            calls["client"] = self
+
+        def wait_for_workers(self, n_workers: int, *, timeout: float) -> None:
+            raise TimeoutError("workers did not start")
+
+        def scheduler_info(self) -> dict[str, Any]:
+            return {"workers": {}}
+
+        def close(self) -> None:
+            calls["client_closed"] = True
+
+    dask_jobqueue = types.ModuleType("dask_jobqueue")
+    distributed = types.ModuleType("distributed")
+    cast(Any, distributed).Client = FakeClient
+    monkeypatch.setitem(sys.modules, "dask_jobqueue", dask_jobqueue)
+    monkeypatch.setitem(sys.modules, "distributed", distributed)
+    monkeypatch.setattr(
+        "hepflow.backends._dask._htcondor.DaskPooledHTCondorCluster",
+        FakePooledHTCondorCluster,
+    )
+
+    with pytest.raises(TimeoutError, match="requested=1, connected=0"):
+        compute_with_htcondor(
+            ["task"],
+            execution={
+                "backend": "dask",
+                "strategy": "htcondor",
+                "resources": {"default": {"cpus": 1}},
+                "config": {"workers": 1, "worker_start_timeout": 1},
+            },
+            build_paths=BuildPaths(root=tmp_path),
+        )
+
+    assert calls["client_closed"] is True
+    assert calls["cluster_closed"] is True
+
+
 def test_htcondor_shared_environment_adds_no_transfer_inputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -399,7 +501,6 @@ def test_htcondor_shared_environment_adds_no_transfer_inputs(
         "environment": {
             "type": "packed-pixi",
             "mode": "prefix",
-            "environment": "default",
         },
     }
     config = normalize_dask_htcondor_config(execution)
@@ -423,16 +524,20 @@ def test_htcondor_prefix_environment_translates_prepared_environment(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    env_archive = tmp_path / "execution" / "worker-environments" / "env" / "environment.tar.gz"
+    env_archive = tmp_path / "execution" / "worker-environments" / "env" / "prefix.tar.gz"
+    snapshot = (
+        tmp_path
+        / "execution"
+        / "worker-environments"
+        / "env"
+        / "editable-snapshot.tar.gz"
+    )
     bootstrap = tmp_path / "execution" / "worker-environments" / "env" / "bootstrap.sh"
     manifest = tmp_path / "execution" / "worker-environments" / "env" / "manifest.json"
-    wheelhouse = tmp_path / "execution" / "applications" / "app" / "wheelhouse"
     compile_dir = tmp_path / "compile"
-    for path in [env_archive, bootstrap, manifest]:
+    for path in [env_archive, snapshot, bootstrap, manifest]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("x", encoding="utf-8")
-    wheelhouse.mkdir(parents=True)
-    (wheelhouse / "pkg.whl").write_text("wheel", encoding="utf-8")
     compile_dir.mkdir()
     for name in ["plan.yaml", "normalized.yaml", "deps.yaml"]:
         (compile_dir / name).write_text(name, encoding="utf-8")
@@ -449,13 +554,12 @@ def test_htcondor_prefix_environment_translates_prepared_environment(
         return PreparedWorkerEnvironment(
             python="./worker-env/bin/python",
             bootstrap_commands=["set -e", ". ./bootstrap.sh"],
-            transfer_files=[env_archive, bootstrap, wheelhouse],
+            transfer_files=[env_archive, bootstrap, snapshot],
             env={},
             environment_manifest=manifest,
             environment_archive=env_archive,
             bootstrap_script=bootstrap,
-            application_wheelhouse=wheelhouse,
-            application_manifest=None,
+            editable_snapshot_archive=snapshot,
         )
 
     monkeypatch.setattr(
@@ -475,7 +579,6 @@ def test_htcondor_prefix_environment_translates_prepared_environment(
         "environment": {
             "type": "packed-pixi",
             "mode": "prefix",
-            "environment": "default",
         },
     }
     config = normalize_dask_htcondor_config(execution)
@@ -497,8 +600,11 @@ def test_htcondor_prefix_environment_translates_prepared_environment(
         ]
         directives = job_kwargs["job_extra_directives"]
         assert "execution/staging/compile.tar.gz" in directives["transfer_input_files"]
-        assert "execution/staging/environment.tar.gz" in directives["transfer_input_files"]
-        assert "execution/staging/application" in directives["transfer_input_files"]
+        assert "execution/staging/prefix.tar.gz" in directives["transfer_input_files"]
+        assert (
+            "execution/staging/editable-snapshot.tar.gz"
+            in directives["transfer_input_files"]
+        )
         assert directives["transfer_executable"] == "False"
         assert directives["transfer_output_files"] == '""'
         for item in directives["transfer_input_files"].split(","):

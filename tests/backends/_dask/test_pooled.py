@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
+import tarfile
 import types
 from collections.abc import Mapping
 from pathlib import Path
@@ -16,17 +18,21 @@ from hepflow.backends._dask._pooled import (
 )
 from hepflow.backends._dask._worker_env import (
     EditableDistribution,
+    EditableSnapshot,
     PackedPixiEnvironmentSpec,
     PreparedWorkerEnvironment,
     WorkerCredential,
+    build_editable_snapshot,
     build_htcondor_worker_environment_job_kwargs,
     build_packed_pixi_worker_environment,
     discover_editable_distributions,
+    installed_package_records,
     pack_relocatable_prefix,
     prepare_staged_execution_files,
     prepare_worker_environment,
     resolve_pixi_prefix,
-    stage_editable_wheels,
+    validate_packed_prefix_archive,
+    verify_source_prefix_imports,
     verify_transfer_files,
     x509_proxy_from_environment,
 )
@@ -399,41 +405,36 @@ def test_htcondor_worker_environment_transfer_basenames_must_be_unique(
         build_htcondor_worker_environment_job_kwargs(env, log_paths=paths)
 
 
-def test_resolve_pixi_prefix_uses_current_environment(
+def test_resolve_pixi_prefix_uses_current_python_prefix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prefix = tmp_path / "prefix"
     (prefix / "bin").mkdir(parents=True)
     (prefix / "bin" / "python").write_text("", encoding="utf-8")
-    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
-    monkeypatch.setenv("CONDA_PREFIX", str(prefix))
+    monkeypatch.setattr("hepflow.backends._dask._worker_env.sys.prefix", str(prefix))
 
-    assert resolve_pixi_prefix("default") == prefix.resolve()
+    assert resolve_pixi_prefix() == prefix.resolve()
 
 
-def test_resolve_pixi_prefix_uses_project_environment(
+def test_resolve_pixi_prefix_rejects_named_sources(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    prefix = tmp_path / ".pixi" / "envs" / "analysis"
-    (prefix / "bin").mkdir(parents=True)
-    (prefix / "bin" / "python").write_text("", encoding="utf-8")
-    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
-    monkeypatch.setenv("CONDA_PREFIX", str(tmp_path / "other"))
-    monkeypatch.setenv("PIXI_PROJECT_ROOT", str(tmp_path))
-
-    assert resolve_pixi_prefix("analysis") == prefix.resolve()
+    with pytest.raises(ValueError, match="source='current'"):
+        resolve_pixi_prefix("analysis")
 
 
 def test_resolve_pixi_prefix_errors_for_missing_prefix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("PIXI_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.sys.prefix",
+        str(tmp_path / "missing"),
+    )
 
-    with pytest.raises(FileNotFoundError, match="Pixi environment prefix does not exist"):
-        resolve_pixi_prefix("missing")
+    with pytest.raises(FileNotFoundError, match="Current Python prefix does not exist"):
+        resolve_pixi_prefix()
 
 
 def test_pack_relocatable_prefix_uses_conda_pack(
@@ -492,19 +493,50 @@ def test_discover_editable_distributions(
     ]
 
 
-def test_stage_editable_wheels_records_hashes(
+def test_installed_package_records_include_versions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    site = tmp_path / "site-packages"
+    dist_info = site / "fasthep_flow-1.2.3.dist-info"
+    dist_info.mkdir(parents=True)
+    (dist_info / "METADATA").write_text(
+        "Name: fasthep-flow\nVersion: 1.2.3\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.sysconfig.get_path",
+        lambda *args, **kwargs: str(site),
+    )
+
+    assert installed_package_records(tmp_path / "prefix") == [
+        {"name": "fasthep-flow", "version": "1.2.3", "editable": False}
+    ]
+
+
+def test_build_editable_snapshot_installs_offline_and_records_manifest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = tmp_path / "src"
     source.mkdir()
 
-    def fake_run(cmd: list[str], *, check: bool) -> None:
+    def fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> None:
         assert check is True
-        outdir = Path(cmd[cmd.index("--outdir") + 1])
-        outdir.mkdir(parents=True, exist_ok=True)
-        (outdir / "fasthep_workshop-1.0.0-py3-none-any.whl").write_text(
-            "wheel",
+        assert "--no-index" in cmd
+        assert "--no-deps" in cmd
+        assert "--no-build-isolation" in cmd
+        snapshot_dir = Path(cmd[cmd.index("--target") + 1])
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        (snapshot_dir / "hepflow").mkdir()
+        (snapshot_dir / "hepflow" / "__init__.py").write_text(
+            "__version__ = 'snapshot'\n",
             encoding="utf-8",
         )
 
@@ -512,21 +544,22 @@ def test_stage_editable_wheels_records_hashes(
         "hepflow.backends._dask._worker_env.subprocess.run",
         fake_run,
     )
-    files, manifest = stage_editable_wheels(
+    monkeypatch.setattr("hepflow.backends._dask._worker_env.vcs_state", lambda path: None)
+    snapshot = build_editable_snapshot(
         [
             EditableDistribution(
-                name="fasthep-workshop",
+                name="fasthep-flow",
                 version="1.0.0",
                 source_path=source,
             )
         ],
-        application_dir=tmp_path / "applications" / "app",
+        output_file=tmp_path / "env" / "editable-snapshot.tar.gz",
     )
 
-    payload = json.loads(manifest.read_text(encoding="utf-8"))
-    assert files == [tmp_path / "applications" / "app" / "wheelhouse"]
-    assert payload["packages"][0]["name"] == "fasthep-workshop"
-    assert payload["wheels"][0]["sha256"]
+    assert snapshot.archive == tmp_path / "env" / "editable-snapshot.tar.gz"
+    assert snapshot.archive.exists()
+    assert snapshot.manifest_entries[0]["name"] == "fasthep-flow"
+    assert snapshot.manifest_entries[0]["snapshot"]["sha256"]
 
 
 def test_prepare_prefix_environment_creates_archive_bootstrap_and_manifest(
@@ -536,8 +569,7 @@ def test_prepare_prefix_environment_creates_archive_bootstrap_and_manifest(
     prefix = tmp_path / "prefix"
     (prefix / "bin").mkdir(parents=True)
     (prefix / "bin" / "python").write_text("", encoding="utf-8")
-    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
-    monkeypatch.setenv("CONDA_PREFIX", str(prefix))
+    monkeypatch.setattr("hepflow.backends._dask._worker_env.sys.prefix", str(prefix))
     monkeypatch.setattr(
         "hepflow.backends._dask._worker_env.pack_relocatable_prefix",
         lambda prefix, output: output.write_text("archive", encoding="utf-8") or output,
@@ -550,13 +582,24 @@ def test_prepare_prefix_environment_creates_archive_bootstrap_and_manifest(
         "hepflow.backends._dask._worker_env.required_fasthep_imports",
         lambda prefix, editables: ["distributed", "hepflow"],
     )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.verify_source_prefix_imports",
+        lambda prefix, *, required_imports: None,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.validate_packed_prefix_archive",
+        lambda archive_path, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.installed_package_records",
+        lambda prefix: [{"name": "fasthep-flow", "version": "1.0.0", "editable": True}],
+    )
 
     prepared = prepare_worker_environment(
         {
             "environment": {
                 "type": "packed-pixi",
                 "mode": "prefix",
-                "environment": "default",
             }
         },
         build_paths=BuildPaths(root=tmp_path / "build"),
@@ -573,8 +616,283 @@ def test_prepare_prefix_environment_creates_archive_bootstrap_and_manifest(
     assert "./worker-env/bin/conda-unpack" in script
     assert script.index("conda-unpack") < script.index("distributed.cli.dask_worker")
     manifest = json.loads(prepared.environment_manifest.read_text(encoding="utf-8"))
+    assert manifest["source"] == "current"
+    assert manifest["resolved_prefix"] == str(prefix.resolve())
+    assert manifest["packages"][0]["name"] == "fasthep-flow"
     assert manifest["archive"]["sha256"]
+    assert manifest["editable_snapshot"] is None
+    environment_archive = prepared.environment_archive
+    assert environment_archive is not None
+    assert not (environment_archive.parent / "editable-snapshot.tar.gz").exists()
     assert manifest["worker_python"] == "./worker-env/bin/python"
+
+
+def test_transfer_prefix_environment_snapshots_multiple_editables(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prefix = tmp_path / "prefix"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "python").write_text("", encoding="utf-8")
+    sources = [tmp_path / "flow", tmp_path / "workshop"]
+    for source in sources:
+        source.mkdir()
+    editables = [
+        EditableDistribution("fasthep-flow", "1.0.0", sources[0]),
+        EditableDistribution("fasthep-workshop", "1.0.0", sources[1]),
+    ]
+    calls: dict[str, Any] = {}
+
+    monkeypatch.setattr("hepflow.backends._dask._worker_env.sys.prefix", str(prefix))
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.pack_relocatable_prefix",
+        lambda prefix, output: output.write_text("archive", encoding="utf-8") or output,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.discover_editable_distributions",
+        lambda prefix: editables,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.required_fasthep_imports",
+        lambda prefix, editables: ["distributed", "hepflow", "fasthep_workshop"],
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.verify_source_prefix_imports",
+        lambda prefix, *, required_imports: None,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.installed_package_records",
+        lambda prefix: [],
+    )
+
+    def fake_snapshot(
+        editables: list[EditableDistribution],
+        *,
+        output_file: Path,
+    ) -> EditableSnapshot:
+        output_file.write_text("snapshot", encoding="utf-8")
+        return EditableSnapshot(
+            archive=output_file,
+            manifest_entries=[
+                {
+                    "name": item.name,
+                    "version": item.version,
+                    "source_path": str(item.source_path),
+                    "snapshot": {"path": str(output_file), "size": 8, "sha256": "abc"},
+                    "vcs": {"revision": "abc123", "dirty": True},
+                }
+                for item in editables
+            ],
+        )
+
+    def fake_validate(archive_path: Path, **kwargs: Any) -> None:
+        calls["validate"] = kwargs
+
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.build_editable_snapshot",
+        fake_snapshot,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.validate_packed_prefix_archive",
+        fake_validate,
+    )
+
+    prepared = prepare_worker_environment(
+        {
+            "staging": {"mode": "transfer"},
+            "environment": {"type": "packed-pixi", "mode": "prefix"},
+        },
+        build_paths=BuildPaths(root=tmp_path / "build"),
+    )
+
+    assert prepared is not None
+    assert prepared.editable_snapshot_archive is not None
+    assert prepared.editable_snapshot_archive.name == "editable-snapshot.tar.gz"
+    assert calls["validate"]["editable_snapshot_archive"] == (
+        prepared.editable_snapshot_archive
+    )
+    manifest = json.loads(prepared.environment_manifest.read_text(encoding="utf-8"))
+    assert [item["name"] for item in manifest["editables"]] == [
+        "fasthep-flow",
+        "fasthep-workshop",
+    ]
+    assert manifest["editable_snapshot"]["sha256"]
+    environment_archive = prepared.environment_archive
+    assert environment_archive is not None
+    assert manifest["environment_id"] == environment_archive.parent.name
+
+
+def test_shared_prefix_environment_uses_shared_editable_paths_without_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prefix = tmp_path / "prefix"
+    source = tmp_path / "flow"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "python").write_text("", encoding="utf-8")
+    source.mkdir()
+    editables = [EditableDistribution("fasthep-flow", "1.0.0", source)]
+    calls: dict[str, Any] = {}
+
+    monkeypatch.setattr("hepflow.backends._dask._worker_env.sys.prefix", str(prefix))
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.pack_relocatable_prefix",
+        lambda prefix, output: output.write_text("archive", encoding="utf-8") or output,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.discover_editable_distributions",
+        lambda prefix: editables,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.required_fasthep_imports",
+        lambda prefix, editables: ["distributed", "hepflow"],
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.verify_source_prefix_imports",
+        lambda prefix, *, required_imports: None,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.installed_package_records",
+        lambda prefix: [],
+    )
+    monkeypatch.setattr("hepflow.backends._dask._worker_env.vcs_state", lambda path: None)
+
+    def fail_snapshot(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("shared mode must not snapshot editables")
+
+    def fake_validate(archive_path: Path, **kwargs: Any) -> None:
+        calls["validate"] = kwargs
+
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.build_editable_snapshot",
+        fail_snapshot,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.validate_packed_prefix_archive",
+        fake_validate,
+    )
+
+    prepared = prepare_worker_environment(
+        {"environment": {"type": "packed-pixi", "mode": "prefix"}},
+        build_paths=BuildPaths(root=tmp_path / "build"),
+    )
+
+    assert prepared is not None
+    assert prepared.editable_snapshot_archive is None
+    assert calls["validate"]["shared_pythonpath"] == [source]
+    assert prepared.bootstrap_script is not None
+    assert str(source) in prepared.bootstrap_script.read_text(encoding="utf-8")
+
+
+def test_transfer_prefix_environment_fails_before_submit_when_snapshot_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prefix = tmp_path / "prefix"
+    source = tmp_path / "flow"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "python").write_text("", encoding="utf-8")
+    source.mkdir()
+    monkeypatch.setattr("hepflow.backends._dask._worker_env.sys.prefix", str(prefix))
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.discover_editable_distributions",
+        lambda prefix: [EditableDistribution("fasthep-flow", "1.0.0", source)],
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.required_fasthep_imports",
+        lambda prefix, editables: ["distributed", "hepflow"],
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.verify_source_prefix_imports",
+        lambda prefix, *, required_imports: None,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.build_editable_snapshot",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("pip failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="pip failed"):
+        prepare_worker_environment(
+            {
+                "staging": {"mode": "transfer"},
+                "environment": {"type": "packed-pixi", "mode": "prefix"},
+            },
+            build_paths=BuildPaths(root=tmp_path / "build"),
+        )
+
+
+def test_verify_source_prefix_imports_fails_before_submit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prefix = tmp_path / "prefix"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "python").write_text("", encoding="utf-8")
+
+    def fake_run(*args: Any, **kwargs: Any) -> None:
+        raise subprocess.CalledProcessError(1, args[0], stderr="no module")
+
+    monkeypatch.setattr("hepflow.backends._dask._worker_env.subprocess.run", fake_run)
+
+    with pytest.raises(RuntimeError, match="failed worker import preflight"):
+        verify_source_prefix_imports(prefix, required_imports=["distributed"])
+
+
+def test_validate_packed_prefix_archive_runs_unpack_and_imports(tmp_path: Path) -> None:
+    source = tmp_path / "src"
+    bin_dir = source / "bin"
+    bin_dir.mkdir(parents=True)
+    for name in ["conda-unpack", "python"]:
+        script = bin_dir / name
+        script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        script.chmod(0o755)
+    archive = tmp_path / "prefix.tar.gz"
+    with tarfile.open(archive, "w:gz") as handle:
+        handle.add(source / "bin", arcname="bin")
+
+    validate_packed_prefix_archive(archive, required_imports=["distributed", "hepflow"])
+
+
+def test_validate_packed_prefix_archive_uses_snapshot_pythonpath(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "src"
+    bin_dir = source / "bin"
+    bin_dir.mkdir(parents=True)
+    for name in ["conda-unpack", "python"]:
+        script = bin_dir / name
+        script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        script.chmod(0o755)
+    archive = tmp_path / "prefix.tar.gz"
+    with tarfile.open(archive, "w:gz") as handle:
+        handle.add(source / "bin", arcname="bin")
+    snapshot_source = tmp_path / "snapshot-source"
+    snapshot_source.mkdir()
+    (snapshot_source / "marker.py").write_text("", encoding="utf-8")
+    snapshot = tmp_path / "editable-snapshot.tar.gz"
+    with tarfile.open(snapshot, "w:gz") as handle:
+        handle.add(snapshot_source / "marker.py", arcname="marker.py")
+
+    calls: list[dict[str, Any]] = []
+    real_run = subprocess.run
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append({"cmd": cmd, "env": kwargs.get("env")})
+        return real_run(cmd, **kwargs)
+
+    monkeypatch.setattr("hepflow.backends._dask._worker_env.subprocess.run", fake_run)
+
+    validate_packed_prefix_archive(
+        archive,
+        editable_snapshot_archive=snapshot,
+        required_imports=["distributed"],
+    )
+
+    assert any(
+        call["env"] and "editable-snapshot" in call["env"].get("PYTHONPATH", "")
+        for call in calls
+    )
 
 
 def test_shared_staging_transfers_no_files(
@@ -584,8 +902,7 @@ def test_shared_staging_transfers_no_files(
     prefix = tmp_path / "prefix"
     (prefix / "bin").mkdir(parents=True)
     (prefix / "bin" / "python").write_text("", encoding="utf-8")
-    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
-    monkeypatch.setenv("CONDA_PREFIX", str(prefix))
+    monkeypatch.setattr("hepflow.backends._dask._worker_env.sys.prefix", str(prefix))
     monkeypatch.setattr(
         "hepflow.backends._dask._worker_env.pack_relocatable_prefix",
         lambda prefix, output: output.write_text("archive", encoding="utf-8") or output,
@@ -598,12 +915,19 @@ def test_shared_staging_transfers_no_files(
         "hepflow.backends._dask._worker_env.required_fasthep_imports",
         lambda prefix, editables: ["distributed", "hepflow"],
     )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.verify_source_prefix_imports",
+        lambda prefix, *, required_imports: None,
+    )
+    monkeypatch.setattr(
+        "hepflow.backends._dask._worker_env.validate_packed_prefix_archive",
+        lambda archive_path, **kwargs: None,
+    )
     prepared = prepare_worker_environment(
         {
             "environment": {
                 "type": "packed-pixi",
                 "mode": "prefix",
-                "environment": "default",
             }
         },
         build_paths=BuildPaths(root=tmp_path / "build"),
@@ -620,7 +944,7 @@ def test_shared_staging_transfers_no_files(
     assert "FASTHEP_ENV_ARCHIVE=" in staged.bootstrap_commands[1]
 
 
-def test_transfer_staging_creates_compile_environment_application_manifest(
+def test_transfer_staging_creates_compile_environment_snapshot_manifest(
     tmp_path: Path,
 ) -> None:
     build_paths = BuildPaths(root=tmp_path / "build")
@@ -629,13 +953,12 @@ def test_transfer_staging_creates_compile_environment_application_manifest(
         build_paths.compile_file(name).write_text(name, encoding="utf-8")
     env_dir = build_paths.worker_environments_dir() / "env"
     env_dir.mkdir(parents=True)
-    archive = env_dir / "environment.tar.gz"
+    archive = env_dir / "prefix.tar.gz"
+    snapshot = env_dir / "editable-snapshot.tar.gz"
     bootstrap = env_dir / "bootstrap.sh"
     archive.write_text("archive", encoding="utf-8")
+    snapshot.write_text("snapshot", encoding="utf-8")
     bootstrap.write_text("bootstrap", encoding="utf-8")
-    wheelhouse = build_paths.applications_dir() / "app" / "wheelhouse"
-    wheelhouse.mkdir(parents=True)
-    (wheelhouse / "pkg.whl").write_text("wheel", encoding="utf-8")
     manifest = env_dir / "manifest.json"
     manifest.write_text("{}", encoding="utf-8")
     prepared = PreparedWorkerEnvironment(
@@ -646,7 +969,7 @@ def test_transfer_staging_creates_compile_environment_application_manifest(
         environment_manifest=manifest,
         environment_archive=archive,
         bootstrap_script=bootstrap,
-        application_wheelhouse=wheelhouse,
+        editable_snapshot_archive=snapshot,
     )
 
     staged = prepare_staged_execution_files(
@@ -657,7 +980,12 @@ def test_transfer_staging_creates_compile_environment_application_manifest(
 
     assert staged is not None
     names = {path.name for path in staged.transfer_files}
-    assert names == {"compile.tar.gz", "environment.tar.gz", "bootstrap.sh", "application"}
+    assert names == {
+        "compile.tar.gz",
+        "prefix.tar.gz",
+        "editable-snapshot.tar.gz",
+        "bootstrap.sh",
+    }
     assert staged.bootstrap_commands[:3] == [
         "set -e",
         "mkdir -p compile",
@@ -667,7 +995,7 @@ def test_transfer_staging_creates_compile_environment_application_manifest(
     payload = json.loads(staged.manifest.read_text(encoding="utf-8"))
     assert payload["compile"]["sha256"]
     assert payload["environment"]["sha256"]
-    assert payload["application"]["wheelhouse"]["sha256"]
+    assert payload["editable_snapshot"]["sha256"]
 
 
 def test_verify_transfer_files_fails_before_submit(tmp_path: Path) -> None:

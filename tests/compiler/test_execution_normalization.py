@@ -125,6 +125,16 @@ def test_global_execution_normalization_preserves_metadata(
             {"staging": {"mode": "elsewhere"}},
             "execution.staging.mode must be 'shared' or 'transfer'",
         ),
+        (
+            {
+                "environment": {
+                    "type": "packed-pixi",
+                    "mode": "prefix",
+                    "environment": "default",
+                }
+            },
+            "execution.environment.environment is ambiguous",
+        ),
     ],
 )
 def test_invalid_global_execution_errors(
@@ -342,7 +352,6 @@ def test_packed_pixi_worker_environment_spec_written_at_compile(
             "environment": {
                 "type": "packed-pixi",
                 "mode": "prefix",
-                "environment": "default",
             },
         },
     }
@@ -359,7 +368,30 @@ def test_packed_pixi_worker_environment_spec_written_at_compile(
     assert worker_env == {
         "type": "packed-pixi",
         "mode": "prefix",
-        "environment": "default",
+        "source": "current",
+    }
+
+
+def test_packed_pixi_prefix_source_current_normalizes_explicitly(
+    toy_workflow: dict[str, Any],
+) -> None:
+    workflow = {
+        **toy_workflow,
+        "execution": {
+            "environment": {
+                "type": "packed-pixi",
+                "mode": "prefix",
+                "source": "current",
+            }
+        },
+    }
+
+    normalized = normalize_workflow(workflow)
+
+    assert normalized["execution"]["environment"] == {
+        "type": "packed-pixi",
+        "mode": "prefix",
+        "source": "current",
     }
 
 

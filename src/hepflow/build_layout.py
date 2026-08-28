@@ -109,9 +109,6 @@ class BuildPaths:
     def worker_environments_dir(self) -> Path:
         return self.execution_dir("worker-environments")
 
-    def applications_dir(self) -> Path:
-        return self.execution_dir("applications")
-
     def staging_dir(self) -> Path:
         return self.execution_dir("staging")
 
@@ -254,7 +251,6 @@ def ensure_build_layout(root: str | Path, *, variation: str | None = None) -> No
         paths.report_dir("diagnostics"),
         paths.report_dir("provenance"),
         paths.worker_environments_dir(),
-        paths.applications_dir(),
         paths.staging_dir(),
         paths.dask_htcondor_dir("submit"),
         paths.dask_htcondor_dir("logs"),

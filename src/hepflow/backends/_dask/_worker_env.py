@@ -8,6 +8,7 @@ import subprocess
 import sys
 import sysconfig
 import tarfile
+import tempfile
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
@@ -56,8 +57,7 @@ class PreparedWorkerEnvironment:
     environment_manifest: Path
     environment_archive: Path | None = None
     bootstrap_script: Path | None = None
-    application_wheelhouse: Path | None = None
-    application_manifest: Path | None = None
+    editable_snapshot_archive: Path | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -65,6 +65,12 @@ class EditableDistribution:
     name: str
     version: str
     source_path: Path
+
+
+@dataclass(slots=True, frozen=True)
+class EditableSnapshot:
+    archive: Path
+    manifest_entries: list[dict[str, Any]]
 
 
 @dataclass(slots=True, frozen=True)
@@ -131,32 +137,65 @@ def prepare_worker_environment(
             environment_manifest=archive_path.with_suffix(".json"),
         )
 
-    prefix = resolve_pixi_prefix(plan.environment)
-    environment_id = _environment_id(plan.environment, prefix)
+    prefix = resolve_pixi_prefix(plan.source or "current")
+    environment_id = _environment_id(plan.source or "current", prefix)
     environment_dir = build_paths.worker_environments_dir() / environment_id
     environment_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = environment_dir / "environment.tar.gz"
+    archive_path = environment_dir / "prefix.tar.gz"
     bootstrap_path = environment_dir / "bootstrap.sh"
     manifest_path = environment_dir / "manifest.json"
 
-    pack_relocatable_prefix(prefix, archive_path)
-
     editables = discover_editable_distributions(prefix)
-    application_manifest_path: Path | None = None
-    application_transfer_files: list[Path] = []
-    application_id: str | None = None
-    if editables:
-        application_id = _application_id(editables)
-        application_dir = build_paths.applications_dir() / application_id
-        application_transfer_files, application_manifest_path = stage_editable_wheels(
-            editables,
-            application_dir=application_dir,
-        )
-
     required_imports = required_fasthep_imports(prefix, editables)
+    base_imports = ["distributed", "hepflow"]
+    verify_source_prefix_imports(prefix, required_imports=base_imports)
+    staging_mode = _staging_mode(execution)
+
+    editable_snapshot: EditableSnapshot | None = None
+    shared_pythonpath: list[Path] = []
+    if editables and staging_mode == "transfer":
+        editable_snapshot = build_editable_snapshot(
+            editables,
+            output_file=environment_dir / "editable-snapshot.tar.gz",
+        )
+        environment_id = _environment_id(
+            plan.source or "current",
+            prefix,
+            editable_snapshot.archive,
+        )
+        final_environment_dir = build_paths.worker_environments_dir() / environment_id
+        if final_environment_dir != environment_dir:
+            if final_environment_dir.exists():
+                shutil.rmtree(final_environment_dir)
+            shutil.move(str(environment_dir), final_environment_dir)
+            environment_dir = final_environment_dir
+            archive_path = environment_dir / "prefix.tar.gz"
+            bootstrap_path = environment_dir / "bootstrap.sh"
+            manifest_path = environment_dir / "manifest.json"
+            editable_snapshot = EditableSnapshot(
+                archive=environment_dir / "editable-snapshot.tar.gz",
+                manifest_entries=_editable_manifest_entries(
+                    editables,
+                    snapshot_record=_file_record(
+                        environment_dir / "editable-snapshot.tar.gz"
+                    ),
+                ),
+            )
+    elif editables:
+        shared_pythonpath = [item.source_path for item in editables]
+
+    pack_relocatable_prefix(prefix, archive_path)
+    validate_packed_prefix_archive(
+        archive_path,
+        editable_snapshot_archive=editable_snapshot.archive if editable_snapshot else None,
+        shared_pythonpath=shared_pythonpath,
+        required_imports=required_imports,
+    )
+
     write_bootstrap_script(
         bootstrap_path,
-        wheelhouse_name="wheelhouse" if editables else None,
+        has_editable_snapshot=editable_snapshot is not None,
+        shared_pythonpath=shared_pythonpath,
         required_imports=required_imports,
     )
     bootstrap_path.chmod(0o755)
@@ -164,13 +203,26 @@ def prepare_worker_environment(
     environment_manifest = {
         "type": "packed-pixi",
         "mode": "prefix",
-        "environment": plan.environment,
-        "environment_id": environment_id,
-        "prefix": str(prefix),
+        "source": plan.source or "current",
+        "resolved_prefix": str(prefix),
+        "packages": installed_package_records(prefix),
         "archive": _file_record(archive_path),
+        "editable_snapshot": _file_record(editable_snapshot.archive)
+        if editable_snapshot
+        else None,
+        "editables": editable_snapshot.manifest_entries if editable_snapshot else [
+            {
+                "name": item.name,
+                "version": item.version,
+                "source_path": str(item.source_path),
+                "snapshot": None,
+                "vcs": vcs_state(item.source_path),
+            }
+            for item in editables
+        ],
+        "environment_id": environment_id,
         "bootstrap": _file_record(bootstrap_path),
         "worker_python": "./worker-env/bin/python",
-        "application_id": application_id,
         "required_imports": required_imports,
     }
     write_json(environment_manifest, manifest_path)
@@ -180,42 +232,116 @@ def prepare_worker_environment(
         bootstrap_commands=_shared_bootstrap_commands(
             bootstrap_path=bootstrap_path,
             archive_path=archive_path,
-            wheelhouse_path=application_transfer_files[0]
-            if application_transfer_files
+            editable_snapshot_path=editable_snapshot.archive
+            if editable_snapshot
             else None,
+            shared_pythonpath=shared_pythonpath,
         ),
         transfer_files=[],
         env={},
         environment_manifest=manifest_path,
         environment_archive=archive_path,
         bootstrap_script=bootstrap_path,
-        application_wheelhouse=application_transfer_files[0]
-        if application_transfer_files
-        else None,
-        application_manifest=application_manifest_path,
+        editable_snapshot_archive=editable_snapshot.archive if editable_snapshot else None,
     )
 
 
-def resolve_pixi_prefix(environment: str) -> Path:
-    if not environment.strip():
-        raise ValueError("Pixi environment name must be non-empty")
-    current_name = os.environ.get("PIXI_ENVIRONMENT_NAME")
-    current_prefix = os.environ.get("CONDA_PREFIX")
-    if current_name == environment and current_prefix:
-        prefix = Path(current_prefix)
-    else:
-        project_root = os.environ.get("PIXI_PROJECT_ROOT")
-        if not project_root:
-            raise ValueError(
-                "PIXI_PROJECT_ROOT is not set; cannot resolve Pixi environment prefix"
-            )
-        prefix = Path(project_root) / ".pixi" / "envs" / environment
+def resolve_pixi_prefix(source: str = "current") -> Path:
+    if not source.strip():
+        raise ValueError("Pixi environment source must be non-empty")
+    if source.strip() != "current":
+        raise ValueError(
+            "Packed Pixi prefix environments currently support only source='current'"
+        )
+    prefix = Path(sys.prefix)
     if not prefix.exists():
-        raise FileNotFoundError(f"Pixi environment prefix does not exist: {prefix}")
+        raise FileNotFoundError(f"Current Python prefix does not exist: {prefix}")
     python = prefix / "bin" / "python"
     if not python.exists():
-        raise FileNotFoundError(f"Pixi environment prefix has no Python: {python}")
+        raise FileNotFoundError(f"Current Python prefix has no Python: {python}")
     return prefix.resolve()
+
+
+def _staging_mode(execution: Mapping[str, Any]) -> str:
+    staging = execution.get("staging")
+    if not isinstance(staging, Mapping):
+        return "shared"
+    mode = str(staging.get("mode") or "shared")
+    if mode not in {"shared", "transfer"}:
+        raise ValueError("execution.staging.mode must be 'shared' or 'transfer'")
+    return mode
+
+
+def verify_source_prefix_imports(
+    prefix: Path,
+    *,
+    required_imports: list[str] | None = None,
+) -> None:
+    python = prefix / "bin" / "python"
+    imports = list(required_imports or ["distributed", "hepflow"])
+    try:
+        subprocess.run(
+            [str(python), "-c", _import_smoke_code(imports)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        details = (exc.stderr or exc.stdout or "").strip()
+        suffix = f": {details}" if details else ""
+        raise RuntimeError(
+            f"Current Python prefix failed worker import preflight for {imports}{suffix}"
+        ) from exc
+
+
+def validate_packed_prefix_archive(
+    archive_path: Path,
+    *,
+    editable_snapshot_archive: Path | None = None,
+    shared_pythonpath: list[Path] | None = None,
+    required_imports: list[str] | None = None,
+) -> None:
+    imports = list(required_imports or ["distributed", "hepflow"])
+    with tempfile.TemporaryDirectory(prefix="fasthep-worker-env-") as tmp:
+        target = Path(tmp) / "worker-env"
+        target.mkdir()
+        snapshot_dir = Path(tmp) / "editable-snapshot"
+        try:
+            with tarfile.open(archive_path, "r:gz") as archive:
+                archive.extractall(target)
+            subprocess.run(
+                [str(target / "bin" / "conda-unpack")],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            pythonpath = [str(path) for path in shared_pythonpath or []]
+            if editable_snapshot_archive is not None:
+                snapshot_dir.mkdir()
+                with tarfile.open(editable_snapshot_archive, "r:gz") as archive:
+                    archive.extractall(snapshot_dir)
+                pythonpath.insert(0, str(snapshot_dir))
+            env = dict(os.environ)
+            if pythonpath:
+                env["PYTHONPATH"] = os.pathsep.join(
+                    [*pythonpath, *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]
+                )
+            subprocess.run(
+                [str(target / "bin" / "python"), "-c", _import_smoke_code(imports)],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+        except (OSError, tarfile.TarError, subprocess.CalledProcessError) as exc:
+            details = ""
+            if isinstance(exc, subprocess.CalledProcessError):
+                details = (exc.stderr or exc.stdout or "").strip()
+            suffix = f": {details}" if details else ""
+            raise RuntimeError(
+                "Packed Pixi prefix failed local unpack/import preflight"
+                f" for {imports}{suffix}"
+            ) from exc
 
 
 def prepare_staged_execution_files(
@@ -251,9 +377,9 @@ def prepare_transfer_staging(
     staging_dir.mkdir(parents=True, exist_ok=True)
 
     compile_archive = staging_dir / "compile.tar.gz"
-    environment_archive = staging_dir / "environment.tar.gz"
+    environment_archive = staging_dir / "prefix.tar.gz"
+    editable_snapshot = staging_dir / "editable-snapshot.tar.gz"
     bootstrap_script = staging_dir / "bootstrap.sh"
-    application_dir = staging_dir / "application"
     manifest_path = staging_dir / "manifest.json"
 
     build_compile_bundle(build_paths.compile_dir(), compile_archive)
@@ -263,14 +389,11 @@ def prepare_transfer_staging(
     shutil.copy2(prepared.bootstrap_script, bootstrap_script)
     transfer_files = [compile_archive, environment_archive, bootstrap_script]
 
-    application_manifest: dict[str, Any] | None = None
-    if prepared.application_wheelhouse is not None:
-        wheelhouse_target = application_dir / "wheelhouse"
-        shutil.copytree(prepared.application_wheelhouse, wheelhouse_target)
-        transfer_files.append(application_dir)
-        application_manifest = {
-            "wheelhouse": _directory_record(wheelhouse_target),
-        }
+    editable_snapshot_manifest: dict[str, Any] | None = None
+    if prepared.editable_snapshot_archive is not None:
+        shutil.copy2(prepared.editable_snapshot_archive, editable_snapshot)
+        transfer_files.append(editable_snapshot)
+        editable_snapshot_manifest = _file_record(editable_snapshot)
 
     verify_transfer_files(transfer_files)
     manifest = {
@@ -278,7 +401,7 @@ def prepare_transfer_staging(
         "compile": _file_record(compile_archive),
         "environment": _file_record(environment_archive),
         "bootstrap": _file_record(bootstrap_script),
-        "application": application_manifest,
+        "editable_snapshot": editable_snapshot_manifest,
         "transfer_files": [
             _directory_record(path) if path.is_dir() else _file_record(path)
             for path in transfer_files
@@ -291,8 +414,12 @@ def prepare_transfer_staging(
             "set -e",
             "mkdir -p compile",
             "tar -xzf compile.tar.gz -C compile",
-            "FASTHEP_ENV_ARCHIVE=environment.tar.gz",
-            "FASTHEP_WHEELHOUSE=application/wheelhouse",
+            "FASTHEP_ENV_ARCHIVE=prefix.tar.gz",
+            (
+                "FASTHEP_EDITABLE_SNAPSHOT=editable-snapshot.tar.gz"
+                if editable_snapshot_manifest is not None
+                else "unset FASTHEP_EDITABLE_SNAPSHOT"
+            ),
             ". ./bootstrap.sh",
         ],
         transfer_files=transfer_files,
@@ -408,78 +535,102 @@ def discover_editable_distributions(prefix: Path) -> list[EditableDistribution]:
     return sorted(editables, key=lambda item: item.name.lower())
 
 
-def stage_editable_wheels(
+def build_editable_snapshot(
     editables: list[EditableDistribution],
     *,
-    application_dir: Path,
-) -> tuple[list[Path], Path]:
-    wheelhouse = application_dir / "wheelhouse"
-    if wheelhouse.exists():
-        shutil.rmtree(wheelhouse)
-    wheelhouse.mkdir(parents=True, exist_ok=True)
-    for editable in editables:
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "build",
-                "--wheel",
-                "--outdir",
-                str(wheelhouse),
-                str(editable.source_path),
-            ],
-            check=True,
-        )
-    wheels = sorted(wheelhouse.glob("*.whl"))
-    if len(wheels) < len(editables):
-        raise RuntimeError("Editable package wheel staging did not produce all wheels")
-    manifest_path = application_dir / "manifest.json"
-    write_json(
-        {
-            "application_id": application_dir.name,
-            "packages": [
-                {
-                    "name": item.name,
-                    "version": item.version,
-                    "source_path": str(item.source_path),
-                }
-                for item in editables
-            ],
-            "wheels": [_file_record(path) for path in wheels],
-        },
-        manifest_path,
+    output_file: Path,
+) -> EditableSnapshot:
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="fasthep-editable-snapshot-") as tmp:
+        snapshot_dir = Path(tmp) / "snapshot"
+        snapshot_dir.mkdir()
+        cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-index",
+            "--no-deps",
+            "--no-build-isolation",
+            "--target",
+            str(snapshot_dir),
+            *(str(item.source_path) for item in editables),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            details = (exc.stderr or exc.stdout or "").strip()
+            suffix = f": {details}" if details else ""
+            raise RuntimeError(f"Failed to snapshot editable packages{suffix}") from exc
+        if output_file.exists():
+            output_file.unlink()
+        with tarfile.open(output_file, "w:gz") as archive:
+            for item in sorted(snapshot_dir.iterdir()):
+                archive.add(item, arcname=item.name)
+
+    snapshot_record = _file_record(output_file)
+    return EditableSnapshot(
+        archive=output_file,
+        manifest_entries=_editable_manifest_entries(
+            editables,
+            snapshot_record=snapshot_record,
+        ),
     )
-    return [wheelhouse], manifest_path
+
+
+def _editable_manifest_entries(
+    editables: list[EditableDistribution],
+    *,
+    snapshot_record: dict[str, Any],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": item.name,
+            "version": item.version,
+            "source_path": str(item.source_path),
+            "snapshot": dict(snapshot_record),
+            "vcs": vcs_state(item.source_path),
+        }
+        for item in editables
+    ]
 
 
 def write_bootstrap_script(
     path: Path,
     *,
-    wheelhouse_name: str | None,
+    has_editable_snapshot: bool,
+    shared_pythonpath: list[Path],
     required_imports: list[str],
 ) -> None:
     import_list = ", ".join(repr(name) for name in required_imports)
-    wheel_lines = []
-    if wheelhouse_name is not None:
-        wheel_lines = [
-            "mkdir -p applications",
+    shared_path = os.pathsep.join(str(path.resolve()) for path in shared_pythonpath)
+    editable_lines = []
+    if has_editable_snapshot:
+        editable_lines = [
+            "SNAPSHOT_ARCHIVE=\"${FASTHEP_EDITABLE_SNAPSHOT:-editable-snapshot.tar.gz}\"",
+            "echo '[fasthep] extracting editable snapshot'",
+            "mkdir -p editable-snapshot",
+            "tar -xzf \"$SNAPSHOT_ARCHIVE\" -C editable-snapshot",
+            'export PYTHONPATH="$PWD/editable-snapshot${PYTHONPATH:+:$PYTHONPATH}"',
+        ]
+    elif shared_path:
+        editable_lines = [
+            f"SHARED_EDITABLE_PYTHONPATH={_shell_quote(shared_path)}",
             (
-                "./worker-env/bin/python -m pip install --no-index --no-deps "
-                "--find-links \"$WHEELHOUSE\" --target ./applications \"$WHEELHOUSE\"/*.whl"
+                'export PYTHONPATH="$SHARED_EDITABLE_PYTHONPATH'
+                '${PYTHONPATH:+:$PYTHONPATH}"'
             ),
-            'export PYTHONPATH="$PWD/applications${PYTHONPATH:+:$PYTHONPATH}"',
         ]
     lines = [
         "#!/bin/sh",
         "set -e",
-        "ENV_ARCHIVE=\"${FASTHEP_ENV_ARCHIVE:-environment.tar.gz}\"",
-        f"WHEELHOUSE=\"${{FASTHEP_WHEELHOUSE:-{wheelhouse_name or 'wheelhouse'}}}\"",
+        "ENV_ARCHIVE=\"${FASTHEP_ENV_ARCHIVE:-prefix.tar.gz}\"",
         "echo '[fasthep] extracting packed Pixi prefix'",
         "mkdir -p worker-env",
         "tar -xzf \"$ENV_ARCHIVE\" -C worker-env",
         "echo '[fasthep] running conda-unpack'",
         "./worker-env/bin/conda-unpack",
-        *wheel_lines,
+        *editable_lines,
         "echo '[fasthep] worker python: ./worker-env/bin/python'",
         "./worker-env/bin/python --version",
         "./worker-env/bin/python - <<'PY'",
@@ -499,16 +650,20 @@ def _shared_bootstrap_commands(
     *,
     bootstrap_path: Path,
     archive_path: Path,
-    wheelhouse_path: Path | None,
+    editable_snapshot_path: Path | None,
+    shared_pythonpath: list[Path],
 ) -> list[str]:
     commands = [
         "set -e",
         f"FASTHEP_ENV_ARCHIVE={_shell_quote(str(archive_path.resolve()))}",
     ]
-    if wheelhouse_path is not None:
+    if editable_snapshot_path is not None:
         commands.append(
-            f"FASTHEP_WHEELHOUSE={_shell_quote(str(wheelhouse_path.resolve()))}"
+            "FASTHEP_EDITABLE_SNAPSHOT="
+            f"{_shell_quote(str(editable_snapshot_path.resolve()))}"
         )
+    elif shared_pythonpath:
+        commands.append("unset FASTHEP_EDITABLE_SNAPSHOT")
     commands.append(f". {_shell_quote(str(bootstrap_path.resolve()))}")
     return commands
 
@@ -537,6 +692,82 @@ def required_fasthep_imports(
     return sorted(imports)
 
 
+def installed_package_records(prefix: Path) -> list[dict[str, Any]]:
+    site_packages = Path(
+        sysconfig.get_path(
+            "purelib",
+            vars={
+                "base": str(prefix),
+                "platbase": str(prefix),
+            },
+        )
+    )
+    records: list[dict[str, Any]] = []
+    for dist in metadata.distributions(path=[str(site_packages)]):
+        name = dist.metadata.get("Name")
+        if not name:
+            continue
+        direct_url_text = dist.read_text("direct_url.json")
+        editable = False
+        if direct_url_text:
+            try:
+                direct_url = json.loads(direct_url_text)
+            except json.JSONDecodeError:
+                direct_url = {}
+            editable = bool(direct_url.get("dir_info", {}).get("editable"))
+        records.append(
+            {
+                "name": name,
+                "version": dist.version,
+                "editable": editable,
+            }
+        )
+    return sorted(records, key=lambda item: str(item["name"]).lower())
+
+
+def vcs_state(source_path: Path) -> dict[str, Any] | None:
+    try:
+        root = subprocess.run(
+            ["git", "-C", str(source_path), "rev-parse", "--show-toplevel"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    try:
+        revision = subprocess.run(
+            ["git", "-C", str(source_path), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "-C", str(source_path), "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return {"root": root, "revision": None, "dirty": None}
+    return {
+        "root": root,
+        "revision": revision,
+        "dirty": bool(status.strip()),
+    }
+
+
+def _import_smoke_code(imports: list[str]) -> str:
+    return "\n".join(
+        [
+            "import importlib",
+            f"imports = {imports!r}",
+            "for name in imports:",
+            "    importlib.import_module(name)",
+        ]
+    )
+
+
 def _import_name_for_distribution(name: str) -> str:
     fasthep = "fasthep"
     mapping = {
@@ -551,16 +782,15 @@ def _import_name_for_distribution(name: str) -> str:
     return mapping.get(name.lower(), name.replace("-", "_"))
 
 
-def _environment_id(environment: str, prefix: Path) -> str:
-    digest = hashlib.sha256(f"{environment}:{prefix}".encode()).hexdigest()[:12]
-    return f"{environment}-{digest}"
-
-
-def _application_id(editables: list[EditableDistribution]) -> str:
-    payload = "|".join(
-        f"{item.name}:{item.version}:{item.source_path}" for item in editables
-    )
-    return f"editable-{hashlib.sha256(payload.encode()).hexdigest()[:12]}"
+def _environment_id(
+    environment: str,
+    prefix: Path,
+    editable_snapshot_archive: Path | None = None,
+) -> str:
+    digest = hashlib.sha256(f"{environment}:{prefix}".encode())
+    if editable_snapshot_archive is not None:
+        digest.update(_sha256(editable_snapshot_archive).encode())
+    return f"{environment}-{digest.hexdigest()[:12]}"
 
 
 def _file_record(path: Path) -> dict[str, Any]:
@@ -711,7 +941,7 @@ def packed_pixi_environment_spec_from_execution(
             "is not implemented yet"
         )
     return PackedPixiEnvironmentSpec(
-        environment=plan.environment,
+        environment=plan.environment or "default",
         archive_path=plan.archive_path or "execution/worker-environments/env.sh",
         worker_env_dir=plan.worker_env_dir or "worker-env",
     )

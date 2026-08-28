@@ -45,9 +45,11 @@ def normalize_dask_htcondor_config(execution: dict[str, Any]) -> dict[str, Any]:
     scale = {pool.name: pool.workers or 0 for pool in pools}
     first_pool = pools[0]
     first_options = dict(pool_specs[first_pool.name]["job_kwargs"])
+    config = dict(execution.get("config") or {})
 
     return {
         "workers": first_pool.workers,
+        "worker_start_timeout": _worker_start_timeout(config),
         "cluster_options": first_options,
         "pool_specs": pool_specs,
         "scale": scale,
@@ -107,6 +109,13 @@ def compute_with_htcondor(
     client = Client(cluster)
     try:
         cluster.scale(htcondor_config["scale"])
+        _wait_for_htcondor_workers(
+            client,
+            requested=sum(int(value) for value in htcondor_config["scale"].values()),
+            pool_names=list(htcondor_config["scale"]),
+            timeout=float(htcondor_config["worker_start_timeout"]),
+            build_paths=build_paths,
+        )
         results, dashboard_link = compute_with_client(client, tasks)
         return results, dashboard_link, htcondor_config
     finally:
@@ -288,6 +297,51 @@ def _validate_htcondor_config_options(config: dict[str, Any]) -> None:
             "backend. Use execution.config.queue for site job flavours or "
             "execution.config.job_extra_directives for explicit HTCondor ClassAds."
         )
+
+
+def _worker_start_timeout(config: dict[str, Any]) -> float:
+    raw = config.get("worker_start_timeout", 120)
+    try:
+        timeout = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("execution.config.worker_start_timeout must be numeric") from exc
+    if timeout <= 0:
+        raise ValueError("execution.config.worker_start_timeout must be positive")
+    return timeout
+
+
+def _wait_for_htcondor_workers(
+    client: Any,
+    *,
+    requested: int,
+    pool_names: list[str],
+    timeout: float,
+    build_paths: BuildPaths,
+) -> None:
+    if requested <= 0:
+        return
+    try:
+        client.wait_for_workers(requested, timeout=timeout)
+    except Exception as exc:
+        connected = _connected_worker_count(client)
+        paths = _htcondor_execution_paths(build_paths)
+        logs = ", ".join(
+            f"{name}={path.resolve()}" for name, path in sorted(paths.items())
+        )
+        pools = ", ".join(pool_names) if pool_names else "<none>"
+        raise TimeoutError(
+            "Timed out waiting for Dask HTCondor workers: "
+            f"requested={requested}, connected={connected}, pools={pools}, "
+            f"timeout={timeout:g}s, logs=({logs})"
+        ) from exc
+
+
+def _connected_worker_count(client: Any) -> int:
+    try:
+        workers = client.scheduler_info().get("workers", {})
+    except Exception:
+        return 0
+    return len(workers)
 
 
 def _merge_htcondor_directives(

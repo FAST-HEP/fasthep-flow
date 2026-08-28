@@ -82,7 +82,6 @@ def test_build_paths_execution_path() -> None:
     assert paths.worker_environments_dir() == Path(
         "build/execution/worker-environments"
     )
-    assert paths.applications_dir() == Path("build/execution/applications")
     assert paths.dask_htcondor_dir("submit") == Path(
         "build/execution/dask/htcondor/submit"
     )
