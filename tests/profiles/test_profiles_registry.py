@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from hepflow.api import normalise_workflow_file
+from hepflow.compiler import profiles as profile_module
 from hepflow.compiler.profiles import expand_profile_names, load_profile_registry_layer
 from hepflow.registry.loaders import (
     load_progress_sink,
@@ -75,6 +76,40 @@ def test_builtin_registry_profile_is_packaged() -> None:
 
     assert "backends" in registry
     assert "local.default" in registry["backends"]
+    assert "dask" not in registry["backends"]
+
+
+def test_basic_profile_skips_missing_optional_distributed_registry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_files = profile_module.resources.files
+
+    def fake_files(package: str) -> Any:
+        if package == "fasthep_distributed.profiles":
+            raise ModuleNotFoundError(package)
+        return real_files(package)
+
+    monkeypatch.setattr(profile_module.resources, "files", fake_files)
+
+    assert expand_profile_names(["basic"], project_root=tmp_path) == ["registry"]
+
+
+def test_basic_profile_loads_optional_distributed_registry_when_available(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package = tmp_path / "fasthep_distributed" / "profiles"
+    package.mkdir(parents=True)
+    (tmp_path / "fasthep_distributed" / "__init__.py").write_text("", encoding="utf-8")
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "registry.yaml").write_text("registry:\n  backends: {}\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    assert expand_profile_names(["basic"], project_root=tmp_path) == [
+        "registry",
+        "fasthep_distributed:registry",
+    ]
 
 
 def test_progress_sink_registry_entries_load() -> None:

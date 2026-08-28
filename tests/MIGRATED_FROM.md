@@ -9,7 +9,6 @@ HEP-specific carpenter, curator, or render components.
 | `architecture/test_no_legacy_imports.py` | flow-owned | Adapted as `test_architecture.py`. |
 | `backends/test_backend_loader.py` | flow-owned | Adapted as `test_backend_loader.py`. |
 | `backends/test_local_backend.py` | flow-owned | Covered by `test_runtime_toy.py` and public API run tests. |
-| `backends/test_dask_local_backend.py` | flow-owned, optional runtime | Loader coverage kept; full dask execution deferred until optional dependency CI. |
 | `compiler/test_includes.py` | flow-owned | Covered by include normalization smoke in `test_normalize_plan_api.py`. |
 | `compiler/test_normalize.py` | flow-owned plus source defaults | Adapted for generic toy sources in `test_normalize_plan_api.py`; ROOT defaults remain existing flow behavior. |
 | `compiler/test_profiles.py` | flow-owned | Adapted as package-qualified profile tests in `test_profiles_registry.py`. |

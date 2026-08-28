@@ -301,6 +301,9 @@ def test_execution_metadata_propagates_to_plan(
     workflow = _with_stage_execution(
         {
             **toy_workflow,
+            "registry": {
+                "backends": {"dask": {"impl": "hepflow.backends:Local"}},
+            },
             "execution": {
                 "backend": "dask",
                 "strategy": "htcondor",
@@ -346,6 +349,9 @@ def test_packed_pixi_worker_environment_spec_written_at_compile(
 ) -> None:
     workflow = {
         **toy_workflow,
+        "registry": {
+            "backends": {"dask": {"impl": "hepflow.backends:Local"}},
+        },
         "execution": {
             "backend": "dask",
             "strategy": "htcondor",

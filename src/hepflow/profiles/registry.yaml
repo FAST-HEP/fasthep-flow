@@ -14,8 +14,6 @@ registry:
   backends:
     local.default:
       impl: hepflow.backends:Local
-    dask:
-      impl: hepflow.backends:Dask
   hooks: {}
   compile_hooks:
     flow.expand_field_glob:

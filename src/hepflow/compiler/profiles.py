@@ -20,6 +20,12 @@ class ProfileSource:
     source: Path | Traversable
 
 
+@dataclass(frozen=True, slots=True)
+class ProfileInclude:
+    name: str
+    optional: bool = False
+
+
 def project_profile_dir(root: Path) -> Path:
     """Return the project-local directory reserved for explicit profile files."""
     return root / ".hepflow" / "profiles"
@@ -238,26 +244,49 @@ def _expand_profile_name(
         expanded.append(name)
         return
 
-    for included_name in includes:
-        _expand_profile_name(
-            included_name,
-            project_root=project_root,
-            stack=[*stack, name],
-            expanded=expanded,
-        )
+    for include in includes:
+        try:
+            _expand_profile_name(
+                include.name,
+                project_root=project_root,
+                stack=[*stack, name],
+                expanded=expanded,
+            )
+        except FileNotFoundError:
+            if include.optional:
+                continue
+            raise
 
 
-def _profile_includes(config: dict[str, Any], name: str) -> list[str]:
+def _profile_includes(config: dict[str, Any], name: str) -> list[ProfileInclude]:
     raw = config.get("includes", [])
     if raw is None:
         return []
     if not isinstance(raw, list):
         raise ValueError(f"Profile {name!r} includes must be a list of strings")
-    includes: list[str] = []
+    includes: list[ProfileInclude] = []
     for index, item in enumerate(raw):
+        if isinstance(item, str) and item.strip():
+            includes.append(ProfileInclude(name=item.strip()))
+            continue
+        if isinstance(item, dict):
+            include_name = item.get("profile", item.get("name"))
+            if not isinstance(include_name, str) or not include_name.strip():
+                raise ValueError(
+                    f"Profile {name!r} includes[{index}].profile must be a "
+                    "non-empty string"
+                )
+            optional = item.get("optional", False)
+            if not isinstance(optional, bool):
+                raise ValueError(
+                    f"Profile {name!r} includes[{index}].optional must be a boolean"
+                )
+            includes.append(
+                ProfileInclude(name=include_name.strip(), optional=optional)
+            )
+            continue
         if not isinstance(item, str) or not item.strip():
             raise ValueError(
                 f"Profile {name!r} includes[{index}] must be a non-empty string"
             )
-        includes.append(item.strip())
     return includes

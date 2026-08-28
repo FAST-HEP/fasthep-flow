@@ -17,7 +17,6 @@ def test_init_project_scaffolds_flow_profiles_under_fasthep(tmp_path: Path) -> N
     assert result.profile_dir == profile_dir
     assert result.created_profile_dir
     assert (profile_dir / "registry.yaml").exists()
-    assert (profile_dir / "dask_local.yaml").exists()
     assert (profile_dir / "basic.yaml").exists()
     assert (profile_dir / "hep.yaml").exists()
     assert (profile_dir / "hep_debug.yaml").exists()
@@ -36,7 +35,6 @@ def test_init_project_skips_existing_flow_profiles(tmp_path: Path) -> None:
         for path in second.skipped_existing
     } == {
         "basic.yaml",
-        "dask_local.yaml",
         "hep.yaml",
         "hep_debug.yaml",
         "registry.yaml",

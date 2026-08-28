@@ -24,10 +24,6 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "conda-pack",
-    "dask",
-    "distributed",
-    "dask-jobqueue",
     "jinja2",
     "networkx",
     "numpy",

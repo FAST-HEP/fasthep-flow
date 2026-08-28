@@ -1,2 +1,4 @@
 includes:
   - registry
+  - profile: fasthep_distributed:registry
+    optional: true

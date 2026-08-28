@@ -80,9 +80,6 @@ def default_runtime_registry_config() -> dict[str, Any]:
             "local.default": {
                 "impl": "hepflow.backends:Local",
             },
-            "dask": {
-                "impl": "hepflow.backends:Dask",
-            },
         },
         "hooks": {},
         "compile_hooks": {
