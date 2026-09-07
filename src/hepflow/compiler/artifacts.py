@@ -6,12 +6,48 @@ from typing import Any
 
 import networkx as nx
 
-from hepflow.build_layout import BuildPaths
+from hepflow.backends.loaders import backend_build_directories
+from hepflow.build_layout import BuildPaths, ensure_build_layout
 from hepflow.compiler.compile_hooks import run_compile_hooks
-from hepflow.compiler.graph_artifacts import _lowered_graph_to_json
+from hepflow.compiler.graph_artifacts import (
+    _lowered_graph_to_json,
+    write_graph_artifacts,
+)
 from hepflow.model.plan import ExecutionPlan
 from hepflow.model.worker_environment import worker_environment_plan_from_execution
 from hepflow.utils import write_json, write_yaml
+
+
+def write_plan_artifacts(
+    *,
+    plan: ExecutionPlan,
+    graph: nx.DiGraph,
+    outdir: str | Path,
+    normalized: dict[str, Any],
+) -> None:
+    """Save one compiled plan and its artifacts before running render hooks."""
+    paths = BuildPaths.from_plan(plan, outdir=outdir)
+    ensure_build_layout(
+        paths.root,
+        variation=paths.variation,
+        backend_directories=backend_build_directories(
+            plan.registry, plan.execution, provenance=plan.provenance,
+        ),
+    )
+    write_yaml(normalized, str(paths.compile_file("normalized.yaml")))
+    write_compile_artifacts(
+        plan=plan, graph=graph, outdir=paths.root, normalized=normalized,
+    )
+    graph_artifacts = write_graph_artifacts(graph, paths.graph_dir())
+    plan_file = paths.compile_file("plan.yaml")
+    write_yaml(plan.to_dict(), str(plan_file))
+    write_compile_hook_artifacts(
+        plan=plan,
+        normalized=normalized,
+        build_paths=paths,
+        artifacts={**graph_artifacts, "plan": str(plan_file)},
+        when="after_compile",
+    )
 
 
 def write_compile_artifacts(
@@ -22,8 +58,8 @@ def write_compile_artifacts(
     normalized: dict[str, Any] | None = None,
 ) -> None:
     out_path = Path(outdir)
-    build_paths = BuildPaths(root=out_path)
-    compile_path = out_path / "compile"
+    build_paths = BuildPaths.from_plan(plan, outdir=out_path)
+    compile_path = build_paths.compile_dir()
     write_yaml(_lowered_graph_to_json(graph), str(compile_path / "analysis.ir.yaml"))
     write_yaml(plan.data_flow, str(compile_path / "deps.yaml"))
     artifacts: dict[str, Any] = {}
@@ -54,7 +90,7 @@ def write_compile_artifacts(
         str(compile_path / "report.compile.yaml"),
     )
     write_worker_environment_artifact(plan=plan, compile_path=compile_path)
-    write_render_artifacts(plan=plan, outdir=out_path)
+    write_render_artifacts(plan=plan, outdir=out_path, variation=build_paths.variation)
 
 
 def write_compile_hook_artifacts(

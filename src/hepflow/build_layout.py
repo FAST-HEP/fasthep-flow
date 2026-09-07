@@ -122,13 +122,15 @@ class BuildPaths:
         return self.root / validate_build_relative_path(relative_path)
 
     def compile_dir(self) -> Path:
-        return self.root / "compile"
+        path = self.root / "compile"
+        return path / self.variation if self.variation else path
 
     def compile_file(self, filename: str | Path) -> Path:
         return self.compile_dir() / filename
 
     def graph_dir(self) -> Path:
-        return self.root / "graph"
+        path = self.root / "graph"
+        return path / self.variation if self.variation else path
 
     def graph_file(self, filename: str | Path) -> Path:
         return self.graph_dir() / filename

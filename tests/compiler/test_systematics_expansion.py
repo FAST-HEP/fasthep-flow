@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+from tests.toy_components import compile_hooks
 
 from hepflow.api import (
     compile_workflow_file,
@@ -688,7 +690,7 @@ def test_run_plan_file_explicit_outdir_overrides_variation_default(
     assert result.success is True
     assert (custom_dir / "reports" / "trigger_eff_up" / "run_summary.yaml").exists()
     assert (custom_dir / "artifacts" / "trigger_eff_up" / "files").exists()
-    assert not (build_dir / "artifacts" / "trigger_eff_up" / "files").exists()
+    assert not (build_dir / "artifacts" / "trigger_eff_up" / "files" / "output.json").exists()
 
 
 def test_no_systematics_workflows_still_compile_to_existing_plan_path(
@@ -892,3 +894,96 @@ def _write_workflow(tmp_path: Path, workflow: dict[str, Any]) -> Path:
 
 def _plan_node(plan: dict[str, Any], node_id: str) -> dict[str, Any]:
     return next(node for node in plan["nodes"] if node["id"] == node_id)
+
+
+@pytest.mark.parametrize("include_nominal", [True, False, None])
+def test_graph_artifacts_and_hooks_are_scoped_per_plan(
+    toy_workflow: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    include_nominal: bool | None,
+) -> None:
+    workflow = _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
+    workflow["systematics"]["include_nominal"] = include_nominal
+    workflow["systematics"]["variations"].append({
+        "name": "trigger_eff_down",
+        "weight": {"multiply": "TriggerEffWeight_down"},
+    })
+    expected = {
+        "trigger_eff_up": "(EventWeight) * (TriggerEffWeight_up)",
+        "trigger_eff_down": "(EventWeight) * (TriggerEffWeight_down)",
+    }
+    if include_nominal:
+        expected["nominal"] = "EventWeight"
+    if include_nominal is None:
+        del workflow["systematics"]
+        expected = {"": "EventWeight"}
+    workflow["registry"]["compile_hooks"] = {
+        "toy.graph_render": {
+            "spec": "tests.toy_components.compile_hooks:GRAPH_RENDER_HOOK_SPEC",
+            "impl": "tests.toy_components.compile_hooks:graph_render_hook",
+        }
+    }
+    calls: list[str] = []
+    outdir = tmp_path / "build"
+
+    def render(ctx: Any, **params: Any) -> dict[str, Any]:
+        paths = ctx.build_paths
+        name = paths.variation or ""
+        calls.append(name)
+        assert paths.compile_dir() == outdir / "compile" / name
+        assert paths.graph_dir() == outdir / "graph" / name
+        assert paths.report_dir() == outdir / "reports" / name
+        assert Path(ctx.artifacts["plan"]) == paths.compile_file("plan.yaml")
+        saved = read_yaml(ctx.artifacts["plan"])
+        assert saved["context"].get("variation", {}).get("name", "") == name
+        for extension in ("mmd", "dot", "json", "d2"):
+            assert paths.graph_file(f"graph.{extension}").is_file()
+        assert Path(ctx.artifacts["graph_d2"]) == paths.graph_file("graph.d2")
+        # Stand in for optional D2 rendering, without a renderer dependency in Flow.
+        paths.graph_file("graph.svg").write_text(f"<svg>{name}</svg>")
+        paths.report_dir().joinpath("graph.txt").write_text(name)
+        return {"graph_render": {"variation": name}}
+
+    monkeypatch.setattr(compile_hooks, "graph_render_hook", render)
+    compile_workflow_file(_write_workflow(tmp_path, workflow), outdir=outdir)
+    assert sorted(calls) == sorted(expected)
+    for name, weight in expected.items():
+        graph_dir = outdir / "graph" / name
+        graph = json.loads((graph_dir / "graph.json").read_text())
+        payload = next(node["payload"] for node in graph["nodes"] if node["id"] == "stage.Scale")
+        assert f"'weight_expr': '{weight}'" in payload
+        assert (graph_dir / "graph.svg").read_text() == f"<svg>{name}</svg>"
+        assert (outdir / "reports" / name / "graph.txt").read_text() == name
+        report = json.loads(
+            (outdir / "compile" / name / "graph_render.json").read_text()
+        )
+        assert report == {"variation": name}
+    if include_nominal is not None:
+        assert not (outdir / "graph" / "graph.json").exists()
+        assert not (outdir / "compile" / "graph_render.json").exists()
+    if include_nominal is False:
+        assert not (outdir / "graph" / "nominal").exists()
+
+
+def test_source_graphs_survive_render_hook_failure(
+    toy_workflow: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _workflow_with_systematics(toy_workflow)
+    workflow["registry"]["compile_hooks"] = {
+        "toy.graph_render": {
+            "spec": "tests.toy_components.compile_hooks:GRAPH_RENDER_HOOK_SPEC",
+            "impl": "tests.toy_components.compile_hooks:graph_render_hook",
+        }
+    }
+
+    def fail(ctx: Any, **params: Any) -> dict[str, Any]:
+        raise RuntimeError("D2 rendering failed")
+
+    monkeypatch.setattr(compile_hooks, "graph_render_hook", fail)
+    outdir = tmp_path / "build"
+    with pytest.raises(RuntimeError, match="D2 rendering failed"):
+        compile_workflow_file(_write_workflow(tmp_path, workflow), outdir=outdir)
+    assert (outdir / "compile" / "nominal" / "plan.yaml").is_file()
+    for extension in ("mmd", "dot", "json", "d2"):
+        assert (outdir / "graph" / "nominal" / f"graph.{extension}").is_file()

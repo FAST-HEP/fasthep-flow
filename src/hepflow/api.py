@@ -11,23 +11,18 @@ from hepflow.build_layout import (
     BuildPaths,
     compile_dir,
     ensure_build_layout,
-    graph_dir,
     normalized_path,
     plan_path,
     resolve_normalized_path,
     resolve_plan_path,
     write_run_summary,
 )
-from hepflow.compiler.artifacts import (
-    write_compile_artifacts,
-    write_compile_hook_artifacts,
-)
+from hepflow.compiler.artifacts import write_plan_artifacts
 from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.execution import (
     resolve_workflow_execution,
     resolve_workflow_execution_hooks,
 )
-from hepflow.compiler.graph_artifacts import write_graph_artifacts
 from hepflow.compiler.includes import load_workflow_with_includes
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
@@ -162,33 +157,8 @@ def make_plan_file(
         )
 
     graph, plan = build_plan_from_normalized(normalized, chunk_size=chunk_size)
-    ensure_build_layout(
-        out_path,
-        backend_directories=backend_build_directories(
-            plan.registry,
-            plan.execution,
-            provenance=plan.provenance,
-        ),
-    )
-
-    write_compile_artifacts(
-        plan=plan,
-        graph=graph,
-        outdir=out_path,
-        normalized=normalized,
-    )
-    graph_artifacts = write_graph_artifacts(graph, graph_dir(out_path))
-    plan_file = plan_path(out_path)
-    write_yaml(plan.to_dict(), str(plan_file))
-    write_compile_hook_artifacts(
-        plan=plan,
-        normalized=normalized,
-        build_paths=BuildPaths(root=out_path),
-        artifacts={
-            **graph_artifacts,
-            "plan": str(plan_file),
-        },
-        when="after_compile",
+    write_plan_artifacts(
+        plan=plan, graph=graph, outdir=out_path, normalized=normalized,
     )
     return plan
 
