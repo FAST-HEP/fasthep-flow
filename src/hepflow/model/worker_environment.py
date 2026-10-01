@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -13,6 +14,7 @@ class WorkerEnvironmentPlan:
     source: str | None = None
     archive_path: str | None = None
     worker_env_dir: str | None = None
+    prefix: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {key: value for key, value in asdict(self).items() if value is not None}
@@ -27,6 +29,8 @@ def worker_environment_plan_from_execution(
     env_type = raw.get("type")
     if env_type is None:
         raise ValueError("execution.environment.type must be defined")
+    if env_type == "shared-prefix":
+        return _shared_prefix_plan(raw)
     if env_type != "packed-pixi":
         raise ValueError(f"Unsupported execution.environment.type {env_type!r}")
     mode = raw.get("mode", "self-extracting")
@@ -69,3 +73,29 @@ def worker_environment_plan_from_execution(
         archive_path=archive_path.strip(),
         worker_env_dir=worker_env_dir.strip(),
     )
+
+
+def _shared_prefix_plan(raw: Mapping[str, Any]) -> WorkerEnvironmentPlan:
+    """
+    Workers run the Python of an existing prefix on a shared filesystem.
+
+    Only the shape is checked here; whether the prefix exists and is usable is
+    checked by the backend when it prepares the workers.
+    """
+
+    unknown = sorted(str(key) for key in raw if key not in {"type", "prefix"})
+    if unknown:
+        raise ValueError(
+            "Unsupported execution.environment keys for shared-prefix: "
+            + ", ".join(unknown)
+        )
+    prefix = raw.get("prefix", "current")
+    if not isinstance(prefix, str) or not prefix.strip():
+        raise ValueError("execution.environment.prefix must be a string")
+    prefix = prefix.strip()
+    if prefix != "current" and not Path(prefix).is_absolute():
+        raise ValueError(
+            "execution.environment.prefix for shared-prefix must be an absolute "
+            f"path or 'current', got {prefix!r}"
+        )
+    return WorkerEnvironmentPlan(type="shared-prefix", mode="shared", prefix=prefix)

@@ -401,6 +401,45 @@ def test_packed_pixi_prefix_source_current_normalizes_explicitly(
     }
 
 
+def test_shared_prefix_worker_environment_normalizes(
+    toy_workflow: dict[str, Any],
+) -> None:
+    def environment(raw: dict[str, Any]) -> dict[str, Any]:
+        workflow = {**toy_workflow, "execution": {"environment": raw}}
+        return normalize_workflow(workflow)["execution"]["environment"]
+
+    assert environment({"type": "shared-prefix", "prefix": "/afs/x/.pixi/envs/dev"}) == {
+        "type": "shared-prefix",
+        "mode": "shared",
+        "prefix": "/afs/x/.pixi/envs/dev",
+    }
+    assert environment({"type": "shared-prefix"}) == {
+        "type": "shared-prefix",
+        "mode": "shared",
+        "prefix": "current",
+    }
+
+
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    [
+        ({"type": "shared-prefix", "prefix": "relative/env"}, "absolute path"),
+        ({"type": "shared-prefix", "prefix": ""}, "must be a string"),
+        ({"type": "shared-prefix", "prefix": 3}, "must be a string"),
+        ({"type": "shared-prefix", "mode": "prefix"}, "Unsupported"),
+    ],
+)
+def test_shared_prefix_worker_environment_rejects_bad_input(
+    toy_workflow: dict[str, Any],
+    raw: dict[str, Any],
+    message: str,
+) -> None:
+    workflow = {**toy_workflow, "execution": {"environment": raw}}
+
+    with pytest.raises(ValueError, match=message):
+        normalize_workflow(workflow)
+
+
 def test_stage_execution_unknown_resource_class_errors(
     toy_workflow: dict[str, Any],
 ) -> None:
