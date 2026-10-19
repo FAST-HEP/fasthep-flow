@@ -69,7 +69,9 @@ def _run_writer_like_sink(
     when = normalize_lifecycle_event(params.get("when") or "run_end")
     if "path" in impl_params:
         meta = dict(meta or {})
-        meta.setdefault("writer_name", Path(str(impl_params["path"])).stem)
+        meta.setdefault(
+            "writer_name", _writer_name(str(impl_params["path"]), meta=meta)
+        )
         impl_params = _resolve_writer_paths_for_context(
             impl_params,
             when=when,
@@ -106,6 +108,24 @@ def _sink_impl_params(params: dict[str, Any]) -> dict[str, Any]:
         for key, value in dict(params or {}).items()
         if key not in EXECUTION_ONLY_SINK_PARAMS
     }
+
+
+def _writer_name(path_template: str, *, meta: dict[str, Any]) -> str:
+    """
+    Name of a writer, used for its manifest directory and manifest ``name``.
+
+    This is the stem of the path template. A stem made of path tokens, as in
+    ``{dataset}/{part}.root``, says nothing about the writer, so the node id
+    names it instead (``write.FilterChannel.0`` becomes ``FilterChannel_0``).
+    """
+
+    stem = Path(path_template).stem
+    if "{" not in stem and "}" not in stem:
+        return stem
+    node_id = str(meta.get("node_id") or meta.get("stage_id") or "").removeprefix(
+        "write."
+    )
+    return node_id.replace(".", "_") or "writer"
 
 
 def _resolve_writer_paths_for_context(

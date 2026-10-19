@@ -150,7 +150,9 @@ the layout. Workflow authors set only a `path`:
   as is, outside the build directory.
 - Each writer gets `artifacts/files/<writer name>/manifest.json` listing every
   file per dataset (path, partition, attempt, entries, size, provenance record).
-  `name` is the writer name or the path stem.
+  `name` is the writer name or the path stem; when the stem is only a token
+  (`{dataset}/{part}.root`) the writer is named after its node id
+  (`write.FilterChannel.0` becomes `FilterChannel_0`).
 - Two writers may not claim the same path; the compiler rejects collisions
   (`compiler/output_claims.py`). Resolution happens in
   `runtime/handlers.py`, manifests are written by
