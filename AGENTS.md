@@ -160,10 +160,10 @@ the layout. Workflow authors set only a `path`:
   directory of the process that writes (`.` is a job directory). Only `files`
   moves; cutflows, histograms, provenance and the manifests stay below `outdir`.
   Writers' manifest entries are rewritten to `path_type: relative_to_files_root`
-  with the path relative to that root, and the optional context entry
-  `output_destination` is recorded as `destination` on the writer manifest: a
-  file is at `<destination>/<path>` once the backend has delivered it. Delivery
-  itself is the backend's job, not Flow's.
+  with the path relative to that root and an `adler32` checksum of the file, and
+  the optional context entry `output_destination` is recorded as `destination` on
+  the writer manifest: a file is at `<destination>/<path>` once the backend has
+  delivered it. Delivery itself is the backend's job, not Flow's.
 - Two writers may not claim the same path; the compiler rejects collisions
   (`compiler/output_claims.py`). Resolution happens in
   `runtime/handlers.py`, manifests are written by

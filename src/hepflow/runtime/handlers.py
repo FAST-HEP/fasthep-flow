@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -129,6 +130,8 @@ def _localise_writer_manifest(
         return result
     manifest["path"] = relative.as_posix()
     manifest["path_type"] = "relative_to_files_root"
+    # A checksum to compare with the delivered copy. adler32 is what EOS keeps.
+    manifest["adler32"] = _adler32_of_file(written)
     destination = ctx.get("output_destination")
     if destination:
         manifest["destination"] = str(destination)
@@ -141,6 +144,14 @@ def _sink_impl_params(params: dict[str, Any]) -> dict[str, Any]:
         for key, value in dict(params or {}).items()
         if key not in EXECUTION_ONLY_SINK_PARAMS
     }
+
+
+def _adler32_of_file(path: Path) -> str:
+    value = 1
+    with path.open("rb") as stream:
+        while chunk := stream.read(8 * 1024 * 1024):
+            value = zlib.adler32(chunk, value)
+    return f"{value & 0xFFFFFFFF:08x}"
 
 
 def _writer_name(path_template: str, *, meta: dict[str, Any]) -> str:

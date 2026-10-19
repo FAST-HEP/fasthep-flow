@@ -206,6 +206,7 @@ def _build_manifest(records: list[dict[str, Any]]) -> dict[str, Any]:
                     "attempt",
                     "entries",
                     "size_bytes",
+                    "adler32",
                     "format",
                     "root_classname",
                     "provenance",

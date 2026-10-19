@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +92,7 @@ def test_writer_writes_below_output_files_root_and_records_relative_path(
     assert manifest["path"] == "ds/0_0.root"
     assert manifest["path_type"] == "relative_to_files_root"
     assert manifest["destination"] == DESTINATION
+    assert manifest["adler32"] == f"{zlib.adler32(b'x' * 7):08x}"
 
 
 def test_writer_without_files_root_keeps_default_layout(tmp_path: Path) -> None:
@@ -101,6 +103,7 @@ def test_writer_without_files_root_keeps_default_layout(tmp_path: Path) -> None:
     manifest = result.metadata["writer_manifest"]
     assert manifest["path_type"] == "absolute"
     assert "destination" not in manifest
+    assert "adler32" not in manifest
 
 
 def test_writer_outside_files_root_keeps_its_manifest(tmp_path: Path) -> None:
@@ -158,6 +161,7 @@ def test_run_manifest_records_destination_and_relative_paths(tmp_path: Path) -> 
     [entry] = payload["datasets"]["ds"]["files"]
     assert entry["path"] == "ds/0_0.root"
     assert entry["path_type"] == "relative_to_files_root"
+    assert entry["adler32"] == f"{zlib.adler32(b'x' * 7):08x}"
     assert "destination" not in entry
 
 
