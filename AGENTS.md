@@ -131,6 +131,40 @@ Python support.
   YAML, reports, manifests and benchmark output are products of workflows or
   tests; avoid checking them in unless a test fixture intentionally needs them.
 
+## Output Artifact Layout
+
+Writer sinks (`write:` blocks, for example `root_tree`) are sink-agnostic about
+where files go; `hepflow.build_layout.BuildPaths` and the writer path rules own
+the layout. Workflow authors set only a `path`:
+
+- A relative `path` is placed under `<outdir>/artifacts/files/`.
+- With `when: partition_end` (the default for non-render sinks) and no path
+  tokens, `skims/x.<suffix>` becomes
+  `artifacts/files/skims/x/<dataset>/<part>.<suffix>`: the path stem names a folder,
+  each dataset gets its own subfolder, and each partition one file.
+- `<part>` is `<file_index>_<chunk_index>` (`0_0`, `0_1`, `1_0`, ...); without
+  event chunking it is `<file_index>_0`. `<file_index>` is the position in the
+  dataset's `files` list.
+- Explicit tokens `{dataset}`, `{part}`, `{partition_id}` and `{node_id}` in
+  `path` replace the default and are used as written. An absolute `path` is kept
+  as is, outside the build directory.
+- Each writer gets `artifacts/files/<writer name>/manifest.json` listing every
+  file per dataset (path, partition, attempt, entries, size, provenance record).
+  `name` is the writer name or the path stem.
+- Two writers may not claim the same path; the compiler rejects collisions
+  (`compiler/output_claims.py`). Resolution happens in
+  `runtime/handlers.py`, manifests are written by
+  `runtime/writer_manifests.py`.
+
+Example (workshop `04-save-data/01-skims`, `path: dimuon_candidates.root`):
+
+```text
+artifacts/files/dimuon_candidates/
+├── data/0_0.root
+├── dy/0_0.root
+└── manifest.json
+```
+
 ## Testing Expectations
 
 - Compiler changes usually need focused tests in `tests/compiler/` covering
