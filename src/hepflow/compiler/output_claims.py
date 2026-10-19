@@ -32,6 +32,47 @@ def validate_output_claims(plan: ExecutionPlan) -> None:
             claims[claim.key] = claim
 
 
+def partition_writer_roots(plan: ExecutionPlan) -> list[str]:
+    """
+    Top-level entries below the ``files`` root that partition writers create.
+
+    Writers that run at ``partition_end`` write
+    ``<root>/<path>`` with ``{dataset}`` and ``{part}`` filled in. A backend that
+    delivers the files itself needs the names of what to deliver before the run:
+    the first path component, with ``{dataset}`` expanded over the plan's
+    datasets. Absolute paths are outside the root and are skipped. A first
+    component that depends on the partition (``{part}``, ``{partition_id}``)
+    cannot be listed in advance and raises ``ValueError``.
+    """
+
+    datasets = list(dict.fromkeys(partition.dataset for partition in plan.partitions))
+    files_root = BuildPaths(root=Path()).artifact_dir("files")
+    roots: list[str] = []
+    for node in plan.nodes:
+        if node.role != "sink":
+            continue
+        raw_path = dict(node.params or {}).get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        when = _sink_when(node)
+        if when != "partition_end":
+            continue
+        claim = _writer_claim_path(raw_path, when=when, node=node)
+        if claim is None or claim.is_absolute():
+            continue
+        first = claim.relative_to(files_root).parts[0]
+        tokens = _format_tokens(first)
+        if tokens - {"dataset"}:
+            raise ValueError(
+                f"Cannot list the output of writer {node.id!r} in advance: the "
+                f"first path component {first!r} depends on the partition. Start "
+                "the path with a directory name or {dataset}."
+            )
+        names = [first.replace("{dataset}", name) for name in datasets] if tokens else [first]
+        roots.extend(name for name in names if name not in roots)
+    return roots
+
+
 def _node_output_claims(node: ExecutionNode) -> list[OutputClaim]:
     if node.role != "sink":
         return []

@@ -164,6 +164,9 @@ the layout. Workflow authors set only a `path`:
   the optional context entry `output_destination` is recorded as `destination` on
   the writer manifest: a file is at `<destination>/<path>` once the backend has
   delivered it. Delivery itself is the backend's job, not Flow's.
+  `hepflow.build_layout.partition_output_roots(plan)` lists the top-level entries
+  below the root that partition writers create (the first path component, with
+  `{dataset}` expanded), so a backend knows what to deliver before the run.
 - Two writers may not claim the same path; the compiler rejects collisions
   (`compiler/output_claims.py`). Resolution happens in
   `runtime/handlers.py`, manifests are written by

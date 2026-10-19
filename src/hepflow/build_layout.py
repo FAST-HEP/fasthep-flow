@@ -166,6 +166,20 @@ class BuildPaths:
         return self.root / "run_summary.yaml"
 
 
+def partition_output_roots(plan: Any) -> list[str]:
+    """
+    Names of the top-level entries below the ``files`` root that the plan's
+    partition writers create, for example the dataset names for a writer path
+    ``{dataset}/{part}.root``. See ``compiler.output_claims.partition_writer_roots``.
+    """
+
+    from hepflow.compiler.output_claims import (  # noqa: PLC0415
+        partition_writer_roots,
+    )
+
+    return partition_writer_roots(plan)
+
+
 def output_files_root_from_context(context: Mapping[str, Any] | None) -> Path | None:
     """
     Return the ``output_files_root`` context entry, if set.
