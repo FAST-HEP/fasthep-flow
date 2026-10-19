@@ -99,7 +99,40 @@ def _run_writer_like_sink(
     if "meta" in signature.parameters or accepts_kwargs:
         impl_params["meta"] = dict(meta or {})
 
-    return impl(target=target, **impl_params)
+    result = impl(target=target, **impl_params)
+    return _localise_writer_manifest(result, component_ctx)
+
+
+def _localise_writer_manifest(
+    result: Any, ctx: dict[str, Any] | ComponentContext
+) -> Any:
+    """
+    Express a writer's manifest path relative to ``output_files_root``.
+
+    Writers record paths relative to ``outdir``, or absolute. When the files are
+    written below ``output_files_root`` (a directory local to the worker), the
+    absolute path would be meaningless after the run. The path becomes relative
+    to that root, ``path_type`` says so, and the optional ``output_destination``
+    context entry is recorded as ``destination``, the place where the backend
+    delivers the files.
+    """
+
+    files_root = BuildPaths.from_ctx(ctx).files_root
+    metadata = getattr(result, "metadata", None)
+    manifest = metadata.get("writer_manifest") if isinstance(metadata, dict) else None
+    if files_root is None or not isinstance(manifest, dict):
+        return result
+    written = Path(str(getattr(result, "path", None) or manifest.get("path") or ""))
+    try:
+        relative = written.resolve().relative_to(files_root.resolve())
+    except ValueError:
+        return result
+    manifest["path"] = relative.as_posix()
+    manifest["path_type"] = "relative_to_files_root"
+    destination = ctx.get("output_destination")
+    if destination:
+        manifest["destination"] = str(destination)
+    return result
 
 
 def _sink_impl_params(params: dict[str, Any]) -> dict[str, Any]:

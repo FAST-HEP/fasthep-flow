@@ -7,6 +7,7 @@ import pytest
 from hepflow.build_layout import (
     BuildPaths,
     ensure_build_layout,
+    output_files_root_from_context,
     validate_build_relative_path,
 )
 
@@ -137,3 +138,52 @@ def test_ensure_build_layout_creates_backend_declared_directories(
 def test_backend_declared_build_directories_reject_unsafe_paths(path: str) -> None:
     with pytest.raises(ValueError, match="build directory"):
         validate_build_relative_path(path)
+
+
+def test_build_paths_files_root_moves_only_the_files_family() -> None:
+    paths = BuildPaths(root=Path("build"), files_root=Path("/job/dir"))
+
+    assert paths.artifact("files", "ds/0_0.root") == Path("/job/dir/ds/0_0.root")
+    assert paths.artifact_dir("files") == Path("/job/dir")
+    assert paths.artifact("cutflows", "x.csv") == Path("build/artifacts/cutflows/x.csv")
+    assert paths.provenance_dir() == Path("build/artifacts/provenance")
+
+
+def test_build_paths_without_files_root_is_unchanged() -> None:
+    paths = BuildPaths(root=Path("build"))
+
+    assert paths.files_root is None
+    assert paths.artifact("files", "ds/0_0.root") == Path(
+        "build/artifacts/files/ds/0_0.root"
+    )
+
+
+def test_build_paths_from_ctx_reads_output_files_root() -> None:
+    paths = BuildPaths.from_ctx({"outdir": "build", "output_files_root": "."})
+
+    assert paths.root == Path("build")
+    assert paths.artifact("files", "ds/0_0.root") == Path("ds/0_0.root")
+
+
+def test_build_paths_from_ctx_adds_files_root_to_existing_build_paths() -> None:
+    existing = BuildPaths(root=Path("build"), variation="nominal")
+
+    paths = BuildPaths.from_ctx(
+        {"build_paths": existing, "output_files_root": "/job/dir"}
+    )
+
+    assert paths.variation == "nominal"
+    assert paths.artifact("files", "a.root") == Path("/job/dir/a.root")
+    assert existing.files_root is None
+
+
+@pytest.mark.parametrize("value", [None, "", "   ", 3])
+def test_output_files_root_from_context_ignores_blank_values(value: object) -> None:
+    assert output_files_root_from_context({"output_files_root": value}) is None
+    assert output_files_root_from_context(None) is None
+
+
+def test_ensure_build_layout_ignores_files_root_context(tmp_path: Path) -> None:
+    ensure_build_layout(tmp_path)
+
+    assert (tmp_path / "artifacts" / "files").is_dir()

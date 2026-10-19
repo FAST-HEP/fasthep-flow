@@ -153,6 +153,17 @@ the layout. Workflow authors set only a `path`:
   `name` is the writer name or the path stem; when the stem is only a token
   (`{dataset}/{part}.root`) the writer is named after its node id
   (`write.FilterChannel.0` becomes `FilterChannel_0`).
+- A backend that delivers writer outputs itself (for example HTCondor sending
+  job-directory files to EOS) sets the context entry `output_files_root`. Then
+  the `files` family resolves below that directory instead of
+  `<outdir>/artifacts/files`; a relative root is resolved against the working
+  directory of the process that writes (`.` is a job directory). Only `files`
+  moves; cutflows, histograms, provenance and the manifests stay below `outdir`.
+  Writers' manifest entries are rewritten to `path_type: relative_to_files_root`
+  with the path relative to that root, and the optional context entry
+  `output_destination` is recorded as `destination` on the writer manifest: a
+  file is at `<destination>/<path>` once the backend has delivered it. Delivery
+  itself is the backend's job, not Flow's.
 - Two writers may not claim the same path; the compiler rejects collisions
   (`compiler/output_claims.py`). Resolution happens in
   `runtime/handlers.py`, manifests are written by

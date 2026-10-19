@@ -213,7 +213,7 @@ def _build_manifest(records: list[dict[str, Any]]) -> dict[str, Any]:
                 if key in record
             }
         )
-    return {
+    manifest: dict[str, Any] = {
         "kind": first["kind"],
         "name": first["name"],
         "node_id": first["node_id"],
@@ -224,6 +224,12 @@ def _build_manifest(records: list[dict[str, Any]]) -> dict[str, Any]:
         "total_entries": total_entries,
         "datasets": datasets,
     }
+    destination = first.get("destination")
+    if destination:
+        # Files with path_type "relative_to_files_root" are found at
+        # <destination>/<path> once the backend has delivered them.
+        manifest["destination"] = destination
+    return manifest
 
 
 def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 from hepflow.model.io import OutputResult
+from hepflow.model.plan import ExecutionNode, ExecutionPlan
 from hepflow.runtime.handlers import _run_writer_like_sink
+from hepflow.runtime.writer_manifests import write_writer_manifests
+
+DESTINATION = "root://eosuser.cern.ch//eos/user/x/y/skim/"
 
 
 def _fake_root_writer(calls: list[dict[str, Any]]) -> Any:
@@ -68,6 +73,92 @@ def _run(
     )
     assert isinstance(result, OutputResult)
     return result, calls
+
+
+def test_writer_writes_below_output_files_root_and_records_relative_path(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "jobdir"
+
+    result, calls = _run(
+        tmp_path, {"output_files_root": str(root), "output_destination": DESTINATION}
+    )
+
+    assert calls[0]["path"] == str(root / "ds" / "0_0.root")
+    assert (root / "ds" / "0_0.root").is_file()
+    assert not (tmp_path / "build").exists()
+    manifest = result.metadata["writer_manifest"]
+    assert manifest["path"] == "ds/0_0.root"
+    assert manifest["path_type"] == "relative_to_files_root"
+    assert manifest["destination"] == DESTINATION
+
+
+def test_writer_without_files_root_keeps_default_layout(tmp_path: Path) -> None:
+    result, calls = _run(tmp_path, {}, path="skims/x.root")
+
+    expected = tmp_path / "build" / "artifacts" / "files" / "skims" / "x" / "ds"
+    assert calls[0]["path"] == str(expected / "0_0.root")
+    manifest = result.metadata["writer_manifest"]
+    assert manifest["path_type"] == "absolute"
+    assert "destination" not in manifest
+
+
+def test_writer_outside_files_root_keeps_its_manifest(tmp_path: Path) -> None:
+    other = tmp_path / "elsewhere" / "ds" / "0_0.root"
+
+    result, _ = _run(
+        tmp_path,
+        {"output_files_root": str(tmp_path / "jobdir")},
+        path=str(other),
+    )
+
+    manifest = result.metadata["writer_manifest"]
+    assert manifest["path_type"] == "absolute"
+    assert "destination" not in manifest
+
+
+def test_relative_output_files_root_resolves_against_working_directory(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result, calls = _run(tmp_path, {"output_files_root": "."})
+
+    assert calls[0]["path"] == "ds/0_0.root"
+    assert (tmp_path / "ds" / "0_0.root").is_file()
+    assert result.metadata["writer_manifest"]["path"] == "ds/0_0.root"
+
+
+def test_run_manifest_records_destination_and_relative_paths(tmp_path: Path) -> None:
+    root = tmp_path / "jobdir"
+    result, _ = _run(
+        tmp_path, {"output_files_root": str(root), "output_destination": DESTINATION}
+    )
+    plan = ExecutionPlan()
+    plan.add_node(
+        ExecutionNode(
+            id="write.Selected",
+            graph_node_id="write.Selected",
+            role="sink",
+            impl="root_tree",
+            outputs={"artifact": "artifact"},
+        )
+    )
+
+    write_writer_manifests(
+        plan,
+        stores=[{("write.Selected", "artifact"): result}],
+        outdir=tmp_path / "build",
+    )
+
+    # Named after the node because the path stem is only a token.
+    published = tmp_path / "build" / "artifacts" / "files" / "Selected" / "manifest.json"
+    payload = json.loads(published.read_text(encoding="utf-8"))
+    assert payload["destination"] == DESTINATION
+    [entry] = payload["datasets"]["ds"]["files"]
+    assert entry["path"] == "ds/0_0.root"
+    assert entry["path_type"] == "relative_to_files_root"
+    assert "destination" not in entry
 
 
 def test_writer_with_token_stem_is_named_after_its_node(tmp_path: Path) -> None:

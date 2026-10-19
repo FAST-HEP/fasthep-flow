@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -11,24 +11,44 @@ from hepflow.utils import write_yaml
 
 @dataclass(frozen=True, slots=True)
 class BuildPaths:
+    """
+    Locations below a build root.
+
+    ``files_root`` optionally moves the ``files`` artifact family (writer
+    outputs such as skim ROOT files) out of ``<root>/artifacts/files``, for
+    example into a worker's job directory when a backend delivers the files
+    itself. A relative ``files_root`` is resolved against the working directory
+    of the process that writes. Everything else stays below ``root``.
+    """
+
     root: Path
     variation: str | None = None
+    files_root: Path | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "root", build_root(self.root))
         if isinstance(self.variation, str):
             variation = self.variation.strip() or None
             object.__setattr__(self, "variation", variation)
+        if self.files_root is not None:
+            files_root = Path(self.files_root)
+            object.__setattr__(
+                self, "files_root", files_root if str(files_root) else None
+            )
 
     @classmethod
     def from_ctx(cls, ctx: Mapping[str, Any] | None) -> BuildPaths:
         context = dict(ctx or {})
+        files_root = output_files_root_from_context(context)
         existing = context.get("build_paths")
         if isinstance(existing, BuildPaths):
+            if files_root is not None and existing.files_root is None:
+                return replace(existing, files_root=files_root)
             return existing
         return cls(
             root=Path(str(context.get("outdir") or ".")),
             variation=output_variation_from_context(context),
+            files_root=files_root,
         )
 
     @classmethod
@@ -41,6 +61,8 @@ class BuildPaths:
         )
 
     def artifact_dir(self, kind: str) -> Path:
+        if kind == "files" and self.files_root is not None:
+            return self.files_root
         return self.artifacts_root() / kind
 
     def artifacts_root(self) -> Path:
@@ -142,6 +164,24 @@ class BuildPaths:
         if self.variation:
             return self.report_dir() / "run_summary.yaml"
         return self.root / "run_summary.yaml"
+
+
+def output_files_root_from_context(context: Mapping[str, Any] | None) -> Path | None:
+    """
+    Return the ``output_files_root`` context entry, if set.
+
+    A backend that delivers writer outputs itself sets it to a directory local to
+    the process that writes (for example ``.`` for a job directory).
+    """
+
+    if context is None:
+        return None
+    value = context.get("output_files_root")
+    if isinstance(value, Path):
+        return value
+    if isinstance(value, str) and value.strip():
+        return Path(value.strip())
+    return None
 
 
 def output_variation_from_context(context: Mapping[str, Any] | None) -> str | None:
