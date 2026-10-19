@@ -418,6 +418,9 @@ def test_shared_prefix_worker_environment_normalizes(
         "mode": "shared",
         "prefix": "current",
     }
+    # Normalised output must be accepted again (backends re-read it).
+    normalized = environment({"type": "shared-prefix", "prefix": "/afs/x/env"})
+    assert environment(normalized) == normalized
 
 
 @pytest.mark.parametrize(

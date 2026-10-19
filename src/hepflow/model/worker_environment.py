@@ -83,7 +83,13 @@ def _shared_prefix_plan(raw: Mapping[str, Any]) -> WorkerEnvironmentPlan:
     checked by the backend when it prepares the workers.
     """
 
-    unknown = sorted(str(key) for key in raw if key not in {"type", "prefix"})
+    # ``mode`` is written back by the normalised plan; only "shared" is valid.
+    unknown = sorted(str(key) for key in raw if key not in {"type", "prefix", "mode"})
+    if raw.get("mode", "shared") != "shared":
+        raise ValueError(
+            "Unsupported execution.environment.mode for shared-prefix: "
+            f"{raw['mode']!r} (only 'shared')"
+        )
     if unknown:
         raise ValueError(
             "Unsupported execution.environment keys for shared-prefix: "
