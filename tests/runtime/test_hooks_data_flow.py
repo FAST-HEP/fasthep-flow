@@ -13,6 +13,7 @@ from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_execution_plan
 from hepflow.model.data_flow import DataDependencyResult
+from hepflow.model.hooks import ExecutionHook
 from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.registry.loaders import load_object
 from hepflow.runtime.hooks.loaders import (
@@ -604,3 +605,19 @@ def compile_workflow_file_from_dict(workflow: dict[str, Any]):
 
 def test_lifecycle_aliases_keep_final_as_run_end() -> None:
     assert normalize_lifecycle_event("final") == "run_end"
+
+
+def test_usage_summary_carries_hook_results() -> None:
+    class Recording(ExecutionHook):
+        def results(self) -> dict:
+            return {"records": [{"partition_id": "p0"}]}
+
+    class Silent(ExecutionHook):
+        pass
+
+    manager = HookManager([(Recording(), {"partition_end"}), (Silent(), {"run_end"})])
+
+    enabled = manager.usage_summary()["enabled"]
+
+    assert enabled[0]["results"] == {"records": [{"partition_id": "p0"}]}
+    assert "results" not in enabled[1]

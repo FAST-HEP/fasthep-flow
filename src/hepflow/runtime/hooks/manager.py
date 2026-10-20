@@ -317,6 +317,9 @@ class HookManager:
                 item["mutates"] = spec["mutates"]
             if "params" in spec:
                 item["params"] = spec["params"]
+            results = _hook_results(binding.get("hook"))
+            if results:
+                item["results"] = results
             enabled.append(item)
         return {"enabled": enabled}
 
@@ -457,3 +460,11 @@ def _apply_binding_params(binding: dict[str, Any], call_kwargs: dict[str, Any]) 
 
 def _node_id(node: Any) -> str:
     return str(getattr(node, "id", "node"))
+
+
+def _hook_results(hook: Any) -> dict[str, Any]:
+    method = getattr(hook, "results", None)
+    if method is None:
+        return {}
+    results = method()
+    return dict(results) if isinstance(results, dict) else {}
