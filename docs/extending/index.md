@@ -51,6 +51,7 @@ The main extension points are:
 | {doc}`sinks` | consume products and produce artifacts or external outputs |
 | {doc}`compile-hooks` | extend the compilation process |
 | {doc}`execution-modifiers` | adapt runtime execution behaviour |
+| {doc}`execution-hooks` | observe execution: timing, memory, warnings, errors |
 | {doc}`backends` | map executable work onto computing infrastructure |
 
 The first four participate directly in the executable workflow graph. Compile hooks, execution modifiers, and backends extend the surrounding compilation and execution machinery.
@@ -268,6 +269,7 @@ The individual extension points are documented in:
 - {doc}`sinks`
 - {doc}`compile-hooks`
 - {doc}`execution-modifiers`
+- {doc}`execution-hooks`
 - {doc}`backends`
 
 ```{toctree}
@@ -281,6 +283,7 @@ transforms
 observers
 sinks
 execution-modifiers
+execution-hooks
 compile-hooks
 backends
 ```

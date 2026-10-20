@@ -58,6 +58,10 @@ It does not own domain implementations:
 - Toy extension components used by tests: `tests/toy_components/`
 - Test fixtures: `tests/fixtures/`
 - Documentation source: `docs/`
+- Runtime hooks (`ExecutionHook`, `execution_hooks`, `HookManager`): contract in
+  `src/hepflow/model/hooks.py` and `src/hepflow/runtime/hooks/`; human docs in
+  `docs/extending/execution-hooks.md`. Observers (`observers:` in workflow YAML)
+  are a separate mechanism, see `docs/extending/observers.md`.
 
 ## Development Commands
 

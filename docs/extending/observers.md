@@ -33,6 +33,10 @@ Observers use the same {doc}`specification and implementation model <operations-
 This page focuses on what is distinctive about their role in a workflow.
 
 ```{note}
+Runtime lifecycle callbacks (timing, memory, warnings, errors) are not observers; they are {doc}`execution hooks <execution-hooks>`, enabled by a profile rather than declared in `observers:`.
+```
+
+```{note}
 The distinction between an observer and a transform is semantic.
 
 A transform participates in the data-flow chain; an observer inspects an existing workflow point without providing a product to the main transformation path.
