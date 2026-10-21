@@ -527,6 +527,34 @@ def test_inline_variation_downstream_clone_keeps_narrower_original_applicability
     }
 
 
+def test_inline_variation_passes_through_node_with_empty_applicability(
+    toy_registry: dict[str, Any],
+) -> None:
+    plan = _inline_plan(
+        toy_registry,
+        [
+            _scale("A", source="pt", output="a_pt"),
+            _scale("B", source="a_pt", output="b_pt"),
+            _scale("DataOnly", source="b_pt", output="data_pt"),
+            _scale("C", source="b_pt", output="c_pt"),
+        ],
+        fields=["pt"],
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "anchor": "B",
+                "applies_to": {"eventtypes": ["mc"]},
+            }
+        ],
+        stage_updates={"DataOnly": {"applies_to": {"eventtype": "data"}}},
+    )
+
+    assert "stage.DataOnly@up" not in plan.node_index
+    assert {"stage.B@up", "stage.C@up"} <= set(plan.node_index)
+    assert _input_node(plan, "stage.C@up") == "stage.B@up"
+
+
 def test_authored_inline_variation_does_not_broaden_anchor_applicability(
     toy_registry: dict[str, Any],
     tmp_path: Any,
@@ -648,6 +676,45 @@ def test_inline_variation_collection_selects_the_varied_stream_input(
         "nominal": "stage.B",
         "variation_1": "export.stage.B@up",
     }
+
+
+def test_inline_variation_collection_ignores_needs_dependency_edges(
+    toy_registry: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    workflow_path = _write_inline_export_workflow(
+        tmp_path,
+        _registry_with_collection_ops(toy_registry),
+        stages=[
+            _scale("A", source="pt", output="a_pt"),
+            _scale("B", source="a_pt", output="b_pt", factor=2),
+            _scale("Side", source="b_pt", output="side_pt", upstream="B"),
+            {
+                **_scale("Join", source="b_pt", output="join_pt", upstream="B"),
+                "needs": ["Side"],
+                "write": [{"kind": "toy.write", "path": "output.json"}],
+            },
+        ],
+        variations=[
+            {
+                "name": "up",
+                "mode": "inline",
+                "anchor": "B",
+                "patch": {"params": {"factor": 10}},
+                "stop_before": ["Join"],
+                "export": {"b_pt_up": "b_pt"},
+            }
+        ],
+    )
+    build_dir = tmp_path / "build"
+
+    compile_workflow_file(workflow_path, outdir=build_dir)
+
+    plan_doc = yaml.safe_load(
+        (build_dir / "compile" / "plan.yaml").read_text(encoding="utf-8")
+    )
+    nodes = {node["id"]: node for node in plan_doc["nodes"]}
+    assert nodes["collect.stage.Join"]["meta"]["collection_for"] == "stage.Join"
 
 
 def test_inline_variation_collection_rejects_ambiguous_varied_stream_inputs(
