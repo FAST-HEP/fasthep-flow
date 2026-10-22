@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from hepflow.api import compile_workflow_file
+from hepflow.build_layout import partition_output_roots
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
 
@@ -128,6 +129,65 @@ def test_partition_writer_manifest_identity_collision_fails(
 
     assert "write.Scale.0" in str(exc.value)
     assert "write.Scale.1" in str(exc.value)
+
+
+def _roots_for_writes(
+    registry: dict[str, Any], writes: list[dict[str, Any]]
+) -> tuple[list[str], list[str]]:
+    _graph, plan = build_plan_from_normalized(
+        normalize_workflow(_workflow_with_static_writes(registry, writes)),
+        chunk_size=5,
+    )
+    datasets = list(dict.fromkeys(partition.dataset for partition in plan.partitions))
+    return partition_output_roots(plan), datasets
+
+
+def test_partition_writer_roots_expand_dataset_token(
+    toy_registry: dict[str, Any],
+) -> None:
+    roots, datasets = _roots_for_writes(
+        toy_registry,
+        [{"kind": "toy.write", "path": "{dataset}/{part}.json", "when": "partition"}],
+    )
+
+    assert datasets
+    assert roots == datasets
+
+
+def test_partition_writer_roots_use_default_layout_directory(
+    toy_registry: dict[str, Any],
+) -> None:
+    roots, _ = _roots_for_writes(
+        toy_registry,
+        [{"kind": "toy.write", "path": "skims/events.json", "when": "partition"}],
+    )
+
+    assert roots == ["skims"]
+
+
+def test_partition_writer_roots_skip_run_level_and_absolute_writers(
+    toy_registry: dict[str, Any],
+) -> None:
+    roots, _ = _roots_for_writes(
+        toy_registry,
+        [
+            {"kind": "toy.write", "path": "run.json", "when": "run_end"},
+            {"kind": "toy.write", "path": "/data/out/{part}.json", "when": "partition"},
+            {"kind": "toy.write", "path": "kept/events.json", "when": "partition"},
+        ],
+    )
+
+    assert roots == ["kept"]
+
+
+def test_partition_writer_roots_reject_partition_dependent_first_component(
+    toy_registry: dict[str, Any],
+) -> None:
+    with pytest.raises(ValueError, match="depends on the partition"):
+        _roots_for_writes(
+            toy_registry,
+            [{"kind": "toy.write", "path": "{part}.json", "when": "partition"}],
+        )
 
 
 def test_reserved_run_artifact_collision_fails(toy_registry: dict[str, Any]) -> None:

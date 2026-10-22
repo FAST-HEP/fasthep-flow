@@ -58,6 +58,10 @@ It does not own domain implementations:
 - Toy extension components used by tests: `tests/toy_components/`
 - Test fixtures: `tests/fixtures/`
 - Documentation source: `docs/`
+- Runtime hooks (`ExecutionHook`, `execution_hooks`, `HookManager`): contract in
+  `src/hepflow/model/hooks.py` and `src/hepflow/runtime/hooks/`; human docs in
+  `docs/extending/execution-hooks.md`. Observers (`observers:` in workflow YAML)
+  are a separate mechanism, see `docs/extending/observers.md`.
 
 ## Development Commands
 
@@ -130,6 +134,56 @@ Python support.
 - Runtime/compiler artifact paths such as `compile/`, plan YAML, dependency
   YAML, reports, manifests and benchmark output are products of workflows or
   tests; avoid checking them in unless a test fixture intentionally needs them.
+
+## Output Artifact Layout
+
+Writer sinks (`write:` blocks, for example `root_tree`) are sink-agnostic about
+where files go; `hepflow.build_layout.BuildPaths` and the writer path rules own
+the layout. Workflow authors set only a `path`:
+
+- A relative `path` is placed under `<outdir>/artifacts/files/`.
+- With `when: partition_end` (the default for non-render sinks) and no path
+  tokens, `skims/x.<suffix>` becomes
+  `artifacts/files/skims/x/<dataset>/<part>.<suffix>`: the path stem names a folder,
+  each dataset gets its own subfolder, and each partition one file.
+- `<part>` is `<file_index>_<chunk_index>` (`0_0`, `0_1`, `1_0`, ...); without
+  event chunking it is `<file_index>_0`. `<file_index>` is the position in the
+  dataset's `files` list.
+- Explicit tokens `{dataset}`, `{part}`, `{partition_id}` and `{node_id}` in
+  `path` replace the default and are used as written. An absolute `path` is kept
+  as is, outside the build directory.
+- Each writer gets `artifacts/files/<writer name>/manifest.json` listing every
+  file per dataset (path, partition, attempt, entries, size, provenance record).
+  `name` is the writer name or the path stem; when the stem is only a token
+  (`{dataset}/{part}.root`) the writer is named after its node id
+  (`write.FilterChannel.0` becomes `FilterChannel_0`).
+- A backend that delivers writer outputs itself (for example HTCondor sending
+  job-directory files to EOS) sets the context entry `output_files_root`. Then
+  the `files` family resolves below that directory instead of
+  `<outdir>/artifacts/files`; a relative root is resolved against the working
+  directory of the process that writes (`.` is a job directory). Only `files`
+  moves; cutflows, histograms, provenance and the manifests stay below `outdir`.
+  Writers' manifest entries are rewritten to `path_type: relative_to_files_root`
+  with the path relative to that root and an `adler32` checksum of the file, and
+  the optional context entry `output_destination` is recorded as `destination` on
+  the writer manifest: a file is at `<destination>/<path>` once the backend has
+  delivered it. Delivery itself is the backend's job, not Flow's.
+  `hepflow.build_layout.partition_output_roots(plan)` lists the top-level entries
+  below the root that partition writers create (the first path component, with
+  `{dataset}` expanded), so a backend knows what to deliver before the run.
+- Two writers may not claim the same path; the compiler rejects collisions
+  (`compiler/output_claims.py`). Resolution happens in
+  `runtime/handlers.py`, manifests are written by
+  `runtime/writer_manifests.py`.
+
+Example (workshop `04-save-data/01-skims`, `path: dimuon_candidates.root`):
+
+```text
+artifacts/files/dimuon_candidates/
+├── data/0_0.root
+├── dy/0_0.root
+└── manifest.json
+```
 
 ## Testing Expectations
 

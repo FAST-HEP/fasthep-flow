@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +70,9 @@ def _run_writer_like_sink(
     when = normalize_lifecycle_event(params.get("when") or "run_end")
     if "path" in impl_params:
         meta = dict(meta or {})
-        meta.setdefault("writer_name", Path(str(impl_params["path"])).stem)
+        meta.setdefault(
+            "writer_name", _writer_name(str(impl_params["path"]), meta=meta)
+        )
         impl_params = _resolve_writer_paths_for_context(
             impl_params,
             when=when,
@@ -97,7 +100,42 @@ def _run_writer_like_sink(
     if "meta" in signature.parameters or accepts_kwargs:
         impl_params["meta"] = dict(meta or {})
 
-    return impl(target=target, **impl_params)
+    result = impl(target=target, **impl_params)
+    return _localise_writer_manifest(result, component_ctx)
+
+
+def _localise_writer_manifest(
+    result: Any, ctx: dict[str, Any] | ComponentContext
+) -> Any:
+    """
+    Express a writer's manifest path relative to ``output_files_root``.
+
+    Writers record paths relative to ``outdir``, or absolute. When the files are
+    written below ``output_files_root`` (a directory local to the worker), the
+    absolute path would be meaningless after the run. The path becomes relative
+    to that root, ``path_type`` says so, and the optional ``output_destination``
+    context entry is recorded as ``destination``, the place where the backend
+    delivers the files.
+    """
+
+    files_root = BuildPaths.from_ctx(ctx).files_root
+    metadata = getattr(result, "metadata", None)
+    manifest = metadata.get("writer_manifest") if isinstance(metadata, dict) else None
+    if files_root is None or not isinstance(manifest, dict):
+        return result
+    written = Path(str(getattr(result, "path", None) or manifest.get("path") or ""))
+    try:
+        relative = written.resolve().relative_to(files_root.resolve())
+    except ValueError:
+        return result
+    manifest["path"] = relative.as_posix()
+    manifest["path_type"] = "relative_to_files_root"
+    # A checksum to compare with the delivered copy. adler32 is what EOS keeps.
+    manifest["adler32"] = _adler32_of_file(written)
+    destination = ctx.get("output_destination")
+    if destination:
+        manifest["destination"] = str(destination)
+    return result
 
 
 def _sink_impl_params(params: dict[str, Any]) -> dict[str, Any]:
@@ -106,6 +144,32 @@ def _sink_impl_params(params: dict[str, Any]) -> dict[str, Any]:
         for key, value in dict(params or {}).items()
         if key not in EXECUTION_ONLY_SINK_PARAMS
     }
+
+
+def _adler32_of_file(path: Path) -> str:
+    value = 1
+    with path.open("rb") as stream:
+        while chunk := stream.read(8 * 1024 * 1024):
+            value = zlib.adler32(chunk, value)
+    return f"{value & 0xFFFFFFFF:08x}"
+
+
+def _writer_name(path_template: str, *, meta: dict[str, Any]) -> str:
+    """
+    Name of a writer, used for its manifest directory and manifest ``name``.
+
+    This is the stem of the path template. A stem made of path tokens, as in
+    ``{dataset}/{part}.root``, says nothing about the writer, so the node id
+    names it instead (``write.FilterChannel.0`` becomes ``FilterChannel_0``).
+    """
+
+    stem = Path(path_template).stem
+    if "{" not in stem and "}" not in stem:
+        return stem
+    node_id = str(meta.get("node_id") or meta.get("stage_id") or "").removeprefix(
+        "write."
+    )
+    return node_id.replace(".", "_") or "writer"
 
 
 def _resolve_writer_paths_for_context(

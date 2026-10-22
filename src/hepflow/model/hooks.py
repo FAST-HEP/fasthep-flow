@@ -56,3 +56,13 @@ class ExecutionHook:
 
     def run_end(self, *, plan, ctx: dict[str, Any], summary: dict[str, Any]) -> None:
         pass
+
+    def results(self) -> dict[str, Any]:
+        """Records that travel with the hook's usage summary.
+
+        Unlike ``summary()`` (merged into the run summary on the process that
+        calls ``run_end``), ``results()`` is part of ``usage_summary()``, which
+        every backend returns from the place where the hook ran, so it
+        survives partition tasks on remote workers.
+        """
+        return {}
