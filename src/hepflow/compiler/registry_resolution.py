@@ -23,8 +23,10 @@ def resolve_workflow_registry(
     workflow: dict[str, Any],
     *,
     workflow_path: Path,
+    project_root: Path | None = None,
 ) -> RegistryMergeResult:
-    project_root = workflow_path.parent
+    entry_dir = workflow_path.parent
+    project_root = project_root if project_root is not None else entry_dir
     use_block = workflow.get("use") or {}
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
@@ -32,6 +34,7 @@ def resolve_workflow_registry(
     profile_expansion = expand_profile_names_with_provenance(
         normalize_profile_names(use_block.get("profiles")),
         project_root=project_root,
+        entry_dir=entry_dir,
     )
     profile_names = profile_expansion.names
     builtin_registry = {
@@ -41,7 +44,9 @@ def resolve_workflow_registry(
     layers = [
         RegistryLayer(name="builtin", kind="builtin", registry=builtin_registry),
         *[
-            load_profile_registry_layer(name, project_root=project_root)
+            load_profile_registry_layer(
+                name, project_root=project_root, entry_dir=entry_dir
+            )
             for name in profile_names
         ],
         RegistryLayer(

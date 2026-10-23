@@ -229,8 +229,10 @@ def resolve_workflow_execution(
     workflow: dict[str, Any],
     *,
     workflow_path: Path,
+    project_root: Path | None = None,
 ) -> dict[str, Any]:
-    project_root = workflow_path.parent
+    entry_dir = workflow_path.parent
+    project_root = project_root if project_root is not None else entry_dir
     use_block = workflow.get("use") or {}
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
@@ -238,6 +240,7 @@ def resolve_workflow_execution(
     profile_names = expand_profile_names(
         normalize_profile_names(use_block.get("profiles")),
         project_root=project_root,
+        entry_dir=entry_dir,
     )
     layers: list[dict[str, Any]] = [
         {
@@ -259,6 +262,7 @@ def resolve_workflow_execution(
         config, provenance = load_profile_config_with_provenance(
             name,
             project_root=project_root,
+            entry_dir=entry_dir,
         )
         layers.append(
             {
@@ -290,8 +294,10 @@ def resolve_workflow_execution_hooks(
     workflow: dict[str, Any],
     *,
     workflow_path: Path,
+    project_root: Path | None = None,
 ) -> dict[str, Any]:
-    project_root = workflow_path.parent
+    entry_dir = workflow_path.parent
+    project_root = project_root if project_root is not None else entry_dir
     use_block = workflow.get("use") or {}
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
@@ -299,6 +305,7 @@ def resolve_workflow_execution_hooks(
     profile_names = expand_profile_names(
         normalize_profile_names(use_block.get("profiles")),
         project_root=project_root,
+        entry_dir=entry_dir,
     )
     layers: list[dict[str, Any]] = [
         {
@@ -311,6 +318,7 @@ def resolve_workflow_execution_hooks(
         config, provenance = load_profile_config_with_provenance(
             name,
             project_root=project_root,
+            entry_dir=entry_dir,
         )
         layers.append(
             {

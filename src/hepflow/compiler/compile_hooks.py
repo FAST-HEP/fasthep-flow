@@ -85,6 +85,7 @@ def run_param_compile_hooks(
             registry=registry,
             input_fields_by_context=input_fields_by_context,
             workflow_dir=_workflow_dir(plan),
+            project_root=_project_root(plan),
         )
         for param_name, records in provenance_by_param.items():
             _record_param_hook_provenance(
@@ -123,6 +124,13 @@ def _active_contexts(
             for dataset_name, dataset in sorted(dict(plan.context.get("datasets") or {}).items())
         ]
     return [(None, None, {node.id for node in plan.nodes})]
+
+
+def _project_root(plan: ExecutionPlan) -> str | None:
+    project_root = plan.context.get("project_root")
+    if not isinstance(project_root, str) or not project_root.strip():
+        return None
+    return project_root
 
 
 def _workflow_dir(plan: ExecutionPlan) -> str | None:

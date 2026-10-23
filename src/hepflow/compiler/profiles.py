@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from importlib import resources
 from importlib.resources.abc import Traversable
@@ -8,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from hepflow.compiler.input_paths import resolve_input_path
 from hepflow.registry.merge import RegistryLayer
 
 
@@ -68,11 +70,13 @@ def expand_profile_names(
     names: list[str],
     *,
     project_root: Path,
+    entry_dir: Path | None = None,
 ) -> list[str]:
     """Expand profile includes while preserving explicit profile order."""
     return expand_profile_names_with_provenance(
         names,
         project_root=project_root,
+        entry_dir=entry_dir,
     ).names
 
 
@@ -80,6 +84,7 @@ def expand_profile_names_with_provenance(
     names: list[str],
     *,
     project_root: Path,
+    entry_dir: Path | None = None,
 ) -> ProfileExpansion:
     """Expand profile includes and report optional includes skipped as missing."""
     expanded: list[str] = []
@@ -88,6 +93,7 @@ def expand_profile_names_with_provenance(
         _expand_profile_name(
             name,
             project_root=project_root,
+        entry_dir=entry_dir,
             stack=[],
             expanded=expanded,
             skipped_optional=skipped_optional,
@@ -99,17 +105,19 @@ def load_profile_config(
     name: str,
     *,
     project_root: Path,
+    entry_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Load a selected profile from project-local profiles, then packaged profiles."""
-    return _load_profile_with_provenance(name, project_root=project_root)[0]
+    return _load_profile_with_provenance(name, project_root=project_root, entry_dir=entry_dir)[0]
 
 
 def load_profile_registry_layer(
     name: str,
     *,
     project_root: Path,
+    entry_dir: Path | None = None,
 ) -> RegistryLayer:
-    config, provenance = _load_profile_with_provenance(name, project_root=project_root)
+    config, provenance = _load_profile_with_provenance(name, project_root=project_root, entry_dir=entry_dir)
     return RegistryLayer(
         name=name,
         kind="profile",
@@ -122,14 +130,16 @@ def load_profile_config_with_provenance(
     name: str,
     *,
     project_root: Path,
+    entry_dir: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, str]]:
-    return _load_profile_with_provenance(name, project_root=project_root)
+    return _load_profile_with_provenance(name, project_root=project_root, entry_dir=entry_dir)
 
 
 def resolve_profile_source(
     name: str,
     *,
     project_root: Path,
+    entry_dir: Path | None = None,
 ) -> ProfileSource:
     """Resolve a profile reference without loading its YAML content."""
     if not isinstance(name, str) or not name.strip():
@@ -138,7 +148,7 @@ def resolve_profile_source(
     if ":" in name:
         return _resolve_qualified_package_profile(name)
     if _looks_like_path(name):
-        return _resolve_local_profile_path(name, project_root=project_root)
+        return _resolve_local_profile_path(name, project_root=project_root, entry_dir=entry_dir)
 
     if "/" in name or "\\" in name or name in {".", ".."}:
         raise ValueError(f"Invalid profile name: {name!r}")
@@ -153,6 +163,24 @@ def resolve_profile_source(
             path=str(local_path.relative_to(project_root)),
             source=local_path,
         )
+    if entry_dir is not None:
+        fallback_path = project_profile_dir(entry_dir) / filename
+        if fallback_path.exists():
+            warnings.warn(
+                f"profile {name!r} was not found in "
+                f"{project_profile_dir(project_root)}; using the entry file's "
+                f"directory {entry_dir}. Profiles now resolve against the project "
+                "root; this fallback is deprecated.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return ProfileSource(
+                ref=name,
+                owner="local",
+                filename=fallback_path.name,
+                path=str(fallback_path.relative_to(entry_dir)),
+                source=fallback_path,
+            )
 
     package_resource = resources.files("hepflow.profiles").joinpath(filename)
     if package_resource.is_file():
@@ -174,8 +202,9 @@ def _load_profile_with_provenance(
     name: str,
     *,
     project_root: Path,
+    entry_dir: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, str]]:
-    profile = resolve_profile_source(name, project_root=project_root)
+    profile = resolve_profile_source(name, project_root=project_root, entry_dir=entry_dir)
     loaded = yaml.safe_load(profile.source.read_text(encoding="utf-8")) or {}
     if not isinstance(loaded, dict):
         raise ValueError(f"Profile {name!r} must contain a YAML mapping")
@@ -220,10 +249,18 @@ def _resolve_local_profile_path(
     name: str,
     *,
     project_root: Path,
+    entry_dir: Path | None = None,
 ) -> ProfileSource:
-    profile_path = Path(name)
-    if not profile_path.is_absolute():
-        profile_path = project_root / profile_path
+    try:
+        resolved = resolve_input_path(
+            name,
+            role=f"profile {name!r}",
+            root=project_root,
+            entry_dir=entry_dir,
+        )
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"Profile path {name!r} not found") from exc
+    profile_path = Path(resolved.resolved)
     if not profile_path.is_file():
         raise FileNotFoundError(f"Profile path {name!r} not found")
     return ProfileSource(
@@ -249,6 +286,7 @@ def _expand_profile_name(
     name: str,
     *,
     project_root: Path,
+    entry_dir: Path | None = None,
     stack: list[str],
     expanded: list[str],
     skipped_optional: list[dict[str, str]],
@@ -260,6 +298,7 @@ def _expand_profile_name(
     config, _provenance = _load_profile_with_provenance(
         name,
         project_root=project_root,
+        entry_dir=entry_dir,
     )
     includes = _profile_includes(config, name)
     if not includes:
@@ -271,6 +310,7 @@ def _expand_profile_name(
             _expand_profile_name(
                 include.name,
                 project_root=project_root,
+        entry_dir=entry_dir,
                 stack=[*stack, name],
                 expanded=expanded,
                 skipped_optional=skipped_optional,

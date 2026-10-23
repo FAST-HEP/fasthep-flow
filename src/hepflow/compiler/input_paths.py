@@ -39,6 +39,16 @@ class ResolvedInput:
     note: str | None
 
 
+def resolve_project_root(root: str | Path | None) -> Path:
+    """Return the absolute project root: ``root`` if given, else the current directory."""
+    path = _normalise(Path(root) if root is not None else Path.cwd())
+    if not path.is_dir():
+        raise FileNotFoundError(
+            f"project root {str(path)!r} is not an existing directory"
+        )
+    return path
+
+
 def is_uri(value: str) -> bool:
     """Return whether ``value`` has a ``scheme://`` form (drive letters are not URIs)."""
     return bool(_URI_PATTERN.match(value))
