@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +35,7 @@ from hepflow.compiler.plan_diff import (
 from hepflow.compiler.registry_resolution import (
     resolve_workflow_registry,
 )
+from hepflow.compiler.resource_paths import resolve_resource_paths
 from hepflow.compiler.systematics import (
     has_separate_plan_systematics,
     make_systematic_plan_files,
@@ -143,6 +144,14 @@ def normalise_workflow_file(
     normalized.setdefault("provenance", {}).update(execution_result["provenance"])
     normalized.setdefault("provenance", {}).update(hooks_result["provenance"])
     normalized["provenance"]["root"] = str(root_path)
+    resources, inputs = resolve_resource_paths(
+        dict(normalized["execution"].get("resources") or {}),
+        registry=normalized["registry"],
+        root=root_path,
+        entry_dir=workflow_file.parent,
+    )
+    normalized["execution"]["resources"] = resources
+    normalized["provenance"]["inputs"] = [asdict(entry) for entry in inputs]
     normalized = apply_component_param_defaults(normalized)
 
     write_yaml(normalized, str(normalized_path(out_path)))
