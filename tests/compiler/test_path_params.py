@@ -153,7 +153,7 @@ def test_load_mapping_falls_back_to_entry_dir_with_deprecation_warning(
     entry_dir = root / "skim"
     _mapping_file(entry_dir, "schemas.yaml")
 
-    with pytest.warns(DeprecationWarning, match="entry"):
+    with pytest.warns(FutureWarning, match="entry"):
         result = load_mapping(
             value="schemas.yaml",
             options={"formats": ["yaml"]},

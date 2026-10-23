@@ -43,7 +43,7 @@ def test_profile_path_falls_back_to_entry_dir_with_deprecation_warning(
     _write_profile(project / "entry" / "shared" / "x.yaml", "from_entry")
     entry = _entry(project, toy_workflow, ["shared/x.yaml"])
 
-    with pytest.warns(DeprecationWarning, match="entry"):
+    with pytest.warns(FutureWarning, match="entry"):
         normalized = normalise_workflow_file(
             entry, outdir=tmp_path / "build", root=project
         )
@@ -60,7 +60,7 @@ def test_named_local_profile_falls_back_to_entry_dir_with_deprecation_warning(
     )
     entry = _entry(project, toy_workflow, ["site"])
 
-    with pytest.warns(DeprecationWarning, match="entry"):
+    with pytest.warns(FutureWarning, match="entry"):
         normalized = normalise_workflow_file(
             entry, outdir=tmp_path / "build", root=project
         )

@@ -140,7 +140,7 @@ def test_falls_back_to_entry_dir_with_deprecation_warning(tmp_path: Path) -> Non
     content = b"profile"
     _write(entry_dir / "shared.yaml", content)
 
-    with pytest.warns(DeprecationWarning, match="entry"):
+    with pytest.warns(FutureWarning, match="entry"):
         result = resolve_input_path(
             "shared.yaml", role="profile", root=root, entry_dir=entry_dir
         )

@@ -14,7 +14,8 @@ Relative paths resolve against the **project root**:
 - or the directory given explicitly with `root=` (the Python API) or `--root` (the
   command line, once the CLI exposes it).
 
-The root must be an existing directory. It is recorded in `compile/inputs.manifest.yaml`
+The root must be an existing directory. Compile from the project directory, or pass `root=`
+explicitly, when the entry workflow lives elsewhere. It is recorded in `compile/inputs.manifest.yaml`
 and in the plan provenance (`provenance.root`).
 
 Includes are different: an `include:` path resolves against the file that contains it.
@@ -62,6 +63,13 @@ fields are paths. Flow provides the generic kind `file` (`path_fields: [path]`).
 
 ## Checks and hashes
 
+```{warning}
+Every declared input path is opened and hashed. Do not declare credential files (an X509
+proxy, a token) as input paths: the compiler would read them and record a hash of their
+contents in the plan and the manifest. Site and user settings such as a proxy path belong
+in the execution configuration, not in `execution.resources`.
+```
+
 A relative path must exist under the root, otherwise the compile fails and the message
 names the resource or parameter. Every resolved file is hashed (sha256). An absolute path
 that cannot be read at compile time, for example `/cvmfs/...` on a laptop, is recorded
@@ -70,7 +78,10 @@ machine that compiled it.
 
 ## The inputs manifest
 
-Every compile writes `compile/inputs.manifest.yaml`:
+Every compile writes `compile/inputs.manifest.yaml`. It lists the resource path fields, the
+`kind: path` parameters and the files loaded by `flow.load_mapping`. Profile files are
+resolved by the same rule but are not recorded in the manifest yet (the reproducible compile
+bundle, fasthep-flow#94, extends it):
 
 ```yaml
 version: 1
@@ -93,5 +104,6 @@ by `role`, so two compiles of the same inputs give the same file.
 Before the project root existed, profile paths, `flow.load_mapping` files and
 `align_schema.schema` files resolved against the directory of the entry workflow. For one
 release a path that is not found under the root falls back to the entry directory and the
-compiler emits a `DeprecationWarning` (`origin: entry_fallback` in the manifest). Move such
+compiler emits a `FutureWarning` (`origin: entry_fallback` in the manifest; it is a
+`FutureWarning` rather than a `DeprecationWarning` because Python hides the latter from end users). Move such
 files, or adjust the paths, so that they resolve against the project root.

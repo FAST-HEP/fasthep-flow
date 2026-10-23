@@ -24,8 +24,21 @@ def write_inputs_manifest(
     root: str | None,
     inputs: list[dict[str, Any]],
 ) -> Path:
-    """Write the manifest into ``compile_dir`` and return its path."""
-    rows = [{key: item.get(key) for key in _ROW_KEYS} for item in inputs]
+    """Write the manifest into ``compile_dir`` and return its path.
+
+    A role that resolves to the same file twice is recorded once, with the first (authored)
+    declaration: a parameter that is both ``kind: path`` and loaded by ``flow.load_mapping``
+    is seen by both resolvers.
+    """
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[Any, Any]] = set()
+    for item in inputs:
+        row = {key: item.get(key) for key in _ROW_KEYS}
+        identity = (row["role"], row["resolved"])
+        if identity in seen:
+            continue
+        seen.add(identity)
+        rows.append(row)
     rows.sort(key=lambda row: (str(row["role"]), str(row["declared"])))
     path = Path(compile_dir) / MANIFEST_NAME
     write_yaml(

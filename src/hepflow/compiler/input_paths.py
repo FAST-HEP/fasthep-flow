@@ -9,7 +9,7 @@ Rules (see fasthep-flow#86):
   that runs the plan (for example ``/cvmfs`` on a laptop).
 * Relative paths resolve against the project root and must exist. For one release a path
   that is missing under the root falls back to the entry file's directory with a
-  ``DeprecationWarning``.
+  ``FutureWarning``.
 """
 
 from __future__ import annotations
@@ -112,7 +112,7 @@ def resolve_input_path(
                 f"{role}: path {declared!r} was not found under the project root "
                 f"{root}; using the entry file's directory {entry_dir}. Paths now "
                 "resolve against the project root; this fallback is deprecated.",
-                DeprecationWarning,
+                FutureWarning,
                 stacklevel=2,
             )
             return _describe(role, declared, fallback, "entry_fallback", strict=True)

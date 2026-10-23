@@ -155,3 +155,36 @@ def test_manifest_is_deterministic(tmp_path: Path) -> None:
     first = (tmp_path / "build-1" / "compile" / "inputs.manifest.yaml").read_text()
     second = (tmp_path / "build-2" / "compile" / "inputs.manifest.yaml").read_text()
     assert first == second
+
+
+def test_write_inputs_manifest_collapses_rows_with_the_same_role_and_resolved_path(
+    tmp_path: Path,
+) -> None:
+    # A param that is both ``kind: path`` and loaded by flow.load_mapping is recorded twice:
+    # once with the authored text, once with the already-absolute path.
+    authored = {
+        **_row("param:Config.config", "schemas/map.yaml"),
+        "resolved": "/r/map.yaml",
+    }
+    absolute = {**_row("param:Config.config", "/r/map.yaml"), "resolved": "/r/map.yaml"}
+
+    write_inputs_manifest(tmp_path, root="/r", inputs=[authored, absolute])
+
+    rows = yaml.safe_load(
+        (tmp_path / "inputs.manifest.yaml").read_text(encoding="utf-8")
+    )["inputs"]
+    assert [row["declared"] for row in rows] == ["schemas/map.yaml"]
+
+
+def test_write_inputs_manifest_keeps_distinct_files_under_one_role(
+    tmp_path: Path,
+) -> None:
+    first = {**_row("resource:m.paths[0]", "a"), "resolved": "/r/a"}
+    second = {**_row("resource:m.paths[0]", "b"), "resolved": "/r/b"}
+
+    write_inputs_manifest(tmp_path, root="/r", inputs=[first, second])
+
+    rows = yaml.safe_load(
+        (tmp_path / "inputs.manifest.yaml").read_text(encoding="utf-8")
+    )["inputs"]
+    assert [row["resolved"] for row in rows] == ["/r/a", "/r/b"]

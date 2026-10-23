@@ -171,7 +171,7 @@ def resolve_profile_source(
                 f"{project_profile_dir(project_root)}; using the entry file's "
                 f"directory {entry_dir}. Profiles now resolve against the project "
                 "root; this fallback is deprecated.",
-                DeprecationWarning,
+                FutureWarning,
                 stacklevel=2,
             )
             return ProfileSource(
