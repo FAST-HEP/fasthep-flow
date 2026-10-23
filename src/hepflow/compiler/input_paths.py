@@ -20,6 +20,7 @@ import re
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 CHUNK_SIZE = 1 << 20
 
@@ -47,6 +48,33 @@ def resolve_project_root(root: str | Path | None) -> Path:
             f"project root {str(path)!r} is not an existing directory"
         )
     return path
+
+
+def resolve_path_value(
+    value: Any,
+    *,
+    role: str,
+    root: Path,
+    entry_dir: Path | None,
+    label: str | None = None,
+) -> tuple[str | list[str], list[ResolvedInput]]:
+    """Resolve a path declaration that is a string or a list of strings.
+
+    List items get the role ``<role>[<index>]``. ``label`` names the declaration in the
+    ``TypeError`` raised for any other value type (default: ``role``).
+    """
+    if isinstance(value, str):
+        entry = resolve_input_path(value, role=role, root=root, entry_dir=entry_dir)
+        return entry.resolved, [entry]
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        entries = [
+            resolve_input_path(
+                item, role=f"{role}[{index}]", root=root, entry_dir=entry_dir
+            )
+            for index, item in enumerate(value)
+        ]
+        return [entry.resolved for entry in entries], entries
+    raise TypeError(f"{label or role} must be a string or a list of strings")
 
 
 def is_uri(value: str) -> bool:

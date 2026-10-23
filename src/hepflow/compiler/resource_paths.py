@@ -13,7 +13,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from hepflow.compiler.input_paths import ResolvedInput, resolve_input_path
+from hepflow.compiler.input_paths import ResolvedInput, resolve_path_value
 
 
 def resolve_resource_paths(
@@ -46,14 +46,14 @@ def resolve_resource_paths(
         for field in _path_fields(kind, declaration):
             if item.get(field) is None:
                 continue
-            item[field] = _resolve_field(
-                resource_id,
-                field,
+            item[field], resolved_entries = resolve_path_value(
                 item[field],
+                role=f"resource:{resource_id}.{field}",
                 root=root,
                 entry_dir=entry_dir,
-                entries=entries,
+                label=f"resource {resource_id!r}: field {field!r}",
             )
+            entries.extend(resolved_entries)
         out[resource_id] = item
     return out, entries
 
@@ -67,45 +67,3 @@ def _path_fields(kind: str, declaration: Any) -> list[str]:
             f"registry.resource_kinds[{kind!r}].path_fields must be a list of strings"
         )
     return fields
-
-
-def _resolve_field(
-    resource_id: str,
-    field: str,
-    value: Any,
-    *,
-    root: Path,
-    entry_dir: Path | None,
-    entries: list[ResolvedInput],
-) -> str | list[str]:
-    if isinstance(value, str):
-        entry = resolve_input_path(
-            value,
-            role=f"resource:{resource_id}.{field}",
-            root=root,
-            entry_dir=entry_dir,
-        )
-        entries.append(entry)
-        return entry.resolved
-    if isinstance(value, list):
-        resolved: list[str] = []
-        for index, item in enumerate(value):
-            if not isinstance(item, str):
-                raise TypeError(_type_message(resource_id, field))
-            entry = resolve_input_path(
-                item,
-                role=f"resource:{resource_id}.{field}[{index}]",
-                root=root,
-                entry_dir=entry_dir,
-            )
-            entries.append(entry)
-            resolved.append(entry.resolved)
-        return resolved
-    raise TypeError(_type_message(resource_id, field))
-
-
-def _type_message(resource_id: str, field: str) -> str:
-    return (
-        f"resource {resource_id!r}: field {field!r} must be a string or a list of "
-        "strings"
-    )

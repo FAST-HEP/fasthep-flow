@@ -152,7 +152,9 @@ def normalise_workflow_file(
     )
     normalized["execution"]["resources"] = resources
     normalized["provenance"]["inputs"] = [asdict(entry) for entry in inputs]
-    normalized = apply_component_param_defaults(normalized)
+    normalized = apply_component_param_defaults(
+        normalized, root=root_path, entry_dir=workflow_file.parent
+    )
 
     write_yaml(normalized, str(normalized_path(out_path)))
     return normalized

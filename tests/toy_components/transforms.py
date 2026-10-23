@@ -37,6 +37,18 @@ TOY_NEW_LINEAGE_SPEC = {
     },
 }
 
+TOY_PATH_PARAM_SPEC = {
+    "name": "toy.path_param",
+    "kind": "transform",
+    "input": {"name": "stream", "required": True},
+    "params": {
+        "path": {"type": "string", "kind": "path", "required": False},
+        "paths": {"type": "list", "kind": "path", "required": False},
+        "out_path": {"type": "string", "required": False},
+    },
+    "result": {"stream": "event_stream"},
+}
+
 TOY_RECORD_SPEC = {
     "name": "toy.record",
     "kind": "transform",
@@ -142,6 +154,7 @@ TOY_FIELD_GLOB_SPEC = {
         ],
     },
 }
+
 
 def _toy_field_glob_spec(name: str, hooks: Any) -> dict[str, Any]:
     return {
@@ -319,6 +332,18 @@ TOY_STRICT_MERGE_FIELDS_SPEC = {
     "name": "toy.strict_merge_fields",
     "input": {},
 }
+
+
+def run_toy_path_param(
+    *,
+    stream: dict[str, Any],
+    path: str | None = None,
+    paths: list[str] | None = None,
+    out_path: str | None = None,
+    ctx: dict[str, Any] | None = None,
+    **params: Any,
+) -> dict[str, Any]:
+    return {"stream": stream}
 
 
 def run_toy_scale(

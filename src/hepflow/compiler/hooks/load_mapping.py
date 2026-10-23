@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -8,6 +7,7 @@ from typing import Any
 import yaml
 
 from hepflow.compiler.hooks.model import CompileHookResult, ParamCompileHookContext
+from hepflow.compiler.input_paths import resolve_input_path
 
 
 def load_mapping(
@@ -35,13 +35,32 @@ def load_mapping(
     if not source:
         raise ValueError("flow.load_mapping file path is empty")
 
-    path = Path(source)
-    if not path.is_absolute():
-        if context.workflow_dir is None:
+    declared_path = Path(source).expanduser()
+    if declared_path.is_absolute():
+        if not declared_path.exists():
+            raise FileNotFoundError(f"flow.load_mapping file not found: {declared_path}")
+        root = Path(context.project_root or context.workflow_dir or declared_path.parent)
+        entry_dir = None
+    else:
+        base = context.project_root or context.workflow_dir
+        if base is None:
             raise ValueError(
-                "flow.load_mapping cannot resolve relative path without workflow_dir"
+                "flow.load_mapping cannot resolve relative path without project_root "
+                "or workflow_dir"
             )
-        path = Path(context.workflow_dir) / path
+        root = Path(base)
+        entry_dir = (
+            Path(context.workflow_dir)
+            if context.project_root and context.workflow_dir
+            else None
+        )
+    try:
+        resolved = resolve_input_path(
+            source, role="flow.load_mapping", root=root, entry_dir=entry_dir
+        )
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"flow.load_mapping file not found: {source}") from exc
+    path = Path(resolved.resolved)
 
     suffix = path.suffix.lower().lstrip(".")
     formats = _declared_formats(options)
@@ -51,10 +70,7 @@ def load_mapping(
             f"expected one of {sorted(formats)}"
         )
 
-    try:
-        text = path.read_text(encoding="utf-8")
-    except FileNotFoundError as exc:
-        raise FileNotFoundError(f"flow.load_mapping file not found: {path}") from exc
+    text = path.read_text(encoding="utf-8")
 
     try:
         loaded = json.loads(text) if suffix == "json" else yaml.safe_load(text)
@@ -69,8 +85,10 @@ def load_mapping(
             "hook": "flow.load_mapping",
             "input": source,
             "format": suffix,
-            "resolved_path": str(path),
-            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "resolved_path": resolved.resolved,
+            "origin": resolved.origin,
+            "sha256": resolved.sha256,
+            "size": resolved.size,
             "output_kind": "mapping" if isinstance(loaded, dict) else type(loaded).__name__,
         },
     )

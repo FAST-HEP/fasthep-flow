@@ -1,17 +1,30 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
+from hepflow.compiler.input_paths import ResolvedInput, resolve_path_value
 from hepflow.model.component_spec import RuntimeComponentSpec
 from hepflow.registry.loaders import load_runtime_spec_and_impl
 
 
 def apply_component_param_defaults(
     normalized: dict[str, Any],
+    *,
+    root: Path | None = None,
+    entry_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Materialize declarative component parameter normalization in stages."""
+    """Materialize declarative component parameter normalization in stages.
+
+    With a ``root``, params whose spec entry has ``kind: path`` are input paths: they are
+    resolved against the root (see :mod:`hepflow.compiler.input_paths`) and recorded in
+    ``provenance.inputs``. Params without that marker (for example output paths) are not
+    touched.
+    """
     out = deepcopy(normalized)
+    entries: list[ResolvedInput] = []
     registry = dict(out.get("registry") or {})
     analysis = out.get("analysis")
     if not isinstance(analysis, dict):
@@ -47,9 +60,47 @@ def apply_component_param_defaults(
                     marker=spec.normalize_params,
                 )
             item["params"] = params
+            if root is not None:
+                item["params"] = _with_resolved_paths(
+                    params,
+                    spec.params,
+                    stage_id=str(stage_id),
+                    root=root,
+                    entry_dir=entry_dir,
+                    entries=entries,
+                )
         normalized_stages.append(item)
 
     analysis["stages"] = normalized_stages
+    if entries:
+        provenance = out.setdefault("provenance", {})
+        provenance.setdefault("inputs", []).extend(asdict(entry) for entry in entries)
+    return out
+
+
+def _with_resolved_paths(
+    params: dict[str, Any],
+    schema: dict[str, Any],
+    *,
+    stage_id: str,
+    root: Path,
+    entry_dir: Path | None,
+    entries: list[ResolvedInput],
+) -> dict[str, Any]:
+    out = dict(params)
+    for name, cfg in schema.items():
+        if not isinstance(cfg, dict) or cfg.get("kind") != "path":
+            continue
+        if out.get(name) is None:
+            continue
+        out[name], resolved = resolve_path_value(
+            out[name],
+            role=f"param:{stage_id}.{name}",
+            root=root,
+            entry_dir=entry_dir,
+            label=f"stage {stage_id!r} param {name!r}",
+        )
+        entries.extend(resolved)
     return out
 
 
