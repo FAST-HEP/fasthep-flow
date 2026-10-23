@@ -33,6 +33,7 @@ class InlineVariationResult:
     variation: dict[str, Any]
     cloned_nodes: dict[str, str]
     export_fields: dict[str, str] = dataclass_field(default_factory=dict)
+    bypassed_nodes: frozenset[str] = frozenset()
 
 
 def apply_inline_variation_branches_to_graph(
@@ -90,7 +91,7 @@ def add_inline_variation_branch_to_graph(
             f"Inline variation anchor {anchor.id!r} already has variation metadata"
         )
 
-    clone_order = _inline_graph_clone_order(graph, branch=branch)
+    clone_order, bypassed = _inline_graph_clone_order(graph, branch=branch)
     if not clone_order:
         return InlineVariationResult(
             variation=requested_variation,
@@ -124,9 +125,10 @@ def add_inline_variation_branch_to_graph(
             ),
         )
         for upstream, _, edge_data in list(graph.in_edges(node_id, data=True)):
+            upstream_id = bypassed.get(str(upstream), str(upstream))
             add_graph_edge(
                 graph,
-                cloned_nodes.get(str(upstream), str(upstream)),
+                cloned_nodes.get(upstream_id, upstream_id),
                 clone_id,
                 output=str(edge_data.get("output") or "stream"),
                 input_name=str(edge_data.get("input_name") or "stream"),
@@ -135,6 +137,7 @@ def add_inline_variation_branch_to_graph(
     return InlineVariationResult(
         variation=requested_variation,
         cloned_nodes=cloned_nodes,
+        bypassed_nodes=frozenset(bypassed),
     )
 
 
@@ -182,10 +185,15 @@ def _insert_variation_collection_boundaries_in_graph(
             continue
         if boundary.id in cloned_originals or _graph_node_variation(boundary) is not None:
             continue
+        boundary_results = [
+            result for result in exported if boundary.id not in result.bypassed_nodes
+        ]
+        if not boundary_results:
+            continue
         target_edge = _variation_collection_target_stream_edge(
             graph,
             boundary.id,
-            results=exported,
+            results=boundary_results,
         )
         if target_edge is None:
             continue
@@ -193,7 +201,7 @@ def _insert_variation_collection_boundaries_in_graph(
 
         collection_inputs: list[tuple[str, str]] = [(target_upstream, "nominal")]
         export_index = 0
-        for result in exported:
+        for result in boundary_results:
             varied_node_id = result.cloned_nodes.get(target_upstream)
             if varied_node_id is None:
                 continue
@@ -281,6 +289,8 @@ def _variation_collection_target_stream_edge(
             continue
         if str(edge_data.get("output") or "stream") != "stream":
             continue
+        if str(edge_data.get("input_name") or "stream") == "dependency":
+            continue
         candidates.append((upstream_id, dict(edge_data)))
     if not candidates:
         return None
@@ -314,9 +324,17 @@ def _inline_graph_clone_order(
     graph: nx.DiGraph,
     *,
     branch: InlineVariationBranch,
-) -> list[str]:
+) -> tuple[list[str], dict[str, str]]:
+    """Return the nodes to clone and the nodes the variation bypasses.
+
+    A node whose applicability does not intersect the variation (for example a
+    data-only stage on an MC variation) is not cloned. It is transparent to the
+    variation instead: its single event-stream input is a cloned or bypassed
+    node, and downstream clones read from that node's clone.
+    """
     clone_order: list[str] = []
     cloned: set[str] = set()
+    bypassed: dict[str, str] = {}
     stop_before = set(branch.stop_before)
     for raw_node_id in nx.topological_sort(graph):
         node_id = str(raw_node_id)
@@ -333,16 +351,31 @@ def _inline_graph_clone_order(
             continue
         if not cloned:
             continue
-        if not _has_cloned_event_stream_graph_input(graph, node_id, cloned):
+        if not _has_cloned_event_stream_graph_input(
+            graph, node_id, cloned | set(bypassed)
+        ):
             continue
         node = get_graph_node(graph, node_id)
         if not _is_cloneable_event_stream_graph_node(node, branch=branch):
             continue
         if _clone_applicability_is_empty(node.meta, branch.variation):
+            upstream_id = _single_stream_input(graph, node_id)
+            if upstream_id is not None:
+                bypassed[node_id] = bypassed.get(upstream_id, upstream_id)
             continue
         clone_order.append(node_id)
         cloned.add(node_id)
-    return clone_order
+    return clone_order, bypassed
+
+
+def _single_stream_input(graph: nx.DiGraph, node_id: str) -> str | None:
+    upstreams = {
+        str(upstream)
+        for upstream, _, edge_data in graph.in_edges(node_id, data=True)
+        if str(edge_data.get("output") or "stream") == "stream"
+        and str(edge_data.get("input_name") or "stream") != "dependency"
+    }
+    return next(iter(upstreams)) if len(upstreams) == 1 else None
 
 
 def _has_cloned_event_stream_graph_input(
