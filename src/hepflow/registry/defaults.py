@@ -21,6 +21,7 @@ REGISTRY_SECTIONS: tuple[str, ...] = (
     "report_templates",
     "execution_modifiers",
     "product_handlers",
+    "resource_kinds",
 )
 
 
@@ -102,6 +103,9 @@ def default_runtime_registry_config() -> dict[str, Any]:
         "progress_sinks": {},
         "report_templates": {},
         "execution_modifiers": {},
+        "resource_kinds": {
+            "file": {"path_fields": ["path"]},
+        },
         "product_handlers": {
             "artifact": {
                 "boundary": {
