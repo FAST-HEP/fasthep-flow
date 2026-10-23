@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from hepflow.compiler.input_paths import ResolvedInput, resolve_path_value
+from hepflow.compiler.inputs_manifest import InputCollector
 
 
 def resolve_resource_paths(
@@ -22,8 +23,12 @@ def resolve_resource_paths(
     registry: Mapping[str, Any],
     root: Path,
     entry_dir: Path | None,
+    collector: InputCollector | None = None,
 ) -> tuple[dict[str, Any], list[ResolvedInput]]:
-    """Return ``resources`` with declared path fields made absolute, plus the entries."""
+    """Return ``resources`` with declared path fields made absolute, plus the entries.
+
+    The entries are also recorded in ``collector`` when one is given.
+    """
     kinds = dict(registry.get("resource_kinds") or {})
     out: dict[str, Any] = {}
     entries: list[ResolvedInput] = []
@@ -55,6 +60,8 @@ def resolve_resource_paths(
             )
             entries.extend(resolved_entries)
         out[resource_id] = item
+    if collector is not None:
+        collector.extend(entries)
     return out, entries
 
 

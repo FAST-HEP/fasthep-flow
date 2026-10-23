@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from hepflow.compiler.input_paths import ResolvedInput, resolve_path_value
+from hepflow.compiler.inputs_manifest import InputCollector
 from hepflow.model.component_spec import RuntimeComponentSpec
 from hepflow.registry.loaders import load_runtime_spec_and_impl
 
@@ -15,6 +16,7 @@ def apply_component_param_defaults(
     *,
     root: Path | None = None,
     entry_dir: Path | None = None,
+    collector: InputCollector | None = None,
 ) -> dict[str, Any]:
     """Materialize declarative component parameter normalization in stages.
 
@@ -72,7 +74,9 @@ def apply_component_param_defaults(
         normalized_stages.append(item)
 
     analysis["stages"] = normalized_stages
-    if entries:
+    if collector is not None:
+        collector.extend(entries)
+    elif entries:
         provenance = out.setdefault("provenance", {})
         provenance.setdefault("inputs", []).extend(asdict(entry) for entry in entries)
     return out

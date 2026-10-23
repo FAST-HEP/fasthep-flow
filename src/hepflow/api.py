@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,7 @@ from hepflow.compiler.execution import (
     resolve_workflow_execution_hooks,
 )
 from hepflow.compiler.includes import load_workflow_with_includes
+from hepflow.compiler.inputs_manifest import InputCollector
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.compiler.plan_diff import (
@@ -134,17 +135,22 @@ def normalise_workflow_file(
     normalized.setdefault("provenance", {}).update(execution_result["provenance"])
     normalized.setdefault("provenance", {}).update(hooks_result["provenance"])
     normalized["provenance"]["root"] = str(context.project_root)
-    resources, inputs = resolve_resource_paths(
+    collector = InputCollector()
+    resources, _entries = resolve_resource_paths(
         dict(normalized["execution"].get("resources") or {}),
         registry=normalized["registry"],
         root=context.project_root,
         entry_dir=context.entry_dir,
+        collector=collector,
     )
     normalized["execution"]["resources"] = resources
-    normalized["provenance"]["inputs"] = [asdict(entry) for entry in inputs]
     normalized = apply_component_param_defaults(
-        normalized, root=context.project_root, entry_dir=context.entry_dir
+        normalized,
+        root=context.project_root,
+        entry_dir=context.entry_dir,
+        collector=collector,
     )
+    normalized["provenance"]["inputs"] = collector.entries()
 
     write_yaml(normalized, str(normalized_path(out_path)))
     return normalized

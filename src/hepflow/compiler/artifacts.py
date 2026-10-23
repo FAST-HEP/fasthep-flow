@@ -13,7 +13,11 @@ from hepflow.compiler.graph_artifacts import (
     _lowered_graph_to_json,
     write_graph_artifacts,
 )
-from hepflow.compiler.inputs_manifest import mapping_file_inputs, write_inputs_manifest
+from hepflow.compiler.inputs_manifest import (
+    InputCollector,
+    mapping_file_inputs,
+    write_inputs_manifest,
+)
 from hepflow.model.plan import ExecutionPlan
 from hepflow.model.worker_environment import worker_environment_plan_from_execution
 from hepflow.utils import write_json, write_yaml
@@ -65,10 +69,12 @@ def write_compile_artifacts(
     write_yaml(plan.data_flow, str(compile_path / "deps.yaml"))
     if normalized is not None:
         provenance = dict(normalized.get("provenance") or {})
+        collector = InputCollector.from_rows(provenance.get("inputs") or [])
+        collector.extend(mapping_file_inputs(plan))
         write_inputs_manifest(
             compile_path,
             root=provenance.get("root") or normalized.get("project_root"),
-            inputs=[*list(provenance.get("inputs") or []), *mapping_file_inputs(plan)],
+            inputs=collector.entries(),
         )
     artifacts: dict[str, Any] = {}
     dataset_entries = _dataset_entries_artifact(plan.context.get("datasets") or {})
