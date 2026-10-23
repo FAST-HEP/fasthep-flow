@@ -271,3 +271,14 @@ For related concepts:
 - {doc}`execution-modifiers` — extending runtime execution
 - {doc}`../execution/compilation` — the compilation pipeline
 - {doc}`../execution/plan` — the resulting execution plan
+
+---
+
+## Paths in compile hooks
+
+Parameter compile hooks receive a `ParamCompileHookContext` with `workflow_dir` (the
+directory of the entry workflow) and `project_root` (the root that relative input paths
+resolve against, see {doc}`../authoring/paths`). A hook that reads a file named in a
+parameter should resolve it with `hepflow.compiler.input_paths.resolve_input_path`, as
+`flow.load_mapping` does: it applies the root rules, hashes the file, and returns the
+declared text, resolved path, sha256 and size to record in the hook's provenance.
