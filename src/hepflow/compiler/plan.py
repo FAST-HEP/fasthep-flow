@@ -11,6 +11,7 @@ from hepflow.backends.loaders import (
 from hepflow.build_layout import validate_build_relative_path
 from hepflow.compiler.compile_hooks import run_param_compile_hooks
 from hepflow.compiler.component_defaults import apply_component_param_defaults
+from hepflow.compiler.context import CompileContext
 from hepflow.compiler.data_flow import (
     apply_data_flow_to_sources,
     infer_data_flow,
@@ -44,8 +45,7 @@ def build_execution_plan(
     provenance: dict[str, Any] | None = None,
     execution: dict[str, Any] | None = None,
     execution_hooks: list[dict[str, Any]] | None = None,
-    workflow_path: str | None = None,
-    project_root: str | None = None,
+    compile_context: CompileContext | None = None,
 ) -> ExecutionPlan:
     plan = ExecutionPlan()
     plan.registry = dict(registry or {})
@@ -127,8 +127,7 @@ def build_execution_plan(
         plan,
         datasets_by_name=context_datasets_by_name,
         globals_block=dict(graph.graph.get("analysis_globals") or {}),
-        workflow_path=workflow_path,
-        project_root=project_root,
+        compile_context=compile_context,
     )
     validate_plan_applicability(plan)
     plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
@@ -181,16 +180,7 @@ def build_plan_from_normalized(
         provenance=dict(normalized.get("provenance") or {}),
         execution=execution,
         execution_hooks=list(normalized.get("execution_hooks") or []),
-        workflow_path=(
-            str(normalized["workflow_path"])
-            if isinstance(normalized.get("workflow_path"), str)
-            else None
-        ),
-        project_root=(
-            str(normalized["project_root"])
-            if isinstance(normalized.get("project_root"), str)
-            else None
-        ),
+        compile_context=CompileContext.from_normalized(normalized),
     )
     variation = normalized.get("variation")
     if isinstance(variation, dict):
@@ -279,8 +269,7 @@ def build_plan_context(
     *,
     datasets_by_name: dict[str, dict[str, Any]] | None = None,
     globals_block: dict[str, Any] | None = None,
-    workflow_path: str | None = None,
-    project_root: str | None = None,
+    compile_context: CompileContext | None = None,
 ) -> dict[str, Any]:
     del plan
     datasets_by_name = dict(datasets_by_name or {})
@@ -289,10 +278,8 @@ def build_plan_context(
         "dataset_names": list(datasets_by_name.keys()),
         "globals": dict(globals_block or {}),
     }
-    if workflow_path is not None:
-        context["workflow_path"] = workflow_path
-    if project_root is not None:
-        context["project_root"] = project_root
+    if compile_context is not None:
+        context.update(compile_context.to_normalized())
     return context
 
 

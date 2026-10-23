@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import warnings
-from pathlib import Path
 from typing import Any
 
 from hepflow.build_layout import BuildPaths
+from hepflow.compiler.context import CompileContext
 from hepflow.compiler.data_flow import (
     DependencyContext,
     component_spec_for_node,
@@ -73,6 +73,7 @@ def run_param_compile_hooks(
         dep_ctx=dep_ctx,
     )
 
+    compile_context = CompileContext.from_plan_context(plan.context)
     for node in plan.nodes:
         if node.role not in {"transform", "sink"}:
             continue
@@ -84,8 +85,7 @@ def run_param_compile_hooks(
             spec=spec,
             registry=registry,
             input_fields_by_context=input_fields_by_context,
-            workflow_dir=_workflow_dir(plan),
-            project_root=_project_root(plan),
+            compile_context=compile_context,
         )
         for param_name, records in provenance_by_param.items():
             _record_param_hook_provenance(
@@ -124,20 +124,6 @@ def _active_contexts(
             for dataset_name, dataset in sorted(dict(plan.context.get("datasets") or {}).items())
         ]
     return [(None, None, {node.id for node in plan.nodes})]
-
-
-def _project_root(plan: ExecutionPlan) -> str | None:
-    project_root = plan.context.get("project_root")
-    if not isinstance(project_root, str) or not project_root.strip():
-        return None
-    return project_root
-
-
-def _workflow_dir(plan: ExecutionPlan) -> str | None:
-    workflow_path = plan.context.get("workflow_path")
-    if not isinstance(workflow_path, str) or not workflow_path.strip():
-        return None
-    return str(Path(workflow_path).parent)
 
 
 def _validate_final_params(

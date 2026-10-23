@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from hepflow.compiler.context import CompileContext
 from hepflow.compiler.hooks.model import (
     CompileHookContext,
     CompileHookResult,
@@ -58,8 +59,7 @@ def run_parameter_hook_chains_for_node(
     spec: RuntimeComponentSpec,
     registry: dict[str, Any],
     input_fields_by_context: dict[str | None, dict[str, list[str]]],
-    workflow_dir: str | None = None,
-    project_root: str | None = None,
+    compile_context: CompileContext | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     contexts = {
         context_name: fields_by_node.get(node.id, [])
@@ -86,8 +86,12 @@ def run_parameter_hook_chains_for_node(
             provenance: list[dict[str, Any]] = []
             context = ParamCompileHookContext(
                 input_stream_fields=tuple(input_fields),
-                workflow_dir=workflow_dir,
-                project_root=project_root,
+                workflow_dir=(
+                    str(compile_context.entry_dir) if compile_context else None
+                ),
+                project_root=(
+                    str(compile_context.project_root) if compile_context else None
+                ),
             )
             for hook_options in hooks:
                 result = run_single_parameter_hook(
