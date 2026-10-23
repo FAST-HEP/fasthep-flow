@@ -1201,7 +1201,10 @@ def _compiled_mapping_config(
     outdir: Path | None = None,
 ) -> tuple[dict[str, Any], Any]:
     build_dir = outdir or tmp_path / f"build-{workflow_path.parent.name}"
-    normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
+    # The mapping files sit next to the workflow, so that directory is the project root.
+    normalized = normalise_workflow_file(
+        workflow_path, outdir=build_dir, root=workflow_path.parent
+    )
     plan = make_plan_file(build_dir / "compile" / "normalized.yaml", outdir=build_dir)
     return normalized, plan
 

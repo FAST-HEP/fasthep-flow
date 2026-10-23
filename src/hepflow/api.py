@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +24,7 @@ from hepflow.compiler.execution import (
     resolve_workflow_execution_hooks,
 )
 from hepflow.compiler.includes import load_workflow_with_includes
+from hepflow.compiler.input_paths import resolve_project_root
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.compiler.plan_diff import (
@@ -34,6 +35,7 @@ from hepflow.compiler.plan_diff import (
 from hepflow.compiler.registry_resolution import (
     resolve_workflow_registry,
 )
+from hepflow.compiler.resource_paths import resolve_resource_paths
 from hepflow.compiler.systematics import (
     has_separate_plan_systematics,
     make_systematic_plan_files,
@@ -106,30 +108,53 @@ def normalise_workflow_file(
     workflow_path: str | Path,
     *,
     outdir: str | Path,
+    root: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Normalise a workflow YAML file and write ``compile/normalized.yaml``."""
+    """Normalise a workflow YAML file and write ``compile/normalized.yaml``.
+
+    ``root`` is the project root that relative input paths resolve against; it defaults
+    to the current working directory and is recorded in the provenance.
+    """
     workflow_file = Path(workflow_path)
     out_path = Path(outdir)
+    root_path = resolve_project_root(root)
     compile_dir(out_path).mkdir(parents=True, exist_ok=True)
 
     workflow = load_workflow_yaml(str(workflow_file))
     normalized = normalize_workflow(workflow)
 
-    registry_result = resolve_workflow_registry(workflow, workflow_path=workflow_file)
-    execution_result = resolve_workflow_execution(workflow, workflow_path=workflow_file)
+    registry_result = resolve_workflow_registry(
+        workflow, workflow_path=workflow_file, project_root=root_path
+    )
+    execution_result = resolve_workflow_execution(
+        workflow, workflow_path=workflow_file, project_root=root_path
+    )
     hooks_result = resolve_workflow_execution_hooks(
         workflow,
         workflow_path=workflow_file,
+        project_root=root_path,
     )
 
     normalized["registry"] = registry_result.registry
     normalized["execution"] = execution_result["execution"]
     normalized["execution_hooks"] = hooks_result["execution_hooks"]
     normalized["workflow_path"] = str(workflow_file)
+    normalized["project_root"] = str(root_path)
     normalized.setdefault("provenance", {}).update(registry_result.provenance)
     normalized.setdefault("provenance", {}).update(execution_result["provenance"])
     normalized.setdefault("provenance", {}).update(hooks_result["provenance"])
-    normalized = apply_component_param_defaults(normalized)
+    normalized["provenance"]["root"] = str(root_path)
+    resources, inputs = resolve_resource_paths(
+        dict(normalized["execution"].get("resources") or {}),
+        registry=normalized["registry"],
+        root=root_path,
+        entry_dir=workflow_file.parent,
+    )
+    normalized["execution"]["resources"] = resources
+    normalized["provenance"]["inputs"] = [asdict(entry) for entry in inputs]
+    normalized = apply_component_param_defaults(
+        normalized, root=root_path, entry_dir=workflow_file.parent
+    )
 
     write_yaml(normalized, str(normalized_path(out_path)))
     return normalized
@@ -168,10 +193,11 @@ def compile_workflow_file(
     *,
     outdir: str | Path,
     chunk_size: int | None = None,
+    root: str | Path | None = None,
 ) -> ExecutionPlan:
     """Normalise a workflow YAML file, lower it, and write compile artifacts."""
     out_path = Path(outdir)
-    normalise_workflow_file(workflow_path, outdir=out_path)
+    normalise_workflow_file(workflow_path, outdir=out_path, root=root)
     return make_plan_file(
         normalized_path(out_path),
         outdir=out_path,
@@ -340,13 +366,16 @@ def run_workflow_file(
     scheduler: str | None = None,
     workers: int | None = None,
     chunk_size: int | None = None,
+    root: str | Path | None = None,
     progress: ProgressReporter | None = None,
     progress_sinks: list[ProgressSink] | None = None,
     partition_numbers: Iterable[int] | None = None,
 ) -> BackendResult:
     """Compile and run a workflow YAML file in one call."""
     out_path = Path(outdir)
-    compile_workflow_file(workflow_path, outdir=out_path, chunk_size=chunk_size)
+    compile_workflow_file(
+        workflow_path, outdir=out_path, chunk_size=chunk_size, root=root
+    )
     normalized = read_yaml(str(normalized_path(out_path))) or {}
     if has_separate_plan_systematics(normalized):
         nominal_plan = out_path / "compile" / "nominal" / "plan.yaml"

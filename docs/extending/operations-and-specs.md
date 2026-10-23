@@ -230,7 +230,9 @@ params:
   schema: schemas/reference.yaml
 ```
 
-Flow resolves relative paths against the workflow file, loads YAML or JSON
+Flow resolves relative paths against the project root (see
+{doc}`../authoring/paths`; a path that is only found next to the entry workflow
+still works for one release, with a deprecation warning), loads YAML or JSON
 according to the declared formats, validates that `type: mapping` parameters
 produce mappings after hooks run, and writes the loaded value into the compiled
 execution plan. The operation implementation should therefore accept the
@@ -240,6 +242,22 @@ Loading is explicit. A string parameter is not treated as a file path unless its
 own parameter spec declares the `flow.load_mapping` hook, and the hook changes
 only parameter materialization. Dependencies inferred from operation inputs,
 `requires`, and `provides` still come from the rest of the operation spec.
+
+### Input paths that are not loaded by Flow
+
+A parameter that names a file the operation opens itself can be marked as an input path
+with `kind: path` (a string or a list of strings):
+
+```python
+"params": {
+    "payload": {"type": "string", "kind": "path", "required": True},
+    "output": {"type": "string", "required": False},  # not marked: left as written
+}
+```
+
+The compiler resolves marked parameters against the project root, checks that the file
+exists, hashes it, writes the absolute path into the plan and records it in
+`compile/inputs.manifest.yaml`. Only mark inputs: output paths are never resolved.
 
 ## Parameter compile hooks
 

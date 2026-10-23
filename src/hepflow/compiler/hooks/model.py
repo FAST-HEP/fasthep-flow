@@ -18,6 +18,7 @@ class CompileHookContext:
 class ParamCompileHookContext:
     input_stream_fields: tuple[str, ...] = ()
     workflow_dir: str | None = None
+    project_root: str | None = None
 
 
 @dataclass(slots=True, frozen=True)

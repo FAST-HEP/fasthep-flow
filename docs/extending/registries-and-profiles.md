@@ -69,6 +69,18 @@ registry:
 
 It can also contain supporting capabilities such as functions, constants, product handlers, and execution hooks.
 
+The `resource_kinds` section describes the kinds of external resources a workflow can declare under `execution.resources`. Each kind lists the fields of such a resource that hold input paths, so that the compiler can resolve them (see {doc}`../authoring/paths`):
+
+```yaml
+resource_kinds:
+  correctionlib:
+    path_fields: [path]
+  data_quality_mask:
+    path_fields: [paths]
+```
+
+Flow provides the generic kind `file` (`path_fields: [path]`); packages register the kinds they own.
+
 The important point is that the registry provides a **common namespace through which Flow discovers capabilities**, even though those capabilities participate at different points in the workflow lifecycle.
 
 ---

@@ -45,6 +45,7 @@ def build_execution_plan(
     execution: dict[str, Any] | None = None,
     execution_hooks: list[dict[str, Any]] | None = None,
     workflow_path: str | None = None,
+    project_root: str | None = None,
 ) -> ExecutionPlan:
     plan = ExecutionPlan()
     plan.registry = dict(registry or {})
@@ -127,6 +128,7 @@ def build_execution_plan(
         datasets_by_name=context_datasets_by_name,
         globals_block=dict(graph.graph.get("analysis_globals") or {}),
         workflow_path=workflow_path,
+        project_root=project_root,
     )
     validate_plan_applicability(plan)
     plan.data_flow = infer_data_flow(plan, registry_cfg=plan.registry)
@@ -182,6 +184,11 @@ def build_plan_from_normalized(
         workflow_path=(
             str(normalized["workflow_path"])
             if isinstance(normalized.get("workflow_path"), str)
+            else None
+        ),
+        project_root=(
+            str(normalized["project_root"])
+            if isinstance(normalized.get("project_root"), str)
             else None
         ),
     )
@@ -273,6 +280,7 @@ def build_plan_context(
     datasets_by_name: dict[str, dict[str, Any]] | None = None,
     globals_block: dict[str, Any] | None = None,
     workflow_path: str | None = None,
+    project_root: str | None = None,
 ) -> dict[str, Any]:
     del plan
     datasets_by_name = dict(datasets_by_name or {})
@@ -283,6 +291,8 @@ def build_plan_context(
     }
     if workflow_path is not None:
         context["workflow_path"] = workflow_path
+    if project_root is not None:
+        context["project_root"] = project_root
     return context
 
 

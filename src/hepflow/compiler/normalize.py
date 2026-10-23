@@ -870,6 +870,10 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
         raw.get("report_templates") or {},
         "registry.report_templates",
     )
+    resource_kinds = _ensure_mapping(
+        raw.get("resource_kinds") or {},
+        "registry.resource_kinds",
+    )
 
     for group_name, group in [
         ("registry.functions", functions),
@@ -931,6 +935,19 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
         if not isinstance(spec_ref, str) or ":" not in spec_ref:
             raise ValueError(f"registry.compile_hooks[{name!r}].spec must be 'module:object'")
 
+    for name, entry in resource_kinds.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("registry.resource_kinds keys must be non-empty strings")
+        if not isinstance(entry, dict):
+            raise ValueError(f"registry.resource_kinds[{name!r}] must be a mapping")
+        path_fields = entry.get("path_fields")
+        if not isinstance(path_fields, list) or not all(
+            isinstance(item, str) and item.strip() for item in path_fields
+        ):
+            raise ValueError(
+                f"registry.resource_kinds[{name!r}].path_fields must be a list of strings"
+            )
+
     for name, entry in report_templates.items():
         if not isinstance(name, str) or not name.strip():
             raise ValueError("registry.report_templates keys must be non-empty strings")
@@ -989,4 +1006,8 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
         "render": {k: dict(v) for k, v in render.items()},
         "progress_sinks": {k: dict(v) for k, v in progress_sinks.items()},
         "report_templates": {k: dict(v) for k, v in report_templates.items()},
+        "resource_kinds": {
+            k: {**v, "path_fields": [str(f).strip() for f in v["path_fields"]]}
+            for k, v in resource_kinds.items()
+        },
     }

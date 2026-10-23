@@ -583,3 +583,10 @@ If you want to understand what Flow does with a workflow description, continue w
 If you want to provide your own sources, transforms, sinks, or other capabilities, see {doc}`../extending/index`.
 
 For complete runnable workflows and step-by-step examples, see the [FAST-HEP workshop](https://fasthep-workshop.readthedocs.io/en/latest/).
+
+```{toctree}
+:maxdepth: 1
+:hidden:
+
+paths
+```
