@@ -7,6 +7,12 @@ import pytest
 import yaml
 
 from hepflow.api import compile_workflow_file, normalise_workflow_file
+from hepflow.compiler.context import CompileContext
+from hepflow.compiler.execution import (
+    resolve_workflow_execution,
+    resolve_workflow_execution_hooks,
+)
+from hepflow.compiler.registry_resolution import resolve_workflow_registry
 
 
 def _write_profile(path: Path, marker: str) -> None:
@@ -116,3 +122,42 @@ def test_root_is_recorded_in_provenance_and_plan_context(
     )
     assert normalized["provenance"]["root"] == str(project)
     assert normalized["project_root"] == str(project)
+
+
+def test_resolvers_use_the_given_project_root(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    profile = project / "profiles" / "x.yaml"
+    profile.parent.mkdir(parents=True)
+    profile.write_text(
+        yaml.safe_dump({"execution": {"config": {"from_root": True}}}),
+        encoding="utf-8",
+    )
+    context = CompileContext(project / "entry" / "wf.yaml", project)
+    workflow = {"use": {"profiles": ["profiles/x.yaml"]}}
+
+    registry = resolve_workflow_registry(workflow, context=context)
+    execution = resolve_workflow_execution(workflow, context=context)
+    hooks = resolve_workflow_execution_hooks(workflow, context=context)
+
+    for layers in (
+        registry.provenance["registry_layers"],
+        execution["provenance"]["execution_layers"],
+        hooks["provenance"]["execution_hook_layers"],
+    ):
+        assert any(
+            layer["kind"] == "profile" and layer["path"] == str(profile)
+            for layer in layers
+        )
+    assert execution["execution"]["config"]["from_root"] is True
+
+
+def test_resolve_workflow_execution_with_a_plain_workflow_path_context() -> None:
+    context = CompileContext.from_workflow_path(Path("wf.yaml"))
+    workflow = {"use": {"profiles": []}, "execution": {"config": {"a": 1}}}
+
+    result = resolve_workflow_execution(workflow, context=context)
+
+    assert result["execution"]["config"]["a"] == 1
+    layers = result["provenance"]["execution_layers"]
+    assert [layer["name"] for layer in layers] == ["builtin", "workflow"]
+    assert layers[-1]["path"] == "wf.yaml"

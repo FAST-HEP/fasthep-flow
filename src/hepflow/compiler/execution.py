@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
+from hepflow.compiler.context import CompileContext
 from hepflow.compiler.profiles import (
     expand_profile_names,
     load_profile_config_with_provenance,
@@ -228,11 +228,10 @@ def validate_stage_execution_resource_references(
 def resolve_workflow_execution(
     workflow: dict[str, Any],
     *,
-    workflow_path: Path,
-    project_root: Path | None = None,
+    context: CompileContext,
 ) -> dict[str, Any]:
-    entry_dir = workflow_path.parent
-    project_root = project_root if project_root is not None else entry_dir
+    project_root = context.project_root
+    entry_dir = context.entry_dir
     use_block = workflow.get("use") or {}
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
@@ -276,7 +275,7 @@ def resolve_workflow_execution(
         {
             "name": "workflow",
             "kind": "workflow",
-            "path": str(workflow_path),
+            "path": str(context.workflow_path),
             "execution": normalize_global_execution(workflow.get("execution")),
         }
     )
@@ -293,11 +292,10 @@ def resolve_workflow_execution(
 def resolve_workflow_execution_hooks(
     workflow: dict[str, Any],
     *,
-    workflow_path: Path,
-    project_root: Path | None = None,
+    context: CompileContext,
 ) -> dict[str, Any]:
-    entry_dir = workflow_path.parent
-    project_root = project_root if project_root is not None else entry_dir
+    project_root = context.project_root
+    entry_dir = context.entry_dir
     use_block = workflow.get("use") or {}
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
@@ -332,7 +330,7 @@ def resolve_workflow_execution_hooks(
         {
             "name": "workflow",
             "kind": "workflow",
-            "path": str(workflow_path),
+            "path": str(context.workflow_path),
             "execution_hooks": list(workflow.get("execution_hooks") or []),
         }
     )
