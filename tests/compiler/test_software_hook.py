@@ -12,6 +12,7 @@ from hepflow.compiler.hooks.model import CompileHookContext
 from hepflow.compiler.hooks.software import SOFTWARE_HOOK_SPEC, software
 from hepflow.registry.defaults import default_runtime_registry_config
 
+REAL_SOFTWARE_CAPTURE = True
 SOFTWARE_IMPL = "hepflow.compiler.hooks.software:software"
 SOFTWARE_SPEC = "hepflow.compiler.hooks.software:SOFTWARE_HOOK_SPEC"
 
@@ -152,3 +153,83 @@ def test_git_state_is_called_once_per_distinct_path(
     assert len(calls) == len(set(calls))
     assert str(tmp_path) in calls
     assert list(data["git"]["editable"]) == sorted(data["git"]["editable"])
+
+
+def _packaged(*modules: str) -> dict[str, Any]:
+    return {
+        "registry_layers": [
+            {"name": m, "kind": "profile", "path": f"package:{m}.profiles/x.yaml"}
+            for m in modules
+        ]
+    }
+
+
+def test_layers_do_not_scan_every_distribution_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def forbidden() -> Any:
+        raise AssertionError("packages_distributions must not run")
+
+    monkeypatch.setattr(software_module.metadata, "packages_distributions", forbidden)
+
+    data = software(_context(tmp_path, _packaged("pytest", "fasthep_toolbench")))
+
+    assert data["software"]["layers"] == ["fasthep-toolbench", "pytest"]
+    assert "layer_notes" not in data["software"]
+
+
+def test_unmatched_layer_package_is_recorded_with_a_note(tmp_path: Path) -> None:
+    data = software(_context(tmp_path, _packaged("no_such_pkg_xyz")))["software"]
+
+    assert data["layers"] == ["no_such_pkg_xyz"]
+    assert set(data["layer_notes"]) == {"no_such_pkg_xyz"}
+
+
+def _counting_scan(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+    calls: list[bool] = []
+    real = software_module._scan_environment
+
+    def counting(root: Any, *, git: bool) -> dict[str, Any]:
+        calls.append(git)
+        return real(root, git=git)
+
+    monkeypatch.setattr(software_module, "_scan_environment", counting)
+    return calls
+
+
+def test_scan_is_memoised_per_root_and_git_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _counting_scan(monkeypatch)
+
+    first = software(_context(tmp_path), git=False)
+    second = software(_context(tmp_path), git=False)
+    software(_context(tmp_path), git=True)
+
+    assert calls == [False, True]
+    assert first == second
+
+
+def test_cache_is_cleared_and_expires(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _counting_scan(monkeypatch)
+    clock = [100.0]
+    monkeypatch.setattr(software_module.time, "monotonic", lambda: clock[0])
+
+    software(_context(tmp_path), git=False)
+    software_module.clear_software_cache()
+    software(_context(tmp_path), git=False)
+    clock[0] += software_module.SOFTWARE_CACHE_TTL_SECONDS + 1
+    software(_context(tmp_path), git=False)
+
+    assert calls == [False, False, False]
+
+
+def test_cached_result_is_not_shared_mutable_state(tmp_path: Path) -> None:
+    first = software(_context(tmp_path), git=False)["software"]
+    first["distributions"].clear()
+
+    second = software(_context(tmp_path), git=False)["software"]
+
+    assert second["distributions"]
