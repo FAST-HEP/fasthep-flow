@@ -8,6 +8,7 @@ or ``plan.yaml``, which keeps ``plan_hash`` stable (fasthep-flow#94).
 from __future__ import annotations
 
 import hashlib
+import re
 import socket
 import warnings
 from collections.abc import Iterable, Mapping
@@ -62,11 +63,18 @@ def read_invocation(compile_dir: Path) -> dict[str, Any]:
 def plan_hash(plan_path: Path, root: str) -> dict[str, str]:
     """Hash ``plan.yaml`` with every occurrence of ``root`` replaced by ``<root>``.
 
-    The hash is therefore equal for the same project compiled under different roots.
+    The hash is therefore equal for the same project compiled under different roots. Both the
+    lexical root and its symlink-resolved form are replaced, at path boundaries only.
     """
     text = Path(plan_path).read_text(encoding="utf-8")
+    forms = {root.rstrip("/") if len(root) > 1 else root}
     if root:
-        text = text.replace(root, _ROOT_PLACEHOLDER)
+        forms.add(str(Path(root).resolve()).rstrip("/"))
+    for form in sorted(filter(None, forms), key=len, reverse=True):
+        # Replace only whole path prefixes: /a/b must not rewrite /a/bc/x.
+        text = re.sub(
+            rf"(?<![\w.\-/]){re.escape(form)}(?![\w.\-])", _ROOT_PLACEHOLDER, text
+        )
     return {
         "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
         "canonicalization": PLAN_HASH_CANONICALIZATION,
@@ -85,16 +93,31 @@ def record_source_files(
     """Add the workflow, include and local profile files to ``collector``.
 
     Packaged profiles (``package:...`` paths) are not rows; the software record lists them.
+    Include files are real paths; a file under the (possibly symlinked) root is mapped back
+    under the lexical ``root`` so ``plan_hash`` can replace it. Files outside the root stay
+    absolute real paths, which is expected.
     """
-    entry = str(workflow_path.resolve())
+    real_root = root.resolve()
+
+    def lexical(path: Path) -> str:
+        real = path.resolve()
+        try:
+            return str(root / real.relative_to(real_root))
+        except ValueError:
+            return str(real)
+
+    entry = lexical(workflow_path)
     collector.add(
         resolve_input_path(entry, role="workflow", root=root, entry_dir=entry_dir)
     )
     for include in include_files:
-        if str(Path(include).resolve()) == entry:
+        include_path = lexical(Path(include))
+        if include_path == entry:
             continue
         collector.add(
-            resolve_input_path(include, role="include", root=root, entry_dir=entry_dir)
+            resolve_input_path(
+                include_path, role="include", root=root, entry_dir=entry_dir
+            )
         )
     seen: set[str] = set()
     for layer in registry_layers:

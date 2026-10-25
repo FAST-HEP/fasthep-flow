@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 from pathlib import Path
 from typing import Any
@@ -71,6 +72,9 @@ def test_include_rows_in_manifest(tmp_path: Path, toy_workflow: dict[str, Any]) 
 
     rows = {r["role"]: r for r in normalized["provenance"]["inputs"]}
     assert set(rows) == {"workflow", "include"}
+    roles = [r["role"] for r in normalized["provenance"]["inputs"]]
+    assert roles.count("workflow") == 1
+    assert roles.count("include") == 1
     assert rows["workflow"]["resolved"] == str(entry)
     assert rows["include"]["resolved"] == str(project / "parts" / "sources.yaml")
     assert all(len(r["sha256"]) == 64 for r in rows.values())
@@ -143,3 +147,40 @@ def test_plan_hash_changes_with_the_plan(
     _write_project(project, toy_workflow)
 
     assert _hash_of(entry, project, tmp_path / "b2") != before
+
+
+def test_plan_hash_with_symlinked_root(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    real = tmp_path / "real"
+    included = {"sources": toy_workflow.pop("sources")}
+    (real / "parts").mkdir(parents=True)
+    (real / "parts" / "sources.yaml").write_text(yaml.safe_dump(included))
+    _write_project(real, {"include": "parts/sources.yaml", **toy_workflow})
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    h_link = _hash_of(link / "workflow.yaml", link, tmp_path / "b1")
+    h_real = _hash_of(real / "workflow.yaml", real, tmp_path / "b2")
+    copy = tmp_path / "copy"
+    shutil.copytree(real, copy)
+    h_copy = _hash_of(copy / "workflow.yaml", copy, tmp_path / "b3")
+
+    assert h_link == h_real == h_copy
+    normalized = yaml.safe_load((tmp_path / "b1/compile/normalized.yaml").read_text())
+    rows = [
+        r
+        for r in normalized["provenance"]["inputs"]
+        if r["role"] in {"workflow", "include"}
+    ]
+    assert len(rows) == 2
+    assert all(r["resolved"].startswith(str(link) + "/") for r in rows)
+
+
+def test_plan_hash_replaces_at_path_boundaries(tmp_path: Path) -> None:
+    plan = tmp_path / "plan.yaml"
+    plan.write_text("a: /a/b/x\nb: /a/bc/x\n", encoding="utf-8")
+    expected = hashlib.sha256(b"a: <root>/x\nb: /a/bc/x\n").hexdigest()
+
+    assert plan_hash(plan, "/a/b")["sha256"] == expected
+    assert plan_hash(plan, "/a/b/")["sha256"] == expected
