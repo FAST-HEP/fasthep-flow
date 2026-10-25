@@ -184,3 +184,39 @@ def test_plan_hash_replaces_at_path_boundaries(tmp_path: Path) -> None:
 
     assert plan_hash(plan, "/a/b")["sha256"] == expected
     assert plan_hash(plan, "/a/b/")["sha256"] == expected
+
+
+def test_plan_hash_is_root_independent_for_roots_with_spaces(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    hashes: list[dict[str, str]] = []
+    for name in (
+        "my analysis project one with a rather long name",
+        "another analysis checkout two",
+    ):
+        project = tmp_path / name
+        entry = _write_project(project, toy_workflow)
+        out = tmp_path / f"build-{len(hashes)}"
+        compile_workflow_file(entry, outdir=out, root=project)
+        hashes.append(plan_hash(out / "compile" / "plan.yaml", str(project)))
+
+    assert hashes[0] == hashes[1]
+
+
+def test_invocation_paths_and_sets_round_trip_as_plain_values(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    entry = _write_project(tmp_path / "proj", toy_workflow)
+    out = tmp_path / "build"
+
+    compile_workflow_file(
+        entry,
+        outdir=out,
+        root=tmp_path / "proj",
+        invocation={"out": Path("/x"), "tags": {"b", "a"}},
+    )
+
+    assert read_invocation(out / "compile")["caller"] == {
+        "out": "/x",
+        "tags": ["a", "b"],
+    }

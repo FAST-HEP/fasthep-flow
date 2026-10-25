@@ -16,6 +16,7 @@ from hepflow.compiler.graph_artifacts import (
     write_graph_artifacts,
 )
 from hepflow.compiler.inputs_manifest import (
+    MANIFEST_NAME,
     InputCollector,
     mapping_file_inputs,
     write_inputs_manifest,
@@ -41,6 +42,9 @@ def write_plan_artifacts(
     records and the hash of ``plan.yaml``. ``chunk_size`` is recorded in its invocation.
     """
     paths = BuildPaths.from_plan(plan, outdir=outdir)
+    # A manifest left by an earlier compile must not survive a compile that fails before
+    # the new one is written: it would describe another plan.
+    paths.compile_file(MANIFEST_NAME).unlink(missing_ok=True)
     ensure_build_layout(
         paths.root,
         variation=paths.variation,

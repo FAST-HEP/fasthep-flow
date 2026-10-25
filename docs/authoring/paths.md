@@ -129,12 +129,13 @@ The top-level keys, in this order:
 | `bundle_id` | identity of the whole compile bundle (see below) |
 | `plan_hash` | hash of `plan.yaml` that does not depend on the project root (see below) |
 | `software` | `software.json` listed with its `sha256` and `size`; `null` when no compile hook wrote it |
-| `invocation` | how the compile was called: `outdir`, `timestamp`, `hostname`, the caller's own options (`caller`) and `chunk_size` |
-| `hooks` | the compile hooks that ran, with the parameters they ran with and the artifacts they wrote |
+| `invocation` | how the compile was called: `workflow_path`, `outdir`, `root`, `timestamp`, `hostname`, the caller's own options (`caller`) and `chunk_size` |
+| `hooks` | the phase compile hooks that ran (`after_datasets`, `after_compile`), with the parameters they ran with and the artifacts they wrote |
 | `inputs` | one row per input file |
 
-In `inputs`, `declared` is what the author wrote, `resolved` what ended up in the plan. Rows
-are sorted by `role`. The roles are:
+In `inputs`, `declared` is what the author wrote, `resolved` what ended up in the plan. For
+the `workflow`, `include` and `profile` rows `declared` is the absolute path of the file, not
+the text the author wrote. Rows are sorted by `role`. The roles are:
 
 - `workflow`: the entry workflow file;
 - `include`: a file pulled in by `include:`;
@@ -143,24 +144,37 @@ are sorted by `role`. The roles are:
 - `param:<stage>.<name>`: a `kind: path` parameter;
 - the files loaded by `flow.load_mapping`.
 
+Parameter compile hooks such as `flow.load_mapping` are not listed under `hooks`; their
+records stay in the plan node `meta`, as before. Values in `caller` and in hook parameters
+are stored as plain YAML: paths become strings, sets sorted lists, and any other object its
+`repr`.
+
 ### `plan_hash` and `bundle_id`
 
-`plan_hash` is the sha256 of `plan.yaml` after every occurrence of the project root has been
-replaced by a placeholder (`canonicalization: root-prefix`). The same project compiled under
+`plan_hash` is the sha256 of `plan.yaml`, loaded and dumped again without line wrapping,
+after every occurrence of the project root has been replaced by a placeholder
+(`canonicalization: root-prefix`). The same project compiled under
 two different roots, for example in two checkouts, gives the same `plan_hash`. It tells you
-whether the plan content is the same, wherever it was compiled.
+whether the plan content is the same, wherever it was compiled. `plan_hash` is the portable
+value to compare across machines and checkouts.
 
 `bundle_id` is the sha256 of the manifest without `invocation` and without the `bundle_id`
-key itself. It identifies the whole bundle, so it is **not** root independent. It changes with:
+key itself. A hook counts with its name, phase, parameters and the names of its artifacts,
+not with the artifacts' `sha256` (a rendered graph, for example, names files below the
+output directory). It identifies the whole bundle, so it is **not** root independent. It
+changes with:
 
 - the project root and the resolved paths, because the manifest records them;
 - the content of any input file (the input hashes and the `plan_hash` change);
-- the software environment: the installed versions and, with the default `git` capture, the
-  commit and the dirty state of every editable checkout. A new commit in an editable
-  checkout changes the `bundle_id`.
+- the software environment, through `software.json`: the platform string (which includes
+  the kernel release), the interpreter path and prefix, the installed distributions and,
+  with the default `git` capture, the commit and the dirty state of every editable
+  checkout. A new commit in an editable checkout changes the `bundle_id`. A git call that
+  times out (5 s per call) records a `note` instead of the revision, so it can change the
+  `bundle_id` too.
 
-It does not change with the output directory, the time, the host or the caller's options, so
-compiling the same bundle again gives the same `bundle_id`. `chunk_size` is recorded in
+It does not change with the output directory, the time or the invocation options, so
+compiling the same bundle again in the same environment gives the same `bundle_id`. `chunk_size` is recorded in
 `invocation`, but it also changes the partitioning in the plan, so it changes the
 `plan_hash` and with it the `bundle_id`.
 
@@ -175,8 +189,12 @@ and is listed with its `sha256` and `size`. The built-in compile hook `flow.soft
 it (the hook can be replaced in the registry). It records the Python version and executable,
 the installed distributions, the lock file and the git state (commit and dirty flag) of the
 project and of editable checkouts. The
-hook parameter `git: false` switches the git capture off; `git` is then `null` and a
-sibling `git_note` says why. The only environment variables recorded are those starting with
+hook parameter `git: false` switches the git capture off; the whole `git` value is then
+`null` and a sibling `git_note` says why. When git is missing or fails, each path entry
+(`git.root` and every `git.editable` entry) carries a `note` instead. A packaged profile
+layer is listed in `layers` by its distribution name; when no installed distribution matches
+its import package, the import name is listed and `layer_notes` says so. Within one process
+the distribution scan and the git states are reused for up to 30 seconds. The only environment variables recorded are those starting with
 `FASTHEP_` or `HEPFLOW_`.
 
 ### What is never recorded

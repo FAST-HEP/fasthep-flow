@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -13,10 +14,12 @@ from hepflow.api import compile_workflow_file
 from hepflow.compiler import bundle as bundle_module
 from hepflow.compiler.artifacts import write_plan_artifacts
 from hepflow.compiler.bundle import bundle_id, plan_hash
+from hepflow.compiler.hooks import software as software_module
 from hepflow.compiler.inputs_manifest import write_inputs_manifest
 from hepflow.model.plan import ExecutionPlan
 from hepflow.registry.defaults import default_runtime_registry_config
 
+REAL_SOFTWARE_CAPTURE = True
 SOFTWARE_HOOK = {
     "impl": "hepflow.compiler.hooks.software:software",
     "spec": "hepflow.compiler.hooks.software:SOFTWARE_HOOK_SPEC",
@@ -34,7 +37,14 @@ V2_KEYS = [
 ]
 
 
-def _project(tmp_path: Path, toy_workflow: dict[str, Any]) -> Path:
+_TOY = "tests.toy_components.compile_hooks"
+
+
+def _project(
+    tmp_path: Path,
+    toy_workflow: dict[str, Any],
+    extra_hooks: dict[str, Any] | None = None,
+) -> Path:
     project = tmp_path / "proj"
     (project / "parts").mkdir(parents=True)
     included = {"sources": toy_workflow.pop("sources")}
@@ -45,6 +55,7 @@ def _project(tmp_path: Path, toy_workflow: dict[str, Any]) -> Path:
     registry["compile_hooks"] = {
         **dict(registry.get("compile_hooks") or {}),
         "flow.software": SOFTWARE_HOOK,
+        **(extra_hooks or {}),
     }
     workflow = {"include": "parts/sources.yaml", **toy_workflow, "registry": registry}
     entry = project / "workflow.yaml"
@@ -240,10 +251,94 @@ def test_bundle_id_ignores_invocation_and_volatile_keys() -> None:
 
 
 def test_hook_params_are_copied_and_made_yaml_safe(tmp_path: Path) -> None:
-    params: dict[str, Any] = {"nested": {"p": Path("/x")}, "items": (1, 2)}
+    params: dict[str, Any] = {
+        "nested": {"p": Path("/x")},
+        "items": (1, 2),
+        "tags": {"b", "a"},
+        "other": object,
+    }
     hooks = [{"name": "h", "phase": "after_compile", "params": params, "artifacts": {}}]
 
     write_inputs_manifest(tmp_path, root="/r", inputs=[], hooks=hooks)
 
     written = _manifest(tmp_path)["hooks"][0]["params"]
-    assert written == {"nested": {"p": repr(Path("/x"))}, "items": [1, 2]}
+    assert written == {
+        "nested": {"p": "/x"},
+        "items": [1, 2],
+        "tags": ["a", "b"],
+        "other": repr(object),
+    }
+
+
+def test_bundle_id_ignores_outdir_dependent_hook_artifacts(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    hook = {
+        "spec": f"{_TOY}:OUTDIR_ARTIFACT_HOOK_SPEC",
+        "impl": f"{_TOY}:outdir_artifact_hook",
+    }
+    entry = _project(tmp_path, toy_workflow, {"toy.outdir_artifact": hook})
+
+    compile_workflow_file(entry, outdir=tmp_path / "a", root=entry.parent)
+    compile_workflow_file(entry, outdir=tmp_path / "b", root=entry.parent)
+
+    first = _manifest(tmp_path / "a" / "compile")
+    second = _manifest(tmp_path / "b" / "compile")
+
+    def artifact(manifest: dict[str, Any]) -> dict[str, Any]:
+        (record,) = [r for r in manifest["hooks"] if r["name"] == "toy.outdir_artifact"]
+        return dict(record["artifacts"]["outdir_artifact"])
+
+    assert artifact(first)["sha256"] != artifact(second)["sha256"]
+    assert first["plan_hash"] == second["plan_hash"]
+    assert first["bundle_id"] == second["bundle_id"]
+
+
+def test_software_json_still_changes_bundle_id(
+    tmp_path: Path, toy_workflow: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entry = _project(tmp_path, toy_workflow)
+
+    monkeypatch.setattr(software_module, "python_info", lambda: {"version": "3.0"})
+    compile_workflow_file(entry, outdir=tmp_path / "a", root=entry.parent)
+    monkeypatch.setattr(software_module, "python_info", lambda: {"version": "3.1"})
+    compile_workflow_file(entry, outdir=tmp_path / "b", root=entry.parent)
+
+    first = _manifest(tmp_path / "a" / "compile")
+    second = _manifest(tmp_path / "b" / "compile")
+    assert first["software"]["sha256"] != second["software"]["sha256"]
+    assert first["bundle_id"] != second["bundle_id"]
+
+
+def test_bundle_id_counts_hook_artifact_names_not_hashes() -> None:
+    def manifest(artifacts: dict[str, Any]) -> dict[str, Any]:
+        record = {"name": "h", "phase": "after_compile", "params": {}}
+        return {"version": 2, "hooks": [{**record, "artifacts": artifacts}]}
+
+    one = manifest({"a": {"path": "a.json", "sha256": "1"}})
+    two = manifest({"a": {"path": "a.json", "sha256": "2"}})
+    renamed = manifest({"b": {"path": "b.json", "sha256": "1"}})
+
+    assert bundle_id(one) == bundle_id(two)
+    assert bundle_id(one) != bundle_id(renamed)
+
+
+def test_failed_recompile_removes_the_old_manifest(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    good = _project(tmp_path / "good", deepcopy(toy_workflow))
+    failing = {
+        "spec": f"{_TOY}:FAILING_AFTER_COMPILE_HOOK_SPEC",
+        "impl": f"{_TOY}:failing_compile_hook",
+    }
+    bad = _project(tmp_path / "bad", toy_workflow, {"toy.fail": failing})
+    out = tmp_path / "build"
+
+    compile_workflow_file(good, outdir=out, root=good.parent)
+    assert (out / "compile" / "inputs.manifest.yaml").is_file()
+
+    with pytest.raises(RuntimeError, match="compile boom"):
+        compile_workflow_file(bad, outdir=out, root=bad.parent)
+
+    assert (out / "compile" / "plan.yaml").is_file()
+    assert not (out / "compile" / "inputs.manifest.yaml").exists()

@@ -16,7 +16,7 @@ from typing import Any
 
 from fasthep_toolbench.misc import file_fingerprint
 
-from hepflow.compiler.bundle import bundle_id, plan_hash
+from hepflow.compiler.bundle import bundle_id, plan_hash, yaml_safe
 from hepflow.compiler.input_paths import ResolvedInput
 from hepflow.model.plan import ExecutionPlan
 from hepflow.utils import write_yaml
@@ -95,8 +95,8 @@ def write_inputs_manifest(
         "bundle_id": None,
         "plan_hash": plan_hash(Path(plan), root or "") if plan is not None else None,
         "software": _software_entry(software),
-        "invocation": _yaml_safe(dict(invocation or {})),
-        "hooks": [_yaml_safe(dict(record)) for record in hooks or []],
+        "invocation": yaml_safe(dict(invocation or {})),
+        "hooks": [yaml_safe(dict(record)) for record in hooks or []],
         "inputs": rows,
     }
     manifest["bundle_id"] = bundle_id(manifest)
@@ -110,20 +110,6 @@ def _software_entry(software: str | Path | None) -> dict[str, Any] | None:
         return None
     sha256, size = file_fingerprint(Path(software))
     return {"path": Path(software).name, "sha256": sha256, "size": size}
-
-
-def _yaml_safe(value: Any) -> Any:
-    """Return a copy of ``value`` built from YAML-safe types; anything else is its repr."""
-    if value is None or isinstance(value, (str, bool, int, float)):
-        return value
-    if isinstance(value, Mapping):
-        return {
-            key if isinstance(key, str) else repr(key): _yaml_safe(item)
-            for key, item in value.items()
-        }
-    if isinstance(value, (list, tuple)):
-        return [_yaml_safe(item) for item in value]
-    return repr(value)
 
 
 def mapping_file_inputs(plan: ExecutionPlan) -> list[dict[str, Any]]:
