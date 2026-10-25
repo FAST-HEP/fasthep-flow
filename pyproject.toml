@@ -24,6 +24,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "fasthep-toolbench",
     "jinja2",
     "networkx",
     "numpy",

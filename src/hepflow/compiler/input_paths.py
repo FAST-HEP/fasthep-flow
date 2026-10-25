@@ -14,7 +14,6 @@ Rules (see fasthep-flow#86):
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import warnings
@@ -22,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-CHUNK_SIZE = 1 << 20
+from fasthep_toolbench.misc import file_fingerprint
 
 _URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]+://")
 
@@ -142,7 +141,7 @@ def _describe(
             role, declared, str(resolved), origin, None, None, "directory"
         )
     try:
-        digest, size = _hash_file(resolved)
+        digest, size = file_fingerprint(resolved)
     except OSError as exc:
         if strict:
             raise
@@ -158,12 +157,3 @@ def _describe(
         )
     return ResolvedInput(role, declared, str(resolved), origin, digest, size, None)
 
-
-def _hash_file(path: Path) -> tuple[str, int]:
-    digest = hashlib.sha256()
-    size = 0
-    with path.open("rb") as handle:
-        while chunk := handle.read(CHUNK_SIZE):
-            digest.update(chunk)
-            size += len(chunk)
-    return digest.hexdigest(), size
