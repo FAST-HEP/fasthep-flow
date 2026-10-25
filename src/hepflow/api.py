@@ -5,6 +5,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from hepflow.backends.loaders import backend_build_directories, load_backend
 from hepflow.backends.model import BackendResult
 from hepflow.build_layout import (
@@ -284,6 +286,23 @@ def load_plan_file(plan_path: str | Path) -> ExecutionPlan:
     return plan
 
 
+def _read_bundle_id(compile_directory: Path) -> str | None:
+    """Return the ``bundle_id`` of the manifest next to a plan, if there is one.
+
+    A plan compiled by an older Flow has no manifest, or one without the key. An unreadable
+    or malformed manifest is treated the same way: reading it never fails a run.
+    """
+    try:
+        text = (compile_directory / "inputs.manifest.yaml").read_text(encoding="utf-8")
+        manifest = yaml.safe_load(text)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    value = manifest.get("bundle_id")
+    return value if isinstance(value, str) and value else None
+
+
 def run_plan_file(
     plan_path: str | Path,
     *,
@@ -353,6 +372,9 @@ def run_plan_file(
             selected_partitions=selected_partitions,
             numbers=requested_partition_numbers,
         )
+    recorded_bundle_id = _read_bundle_id(plan_file.parent)
+    if recorded_bundle_id is not None:
+        summary["bundle_id"] = recorded_bundle_id
     summary["summary_path"] = str(build_paths.run_summary())
     summary["artifacts_path"] = str(build_paths.artifacts_root())
     if build_paths.variation is not None:

@@ -78,14 +78,38 @@ machine that compiled it.
 
 ## The inputs manifest
 
-Every compile writes `compile/inputs.manifest.yaml`. It lists the resource path fields, the
-`kind: path` parameters and the files loaded by `flow.load_mapping`. Profile files are
-resolved by the same rule but are not recorded in the manifest yet (the reproducible compile
-bundle, fasthep-flow#94, extends it):
+Every compile writes `compile/inputs.manifest.yaml`, the manifest of the compile bundle
+(fasthep-flow#94). It is version 2 and lists everything that went into the plan: the
+workflow, its includes and profile files, the resource path fields, the `kind: path`
+parameters and the files loaded by `flow.load_mapping`:
 
 ```yaml
-version: 1
+version: 2
 root: /path/to/project
+bundle_id: 71b8...
+plan_hash:
+  sha256: bf9a...
+  canonicalization: root-prefix
+software:
+  path: software.json
+  sha256: 717d...
+  size: 14260
+invocation:
+  workflow_path: /path/to/project/workflow.yaml
+  outdir: /path/to/build
+  root: /path/to/project
+  timestamp: '2026-10-25T22:03:21+00:00'
+  hostname: lxplus9108.cern.ch
+  caller: {}
+  chunk_size: null
+hooks:
+  - name: flow.software
+    phase: after_datasets
+    params: {}
+    artifacts:
+      software:
+        path: software.json
+        sha256: 717d...
 inputs:
   - role: resource:cms.lumimask.paths[0]
     declared: data/lumimasks/Cert_Collisions2022_355100_362760_Golden.json
@@ -96,8 +120,71 @@ inputs:
     note: null
 ```
 
-`declared` is what the author wrote, `resolved` what ended up in the plan. Rows are sorted
-by `role`, so two compiles of the same inputs give the same file.
+The top-level keys, in this order:
+
+| Key | Meaning |
+|---|---|
+| `version` | manifest format, `2` |
+| `root` | the project root of the compile |
+| `bundle_id` | identity of the whole compile bundle (see below) |
+| `plan_hash` | hash of `plan.yaml` that does not depend on the project root (see below) |
+| `software` | `software.json` listed with its `sha256` and `size`; `null` when no compile hook wrote it |
+| `invocation` | how the compile was called: `outdir`, `timestamp`, `hostname`, the caller's own options (`caller`) and `chunk_size` |
+| `hooks` | the compile hooks that ran, with the parameters they ran with and the artifacts they wrote |
+| `inputs` | one row per input file |
+
+In `inputs`, `declared` is what the author wrote, `resolved` what ended up in the plan. Rows
+are sorted by `role`. The roles are:
+
+- `workflow`: the entry workflow file;
+- `include`: a file pulled in by `include:`;
+- `profile`: a profile file from `use.profiles`;
+- `resource:<id>.<field>`: a resource path field;
+- `param:<stage>.<name>`: a `kind: path` parameter;
+- the files loaded by `flow.load_mapping`.
+
+### `plan_hash` and `bundle_id`
+
+`plan_hash` is the sha256 of `plan.yaml` after every occurrence of the project root has been
+replaced by a placeholder (`canonicalization: root-prefix`). The same project compiled under
+two different roots, for example in two checkouts, gives the same `plan_hash`. It tells you
+whether the plan content is the same, wherever it was compiled.
+
+`bundle_id` is the sha256 of the manifest without `invocation` and without the `bundle_id`
+key itself. It identifies the whole bundle, so it is **not** root independent. It changes with:
+
+- the project root and the resolved paths, because the manifest records them;
+- the content of any input file (the input hashes and the `plan_hash` change);
+- the software environment: the installed versions and, with the default `git` capture, the
+  commit and the dirty state of every editable checkout. A new commit in an editable
+  checkout changes the `bundle_id`.
+
+It does not change with the output directory, the time, the host or the caller's options, so
+compiling the same bundle again gives the same `bundle_id`. `chunk_size` is recorded in
+`invocation`, but it also changes the partitioning in the plan, so it changes the
+`plan_hash` and with it the `bundle_id`.
+
+`run_summary.yaml` carries the `bundle_id` of the plan it ran, as a top-level key. A plan
+compiled by an older Flow has no manifest: the run works and the summary has no
+`bundle_id` key.
+
+### Software
+
+`software` is a reference, not an inlined record: `software.json` sits next to the manifest
+and is listed with its `sha256` and `size`. The built-in compile hook `flow.software` writes
+it (the hook can be replaced in the registry). It records the Python version and executable,
+the installed distributions, the lock file and the git state (commit and dirty flag) of the
+project and of editable checkouts. The
+hook parameter `git: false` switches the git capture off; `git` is then `null` and a
+sibling `git_note` says why. The only environment variables recorded are those starting with
+`FASTHEP_` or `HEPFLOW_`.
+
+### What is never recorded
+
+- the full environment: only the `FASTHEP_*` and `HEPFLOW_*` variables are captured;
+- secrets: do not declare credential files as inputs (see above). Hook parameters are
+  recorded in the manifest exactly as written in the registry, so never put a secret in
+  one.
 
 ## Migrating from entry-directory paths
 
