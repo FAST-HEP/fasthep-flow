@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import networkx as nx
+from fasthep_toolbench.misc import file_fingerprint
 
 from hepflow.backends.loaders import backend_build_directories
 from hepflow.build_layout import BuildPaths, ensure_build_layout
@@ -29,8 +30,12 @@ def write_plan_artifacts(
     graph: nx.DiGraph,
     outdir: str | Path,
     normalized: dict[str, Any],
-) -> None:
-    """Save one compiled plan and its artifacts before running render hooks."""
+) -> list[dict[str, Any]]:
+    """Save one compiled plan and its artifacts before running render hooks.
+
+    Returns one record per compile hook that ran, in run order (``after_datasets``
+    hooks first, then ``after_compile``), with artifact paths and sha256 hashes.
+    """
     paths = BuildPaths.from_plan(plan, outdir=outdir)
     ensure_build_layout(
         paths.root,
@@ -40,19 +45,22 @@ def write_plan_artifacts(
         ),
     )
     write_yaml(normalized, str(paths.compile_file("normalized.yaml")))
-    write_compile_artifacts(
+    records = write_compile_artifacts(
         plan=plan, graph=graph, outdir=paths.root, normalized=normalized,
     )
     graph_artifacts = write_graph_artifacts(graph, paths.graph_dir())
     plan_file = paths.compile_file("plan.yaml")
     write_yaml(plan.to_dict(), str(plan_file))
-    write_compile_hook_artifacts(
-        plan=plan,
-        normalized=normalized,
-        build_paths=paths,
-        artifacts={**graph_artifacts, "plan": str(plan_file)},
-        when="after_compile",
+    records.extend(
+        write_compile_hook_artifacts(
+            plan=plan,
+            normalized=normalized,
+            build_paths=paths,
+            artifacts={**graph_artifacts, "plan": str(plan_file)},
+            when="after_compile",
+        )
     )
+    return records
 
 
 def write_compile_artifacts(
@@ -61,7 +69,8 @@ def write_compile_artifacts(
     graph: nx.DiGraph,
     outdir: str | Path,
     normalized: dict[str, Any] | None = None,
-) -> None:
+) -> list[dict[str, Any]]:
+    """Write compile artifacts; return the ``after_datasets`` hook records."""
     out_path = Path(outdir)
     build_paths = BuildPaths.from_plan(plan, outdir=out_path)
     compile_path = build_paths.compile_dir()
@@ -87,7 +96,7 @@ def write_compile_artifacts(
         ),
         encoding="utf-8",
     )
-    write_compile_hook_artifacts(
+    records = write_compile_hook_artifacts(
         plan=plan,
         normalized=normalized,
         build_paths=build_paths,
@@ -105,6 +114,7 @@ def write_compile_artifacts(
     )
     write_worker_environment_artifact(plan=plan, compile_path=compile_path)
     write_render_artifacts(plan=plan, outdir=out_path, variation=build_paths.variation)
+    return records
 
 
 def write_compile_hook_artifacts(
@@ -114,20 +124,35 @@ def write_compile_hook_artifacts(
     build_paths: BuildPaths,
     artifacts: dict[str, Any],
     when: str,
-) -> None:
+) -> list[dict[str, Any]]:
+    """Run one phase of compile hooks, write their artifacts, return the records.
+
+    Each record lists its artifacts as ``{name: {"path": ..., "sha256": ...}}``
+    with the hash taken from the written file.
+    """
+    raw_records: list[dict[str, Any]] = []
     hook_artifacts = run_compile_hooks(
         plan=plan,
         normalized=normalized,
         build_paths=build_paths,
         artifacts=artifacts,
         when=when,
+        records=raw_records,
     )
     compile_path = build_paths.compile_dir()
+    hashes: dict[str, dict[str, str]] = {}
     for name, payload in hook_artifacts.items():
-        (compile_path / f"{name}.json").write_text(
+        path = compile_path / f"{name}.json"
+        path.write_text(
             json.dumps(payload, indent=2, sort_keys=True),
             encoding="utf-8",
         )
+        sha256, _size = file_fingerprint(path)
+        hashes[name] = {"path": path.name, "sha256": sha256}
+    return [
+        {**record, "artifacts": {name: hashes[name] for name in record["artifacts"]}}
+        for record in raw_records
+    ]
 
 
 def _dataset_entries_artifact(datasets: dict[str, Any]) -> dict[str, Any]:

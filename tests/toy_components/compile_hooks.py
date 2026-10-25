@@ -36,6 +36,18 @@ GRAPH_RENDER_HOOK_SPEC = {
     "result": {"artifacts": ["graph_render"]},
 }
 
+SILENT_HOOK_SPEC = {
+    "name": "toy.silent",
+    "kind": "compile_hook",
+    "version": "1.0",
+    "lifecycle": {"when": "after_datasets"},
+}
+
+
+def silent_hook(ctx: Any, **params: Any) -> None:
+    del ctx, params
+
+
 def dataset_metadata_hook(ctx: Any, **params: Any) -> dict[str, Any]:
     del params
     return {
