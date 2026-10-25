@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from hepflow.build_layout import BuildPaths
+from hepflow.compiler.hooks import software as software_module
 from hepflow.compiler.hooks.model import CompileHookContext
 from hepflow.compiler.hooks.software import SOFTWARE_HOOK_SPEC, software
 from hepflow.registry.defaults import default_runtime_registry_config
@@ -109,3 +110,45 @@ def test_default_registry_and_profile_yaml_list_flow_software() -> None:
 
     assert defaults["impl"] == profile["impl"] == SOFTWARE_IMPL
     assert defaults["spec"] == profile["spec"] == SOFTWARE_SPEC
+
+
+def test_git_capture_can_be_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    def fake(path: Any, **_: Any) -> Any:
+        calls.append(str(path))
+        raise AssertionError("git_state must not run")
+
+    monkeypatch.setattr(software_module, "git_state", fake)
+
+    data = software(_context(tmp_path), git=False)["software"]
+
+    assert calls == []
+    assert data["git"] is None
+    assert data["git_note"] == "disabled by hook parameter 'git'"
+
+
+def test_unknown_parameter_raises(tmp_path: Path) -> None:
+    with pytest.raises(TypeError):
+        software(_context(tmp_path), bogus=1)  # type: ignore[call-arg]
+
+
+def test_git_state_is_called_once_per_distinct_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    real = software_module.git_state
+
+    def counting(path: Any, **kwargs: Any) -> Any:
+        calls.append(str(path))
+        return real(path, **kwargs)
+
+    monkeypatch.setattr(software_module, "git_state", counting)
+
+    data = software(_context(tmp_path))["software"]
+
+    assert len(calls) == len(set(calls))
+    assert str(tmp_path) in calls
+    assert list(data["git"]["editable"]) == sorted(data["git"]["editable"])
