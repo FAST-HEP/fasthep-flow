@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -18,6 +18,7 @@ from hepflow.build_layout import (
     write_run_summary,
 )
 from hepflow.compiler.artifacts import write_plan_artifacts
+from hepflow.compiler.bundle import record_source_files, write_invocation
 from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.context import CompileContext
 from hepflow.compiler.execution import (
@@ -110,17 +111,28 @@ def normalise_workflow_file(
     *,
     outdir: str | Path,
     root: str | Path | None = None,
+    invocation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Normalise a workflow YAML file and write ``compile/normalized.yaml``.
 
     ``root`` is the project root that relative input paths resolve against; it defaults
-    to the current working directory and is recorded in the provenance.
+    to the current working directory and is recorded in the provenance. ``invocation`` is the
+    caller's own record (for example the command line) and goes to ``compile/invocation.yaml``
+    together with the timestamp and hostname, which stay out of the normalized workflow.
     """
     out_path = Path(outdir)
     context = CompileContext.for_workflow(workflow_path, root)
     compile_dir(out_path).mkdir(parents=True, exist_ok=True)
+    write_invocation(
+        compile_dir(out_path),
+        workflow_path=str(context.workflow_path),
+        outdir=str(out_path),
+        root=str(context.project_root),
+        invocation=invocation,
+    )
 
-    workflow = load_workflow_yaml(str(context.workflow_path))
+    loaded = load_workflow_with_includes(str(context.workflow_path))
+    workflow = loaded.doc
     normalized = normalize_workflow(workflow)
 
     registry_result = resolve_workflow_registry(workflow, context=context)
@@ -136,6 +148,14 @@ def normalise_workflow_file(
     normalized.setdefault("provenance", {}).update(hooks_result["provenance"])
     normalized["provenance"]["root"] = str(context.project_root)
     collector = InputCollector()
+    record_source_files(
+        collector,
+        workflow_path=context.workflow_path,
+        include_files=loaded.files,
+        registry_layers=registry_result.provenance.get("registry_layers") or [],
+        root=context.project_root,
+        entry_dir=context.entry_dir,
+    )
     resources, _entries = resolve_resource_paths(
         dict(normalized["execution"].get("resources") or {}),
         registry=normalized["registry"],
@@ -190,10 +210,13 @@ def compile_workflow_file(
     outdir: str | Path,
     chunk_size: int | None = None,
     root: str | Path | None = None,
+    invocation: Mapping[str, Any] | None = None,
 ) -> ExecutionPlan:
     """Normalise a workflow YAML file, lower it, and write compile artifacts."""
     out_path = Path(outdir)
-    normalise_workflow_file(workflow_path, outdir=out_path, root=root)
+    normalise_workflow_file(
+        workflow_path, outdir=out_path, root=root, invocation=invocation
+    )
     return make_plan_file(
         normalized_path(out_path),
         outdir=out_path,
