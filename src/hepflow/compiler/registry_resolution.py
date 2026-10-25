@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
+from hepflow.compiler.context import CompileContext
 from hepflow.compiler.profiles import (
     expand_profile_names_with_provenance,
     load_profile_registry_layer,
@@ -22,11 +22,10 @@ from hepflow.registry.merge import (
 def resolve_workflow_registry(
     workflow: dict[str, Any],
     *,
-    workflow_path: Path,
-    project_root: Path | None = None,
+    context: CompileContext,
 ) -> RegistryMergeResult:
-    entry_dir = workflow_path.parent
-    project_root = project_root if project_root is not None else entry_dir
+    project_root = context.project_root
+    entry_dir = context.entry_dir
     use_block = workflow.get("use") or {}
     if not isinstance(use_block, dict):
         raise ValueError("use must be a mapping")
@@ -53,7 +52,7 @@ def resolve_workflow_registry(
             name="workflow",
             kind="workflow",
             registry=dict(workflow.get("registry") or {}),
-            path=str(workflow_path),
+            path=str(context.workflow_path),
         ),
     ]
     result = merge_registry_layers(layers)

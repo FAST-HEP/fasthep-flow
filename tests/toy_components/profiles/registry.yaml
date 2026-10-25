@@ -22,6 +22,9 @@ registry:
     toy.path_param:
       spec: tests.toy_components.transforms:TOY_PATH_PARAM_SPEC
       impl: tests.toy_components.transforms:run_toy_path_param
+    toy.path_mapping_config:
+      spec: tests.toy_components.transforms:TOY_PATH_MAPPING_CONFIG_SPEC
+      impl: tests.toy_components.transforms:run_toy_path_mapping_config
     toy.string_config:
       spec: tests.toy_components.transforms:TOY_STRING_CONFIG_SPEC
       impl: tests.toy_components.transforms:run_toy_string_config

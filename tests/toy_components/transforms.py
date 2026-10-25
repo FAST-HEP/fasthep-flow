@@ -238,6 +238,21 @@ TOY_MAPPING_CONFIG_SPEC = {
     "result": {"stream": "event_stream"},
 }
 
+TOY_PATH_MAPPING_CONFIG_SPEC = {
+    "name": "toy.path_mapping_config",
+    "kind": "transform",
+    "input": {"name": "stream", "required": True},
+    "params": {
+        "config": {
+            "type": "mapping",
+            "kind": "path",
+            "required": True,
+            "hooks": [{"name": "flow.load_mapping", "formats": ["yaml", "yml", "json"]}],
+        },
+    },
+    "result": {"stream": "event_stream"},
+}
+
 TOY_STRING_CONFIG_SPEC = {
     "name": "toy.string_config",
     "kind": "transform",
@@ -478,6 +493,16 @@ def run_toy_mapping_config(
     ctx: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     del label, ctx
+    return {"stream": {**stream, "config": config}}
+
+
+def run_toy_path_mapping_config(
+    *,
+    stream: dict[str, Any],
+    config: dict[str, Any],
+    ctx: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    del ctx
     return {"stream": {**stream, "config": config}}
 
 

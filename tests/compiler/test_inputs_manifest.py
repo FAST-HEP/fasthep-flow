@@ -7,7 +7,8 @@ from typing import Any
 import yaml
 
 from hepflow.api import compile_workflow_file
-from hepflow.compiler.inputs_manifest import write_inputs_manifest
+from hepflow.compiler.input_paths import ResolvedInput
+from hepflow.compiler.inputs_manifest import InputCollector, write_inputs_manifest
 
 
 def _write(path: Path, content: bytes) -> Path:
@@ -188,3 +189,121 @@ def test_write_inputs_manifest_keeps_distinct_files_under_one_role(
         (tmp_path / "inputs.manifest.yaml").read_text(encoding="utf-8")
     )["inputs"]
     assert [row["resolved"] for row in rows] == ["/r/a", "/r/b"]
+
+
+def _resolved(role: str, declared: str, resolved: str) -> ResolvedInput:
+    return ResolvedInput(role, declared, resolved, "root", "abc", 3, None)
+
+
+def test_collector_keeps_the_first_row_for_a_role_and_resolved_path() -> None:
+    collector = InputCollector()
+    collector.add(_resolved("param:S.config", "schemas/map.yaml", "/r/map.yaml"))
+    collector.add(_resolved("param:S.config", "/r/map.yaml", "/r/map.yaml"))
+
+    rows = collector.rows()
+
+    assert [row["declared"] for row in rows] == ["schemas/map.yaml"]
+
+
+def test_collector_keeps_distinct_files_under_one_role() -> None:
+    collector = InputCollector()
+    collector.extend(
+        [_resolved("resource:m.paths", "a", "/r/a"), _resolved("resource:m.paths", "b", "/r/b")]
+    )
+
+    assert [row["resolved"] for row in collector.rows()] == ["/r/a", "/r/b"]
+
+
+def test_collector_rows_are_sorted_by_role_then_declared() -> None:
+    collector = InputCollector()
+    collector.extend(
+        [
+            _resolved("resource:b", "x", "/r/x"),
+            _resolved("param:a", "z", "/r/z"),
+            _resolved("param:a", "y", "/r/y"),
+        ]
+    )
+
+    assert [(row["role"], row["declared"]) for row in collector.rows()] == [
+        ("param:a", "y"),
+        ("param:a", "z"),
+        ("resource:b", "x"),
+    ]
+
+
+def test_collector_entries_keep_insertion_order_and_every_row() -> None:
+    collector = InputCollector()
+    collector.add(_resolved("resource:b", "x", "/r/x"))
+    collector.add(_resolved("param:a", "y", "/r/x"))
+    collector.add(_resolved("resource:b", "x", "/r/x"))
+
+    assert [row["role"] for row in collector.entries()] == [
+        "resource:b",
+        "param:a",
+        "resource:b",
+    ]
+
+
+def test_collector_accepts_resolved_inputs_and_plain_mappings() -> None:
+    collector = InputCollector()
+    collector.add(_resolved("a", "x", "/r/x"))
+    collector.add({"role": "b", "declared": "y", "resolved": "/r/y", "extra": 1})
+
+    rows = collector.rows()
+
+    assert [row["role"] for row in rows] == ["a", "b"]
+    assert rows[1]["sha256"] is None
+
+
+def test_collector_rows_have_only_the_manifest_keys() -> None:
+    collector = InputCollector()
+    collector.add({**_row("r", "x"), "internal": "dropped"})
+
+    assert set(collector.rows()[0]) == {
+        "role",
+        "declared",
+        "resolved",
+        "origin",
+        "sha256",
+        "size",
+        "note",
+    }
+
+
+def test_collector_from_rows_round_trips() -> None:
+    collector = InputCollector()
+    collector.extend([_resolved("b", "y", "/r/y"), _resolved("a", "x", "/r/x")])
+
+    assert InputCollector.from_rows(collector.entries()).rows() == collector.rows()
+
+
+def test_manifest_has_one_row_for_a_param_that_is_both_a_path_and_a_mapping_file(
+    tmp_path: Path,
+) -> None:
+    content = yaml.safe_dump({"version": 1, "fields": {"pt": {}}}).encode()
+    _write(tmp_path / "schemas" / "map.yaml", content)
+    workflow = {
+        "version": "1.0",
+        "use": {"profiles": ["tests.toy_components:registry"]},
+        "sources": {"events": {"kind": "toy.source"}},
+        "analysis": {
+            "stages": [
+                {
+                    "id": "Config",
+                    "op": "toy.path_mapping_config",
+                    "params": {"config": "schemas/map.yaml"},
+                }
+            ]
+        },
+    }
+    entry = tmp_path / "entry" / "workflow.yaml"
+    entry.parent.mkdir(parents=True)
+    entry.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+
+    compile_workflow_file(entry, outdir=tmp_path / "build", root=tmp_path)
+
+    rows = _manifest(tmp_path / "build")["inputs"]
+    assert [(row["role"], row["declared"]) for row in rows] == [
+        ("param:Config.config", "schemas/map.yaml")
+    ]
+    assert rows[0]["sha256"] == hashlib.sha256(content).hexdigest()

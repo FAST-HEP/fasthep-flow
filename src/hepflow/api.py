@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -19,12 +19,13 @@ from hepflow.build_layout import (
 )
 from hepflow.compiler.artifacts import write_plan_artifacts
 from hepflow.compiler.component_defaults import apply_component_param_defaults
+from hepflow.compiler.context import CompileContext
 from hepflow.compiler.execution import (
     resolve_workflow_execution,
     resolve_workflow_execution_hooks,
 )
 from hepflow.compiler.includes import load_workflow_with_includes
-from hepflow.compiler.input_paths import resolve_project_root
+from hepflow.compiler.inputs_manifest import InputCollector
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.compiler.plan_diff import (
@@ -115,46 +116,41 @@ def normalise_workflow_file(
     ``root`` is the project root that relative input paths resolve against; it defaults
     to the current working directory and is recorded in the provenance.
     """
-    workflow_file = Path(workflow_path)
     out_path = Path(outdir)
-    root_path = resolve_project_root(root)
+    context = CompileContext.for_workflow(workflow_path, root)
     compile_dir(out_path).mkdir(parents=True, exist_ok=True)
 
-    workflow = load_workflow_yaml(str(workflow_file))
+    workflow = load_workflow_yaml(str(context.workflow_path))
     normalized = normalize_workflow(workflow)
 
-    registry_result = resolve_workflow_registry(
-        workflow, workflow_path=workflow_file, project_root=root_path
-    )
-    execution_result = resolve_workflow_execution(
-        workflow, workflow_path=workflow_file, project_root=root_path
-    )
-    hooks_result = resolve_workflow_execution_hooks(
-        workflow,
-        workflow_path=workflow_file,
-        project_root=root_path,
-    )
+    registry_result = resolve_workflow_registry(workflow, context=context)
+    execution_result = resolve_workflow_execution(workflow, context=context)
+    hooks_result = resolve_workflow_execution_hooks(workflow, context=context)
 
     normalized["registry"] = registry_result.registry
     normalized["execution"] = execution_result["execution"]
     normalized["execution_hooks"] = hooks_result["execution_hooks"]
-    normalized["workflow_path"] = str(workflow_file)
-    normalized["project_root"] = str(root_path)
+    normalized.update(context.to_normalized())
     normalized.setdefault("provenance", {}).update(registry_result.provenance)
     normalized.setdefault("provenance", {}).update(execution_result["provenance"])
     normalized.setdefault("provenance", {}).update(hooks_result["provenance"])
-    normalized["provenance"]["root"] = str(root_path)
-    resources, inputs = resolve_resource_paths(
+    normalized["provenance"]["root"] = str(context.project_root)
+    collector = InputCollector()
+    resources, _entries = resolve_resource_paths(
         dict(normalized["execution"].get("resources") or {}),
         registry=normalized["registry"],
-        root=root_path,
-        entry_dir=workflow_file.parent,
+        root=context.project_root,
+        entry_dir=context.entry_dir,
+        collector=collector,
     )
     normalized["execution"]["resources"] = resources
-    normalized["provenance"]["inputs"] = [asdict(entry) for entry in inputs]
     normalized = apply_component_param_defaults(
-        normalized, root=root_path, entry_dir=workflow_file.parent
+        normalized,
+        root=context.project_root,
+        entry_dir=context.entry_dir,
+        collector=collector,
     )
+    normalized["provenance"]["inputs"] = collector.entries()
 
     write_yaml(normalized, str(normalized_path(out_path)))
     return normalized
