@@ -1,8 +1,10 @@
-"""Write ``compile/inputs.manifest.yaml``: every input path the compiler resolved.
+"""Write ``compile/inputs.manifest.yaml``: the record of one compile bundle.
 
-The manifest records the project root and, per declared input path, what the author wrote
-(``declared``), what the compiler resolved it to, and the sha256 and size of the file at
-compile time. It is the seed of the reproducible compile bundle (fasthep-flow#94).
+The manifest (version 2) records the project root, the ``bundle_id``, the ``plan_hash``,
+the software record (``software.json``, listed by hash), the invocation, every compile
+hook run and, per declared input path, what the author wrote (``declared``), what the
+compiler resolved it to, and the sha256 and size of the file at compile time
+(fasthep-flow#94).
 """
 
 from __future__ import annotations
@@ -12,12 +14,15 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from fasthep_toolbench.misc import file_fingerprint
+
+from hepflow.compiler.bundle import bundle_id, plan_hash
 from hepflow.compiler.input_paths import ResolvedInput
 from hepflow.model.plan import ExecutionPlan
 from hepflow.utils import write_yaml
 
 MANIFEST_NAME = "inputs.manifest.yaml"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 _ROW_KEYS = ("role", "declared", "resolved", "origin", "sha256", "size", "note")
 
 
@@ -71,15 +76,54 @@ def write_inputs_manifest(
     *,
     root: str | None,
     inputs: list[dict[str, Any]],
+    software: str | Path | None = None,
+    invocation: Mapping[str, Any] | None = None,
+    hooks: Iterable[Mapping[str, Any]] | None = None,
+    plan: str | Path | None = None,
 ) -> Path:
-    """Write the manifest into ``compile_dir`` and return its path."""
+    """Write the manifest into ``compile_dir`` and return its path.
+
+    ``software`` is the path of ``software.json`` (listed by path, sha256 and size, or
+    ``null`` when absent), ``invocation`` the invocation record, ``hooks`` the compile
+    hook records and ``plan`` the path of ``plan.yaml`` (hashed into ``plan_hash``).
+    ``bundle_id`` is computed from everything else (see :func:`bundle.bundle_id`).
+    """
     rows = InputCollector.from_rows(inputs).rows()
+    manifest: dict[str, Any] = {
+        "version": MANIFEST_VERSION,
+        "root": root,
+        "bundle_id": None,
+        "plan_hash": plan_hash(Path(plan), root or "") if plan is not None else None,
+        "software": _software_entry(software),
+        "invocation": _yaml_safe(dict(invocation or {})),
+        "hooks": [_yaml_safe(dict(record)) for record in hooks or []],
+        "inputs": rows,
+    }
+    manifest["bundle_id"] = bundle_id(manifest)
     path = Path(compile_dir) / MANIFEST_NAME
-    write_yaml(
-        {"version": MANIFEST_VERSION, "root": root, "inputs": rows},
-        str(path),
-    )
+    write_yaml(manifest, str(path))
     return path
+
+
+def _software_entry(software: str | Path | None) -> dict[str, Any] | None:
+    if software is None or not Path(software).is_file():
+        return None
+    sha256, size = file_fingerprint(Path(software))
+    return {"path": Path(software).name, "sha256": sha256, "size": size}
+
+
+def _yaml_safe(value: Any) -> Any:
+    """Return a copy of ``value`` built from YAML-safe types; anything else is its repr."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, Mapping):
+        return {
+            key if isinstance(key, str) else repr(key): _yaml_safe(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_yaml_safe(item) for item in value]
+    return repr(value)
 
 
 def mapping_file_inputs(plan: ExecutionPlan) -> list[dict[str, Any]]:

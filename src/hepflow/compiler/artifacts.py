@@ -8,7 +8,8 @@ import networkx as nx
 from fasthep_toolbench.misc import file_fingerprint
 
 from hepflow.backends.loaders import backend_build_directories
-from hepflow.build_layout import BuildPaths, ensure_build_layout
+from hepflow.build_layout import BuildPaths, compile_dir, ensure_build_layout
+from hepflow.compiler.bundle import read_invocation
 from hepflow.compiler.compile_hooks import run_compile_hooks
 from hepflow.compiler.graph_artifacts import (
     _lowered_graph_to_json,
@@ -30,11 +31,14 @@ def write_plan_artifacts(
     graph: nx.DiGraph,
     outdir: str | Path,
     normalized: dict[str, Any],
+    chunk_size: int | None = None,
 ) -> list[dict[str, Any]]:
     """Save one compiled plan and its artifacts before running render hooks.
 
     Returns one record per compile hook that ran, in run order (``after_datasets``
     hooks first, then ``after_compile``), with artifact paths and sha256 hashes.
+    The inputs manifest is written last, because it lists ``software.json``, the hook
+    records and the hash of ``plan.yaml``. ``chunk_size`` is recorded in its invocation.
     """
     paths = BuildPaths.from_plan(plan, outdir=outdir)
     ensure_build_layout(
@@ -60,7 +64,51 @@ def write_plan_artifacts(
             when="after_compile",
         )
     )
+    write_bundle_manifest(
+        plan=plan,
+        normalized=normalized,
+        build_paths=paths,
+        records=records,
+        chunk_size=chunk_size,
+    )
     return records
+
+
+def write_bundle_manifest(
+    *,
+    plan: ExecutionPlan,
+    normalized: dict[str, Any],
+    build_paths: BuildPaths,
+    records: list[dict[str, Any]],
+    chunk_size: int | None,
+) -> Path:
+    """Write ``inputs.manifest.yaml`` (version 2) into the plan's compile directory.
+
+    ``invocation.yaml`` is read from the base compile directory, which a systematics
+    compile shares between its variation directories; ``software.json`` is listed only
+    when a hook of this compile produced it.
+    """
+    provenance = dict(normalized.get("provenance") or {})
+    collector = InputCollector.from_rows(provenance.get("inputs") or [])
+    collector.extend(mapping_file_inputs(plan))
+    invocation = {
+        **read_invocation(compile_dir(build_paths.root)),
+        "chunk_size": chunk_size,
+    }
+    produced = {name for record in records for name in record["artifacts"]}
+    return write_inputs_manifest(
+        build_paths.compile_dir(),
+        root=provenance.get("root") or normalized.get("project_root"),
+        inputs=collector.entries(),
+        software=(
+            build_paths.compile_file("software.json")
+            if "software" in produced
+            else None
+        ),
+        invocation=invocation,
+        hooks=records,
+        plan=build_paths.compile_file("plan.yaml"),
+    )
 
 
 def write_compile_artifacts(
@@ -76,15 +124,6 @@ def write_compile_artifacts(
     compile_path = build_paths.compile_dir()
     write_yaml(_lowered_graph_to_json(graph), str(compile_path / "analysis.ir.yaml"))
     write_yaml(plan.data_flow, str(compile_path / "deps.yaml"))
-    if normalized is not None:
-        provenance = dict(normalized.get("provenance") or {})
-        collector = InputCollector.from_rows(provenance.get("inputs") or [])
-        collector.extend(mapping_file_inputs(plan))
-        write_inputs_manifest(
-            compile_path,
-            root=provenance.get("root") or normalized.get("project_root"),
-            inputs=collector.entries(),
-        )
     artifacts: dict[str, Any] = {}
     dataset_entries = _dataset_entries_artifact(plan.context.get("datasets") or {})
     artifacts["dataset_entries"] = dataset_entries

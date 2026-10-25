@@ -44,7 +44,7 @@ def test_write_inputs_manifest_sorts_inputs_and_records_root(tmp_path: Path) -> 
 
     assert path == tmp_path / "inputs.manifest.yaml"
     manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert manifest["version"] == 1
+    assert manifest["version"] == 2
     assert manifest["root"] == "/r"
     assert [row["role"] for row in manifest["inputs"]] == [
         "param:a.path",
@@ -80,7 +80,7 @@ def test_workflow_without_inputs_writes_empty_list_and_root(
     compile_workflow_file(entry, outdir=tmp_path / "build", root=tmp_path)
 
     manifest = _manifest(tmp_path / "build")
-    assert manifest["version"] == 1
+    assert manifest["version"] == 2
     assert manifest["root"] == str(tmp_path)
     assert [row["role"] for row in manifest["inputs"]] == ["workflow"]
 
@@ -160,8 +160,11 @@ def test_manifest_is_deterministic(tmp_path: Path) -> None:
     compile_workflow_file(entry, outdir=tmp_path / "build-1", root=tmp_path)
     compile_workflow_file(entry, outdir=tmp_path / "build-2", root=tmp_path)
 
-    first = (tmp_path / "build-1" / "compile" / "inputs.manifest.yaml").read_text()
-    second = (tmp_path / "build-2" / "compile" / "inputs.manifest.yaml").read_text()
+    first = _manifest(tmp_path / "build-1")
+    second = _manifest(tmp_path / "build-2")
+    # The invocation (outdir, timestamp, hostname) differs on every compile by design.
+    first.pop("invocation")
+    second.pop("invocation")
     assert first == second
 
 

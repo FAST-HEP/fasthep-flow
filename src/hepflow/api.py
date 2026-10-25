@@ -199,7 +199,11 @@ def make_plan_file(
 
     graph, plan = build_plan_from_normalized(normalized, chunk_size=chunk_size)
     write_plan_artifacts(
-        plan=plan, graph=graph, outdir=out_path, normalized=normalized,
+        plan=plan,
+        graph=graph,
+        outdir=out_path,
+        normalized=normalized,
+        chunk_size=chunk_size,
     )
     return plan
 

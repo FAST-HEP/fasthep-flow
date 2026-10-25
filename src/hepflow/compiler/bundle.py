@@ -14,16 +14,22 @@ import warnings
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import yaml
 
 from hepflow.compiler.input_paths import resolve_input_path
-from hepflow.compiler.inputs_manifest import InputCollector
 from hepflow.utils import read_yaml, write_yaml
+
+if TYPE_CHECKING:
+    from hepflow.compiler.inputs_manifest import InputCollector
 
 INVOCATION_NAME = "invocation.yaml"
 SOURCE_ROLES = frozenset({"workflow", "include", "profile"})
 PLAN_HASH_CANONICALIZATION = "root-prefix"
 _ROOT_PLACEHOLDER = "<root>"
+# Manifest keys that differ between compiles of the same bundle; bundle_id ignores them.
+BUNDLE_ID_EXCLUDED_KEYS = frozenset({"timestamp", "hostname", "invocation", "bundle_id"})
 
 
 def write_invocation(
@@ -79,6 +85,23 @@ def plan_hash(plan_path: Path, root: str) -> dict[str, str]:
         "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
         "canonicalization": PLAN_HASH_CANONICALIZATION,
     }
+
+
+def bundle_id(manifest: Mapping[str, Any]) -> str:
+    """Return the sha256 identifying the compile bundle that ``manifest`` describes.
+
+    The hash is taken over the YAML dump (keys sorted) of the manifest without
+    ``timestamp``, ``hostname``, ``invocation`` and ``bundle_id``. It therefore covers
+    ``plan_hash``, the software record, the hook records and every input row, but not
+    when, where or with which output directory the compile ran.
+    """
+    canonical = {
+        key: value
+        for key, value in manifest.items()
+        if key not in BUNDLE_ID_EXCLUDED_KEYS
+    }
+    text = yaml.safe_dump(canonical, sort_keys=True, allow_unicode=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def record_source_files(

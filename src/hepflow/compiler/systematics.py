@@ -304,7 +304,11 @@ def make_systematic_plan_files(
             first_plan = plan
 
         write_plan_artifacts(
-            plan=plan, graph=graph, outdir=outdir, normalized=item.workflow,
+            plan=plan,
+            graph=graph,
+            outdir=outdir,
+            normalized=item.workflow,
+            chunk_size=chunk_size,
         )
 
         variation_summary = item.variation.to_dict()
