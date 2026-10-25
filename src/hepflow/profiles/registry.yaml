@@ -25,3 +25,6 @@ registry:
     flow.expand_mapping_matrix:
       kind: parameter
       impl: hepflow.compiler.hooks.expand_mapping_matrix:expand_mapping_matrix
+    flow.software:
+      impl: hepflow.compiler.hooks.software:software
+      spec: hepflow.compiler.hooks.software:SOFTWARE_HOOK_SPEC
