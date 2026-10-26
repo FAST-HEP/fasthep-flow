@@ -21,6 +21,7 @@ def run_phase_hooks(
     registry: dict[str, Any] | None,
     context: CompileHookContext,
     when: str,
+    records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for name, entry, _spec in phase_compile_hook_entries(registry, when=when):
@@ -35,6 +36,14 @@ def run_phase_hooks(
                 f"using {impl_ref!r}: {exc}"
             ) from exc
 
+        record: dict[str, Any] = {
+            "name": name,
+            "phase": when,
+            "params": params,
+            "artifacts": [],
+        }
+        if records is not None:
+            records.append(record)
         if result is None:
             continue
         if not isinstance(result, dict):
@@ -49,6 +58,7 @@ def run_phase_hooks(
                     f"{artifact_name!r}"
                 )
             out[artifact_name.strip()] = artifact_data
+            record["artifacts"].append(artifact_name.strip())
             context.artifacts[artifact_name.strip()] = artifact_data
     return out
 

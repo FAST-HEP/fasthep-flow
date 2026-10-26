@@ -5,8 +5,8 @@ import warnings
 from pathlib import Path
 
 import pytest
+from fasthep_toolbench.misc import file_fingerprint
 
-from hepflow.compiler import input_paths
 from hepflow.compiler.input_paths import is_uri, resolve_input_path
 
 
@@ -175,14 +175,9 @@ def test_dotdot_is_collapsed_without_resolving_symlinks(tmp_path: Path) -> None:
     assert result.resolved == str(tmp_path / "data" / "a.json")
 
 
-def test_large_file_is_hashed_in_chunks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    content = b"0123456789"
-    _write(tmp_path / "big.bin", content)
-    monkeypatch.setattr(input_paths, "CHUNK_SIZE", 4)
+def test_hash_matches_toolbench_fingerprint(tmp_path: Path) -> None:
+    path = _write(tmp_path / "abc.bin", b"abc")
 
-    result = resolve_input_path("big.bin", role="r", root=tmp_path)
+    row = resolve_input_path(str(path), role="r", root=tmp_path)
 
-    assert result.sha256 == hashlib.sha256(content).hexdigest()
-    assert result.size == 10
+    assert (row.sha256, row.size) == file_fingerprint(path)

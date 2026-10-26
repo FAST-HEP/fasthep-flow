@@ -98,6 +98,10 @@ def default_runtime_registry_config() -> dict[str, Any]:
                     "hepflow.compiler.hooks.expand_mapping_matrix:expand_mapping_matrix"
                 ),
             },
+            "flow.software": {
+                "impl": "hepflow.compiler.hooks.software:software",
+                "spec": "hepflow.compiler.hooks.software:SOFTWARE_HOOK_SPEC",
+            },
         },
         "render": {},
         "progress_sinks": {},

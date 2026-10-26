@@ -25,7 +25,9 @@ from hepflow.utils import read_yaml
 
 def test_public_api_exports_stable_facade_symbols() -> None:
     assert api.__all__ == [
+        "BundleReport",
         "InitResult",
+        "compile_from_bundle",
         "compile_workflow_file",
         "diff_plan_files",
         "init_project",

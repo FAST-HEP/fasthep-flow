@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from hepflow.api import normalise_workflow_file
+from hepflow.compiler.bundle import SOURCE_ROLES
 from hepflow.compiler.hooks.load_mapping import load_mapping
 from hepflow.compiler.hooks.model import ParamCompileHookContext
 from hepflow.compiler.input_paths import resolve_path_value
@@ -68,7 +69,9 @@ def test_path_param_is_resolved_against_root_and_recorded(
     normalized = _compile(tmp_path, toy_workflow, {"path": "data/x.json"})
 
     assert _stage_params(normalized)["path"] == str(tmp_path / "data" / "x.json")
-    assert normalized["provenance"]["inputs"] == [
+    assert [
+        i for i in normalized["provenance"]["inputs"] if i["role"] not in SOURCE_ROLES
+    ] == [
         {
             "role": "param:PathStage.path",
             "declared": "data/x.json",
@@ -93,7 +96,11 @@ def test_path_list_param_is_resolved_item_by_item(
         str(tmp_path / "a.json"),
         str(tmp_path / "b.json"),
     ]
-    assert [i["role"] for i in normalized["provenance"]["inputs"]] == [
+    assert [
+        i["role"]
+        for i in normalized["provenance"]["inputs"]
+        if i["role"] not in SOURCE_ROLES
+    ] == [
         "param:PathStage.paths[0]",
         "param:PathStage.paths[1]",
     ]
@@ -105,7 +112,9 @@ def test_output_path_param_is_not_resolved(
     normalized = _compile(tmp_path, toy_workflow, {"out_path": "out/result.json"})
 
     assert _stage_params(normalized)["out_path"] == "out/result.json"
-    assert normalized["provenance"]["inputs"] == []
+    assert [
+        i for i in normalized["provenance"]["inputs"] if i["role"] not in SOURCE_ROLES
+    ] == []
 
 
 def test_missing_path_param_names_stage_and_param(

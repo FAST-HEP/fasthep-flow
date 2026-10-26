@@ -276,6 +276,7 @@ def make_systematic_plan_files(
     *,
     outdir: Path,
     chunk_size: int | None = None,
+    snapshot: bool = False,
 ) -> ExecutionPlan:
     expanded = expand_systematics(normalized)
     if not expanded:
@@ -304,7 +305,12 @@ def make_systematic_plan_files(
             first_plan = plan
 
         write_plan_artifacts(
-            plan=plan, graph=graph, outdir=outdir, normalized=item.workflow,
+            plan=plan,
+            graph=graph,
+            outdir=outdir,
+            normalized=item.workflow,
+            chunk_size=chunk_size,
+            snapshot=snapshot,
         )
 
         variation_summary = item.variation.to_dict()

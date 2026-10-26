@@ -78,14 +78,38 @@ machine that compiled it.
 
 ## The inputs manifest
 
-Every compile writes `compile/inputs.manifest.yaml`. It lists the resource path fields, the
-`kind: path` parameters and the files loaded by `flow.load_mapping`. Profile files are
-resolved by the same rule but are not recorded in the manifest yet (the reproducible compile
-bundle, fasthep-flow#94, extends it):
+Every compile writes `compile/inputs.manifest.yaml`, the manifest of the compile bundle
+(fasthep-flow#94). It is version 2 and lists everything that went into the plan: the
+workflow, its includes and profile files, the resource path fields, the `kind: path`
+parameters and the files loaded by `flow.load_mapping`:
 
 ```yaml
-version: 1
+version: 2
 root: /path/to/project
+bundle_id: 71b8...
+plan_hash:
+  sha256: bf9a...
+  canonicalization: root-prefix
+software:
+  path: software.json
+  sha256: 717d...
+  size: 14260
+invocation:
+  workflow_path: /path/to/project/workflow.yaml
+  outdir: /path/to/build
+  root: /path/to/project
+  timestamp: '2026-10-25T22:03:21+00:00'
+  hostname: lxplus9108.cern.ch
+  caller: {}
+  chunk_size: null
+hooks:
+  - name: flow.software
+    phase: after_datasets
+    params: {}
+    artifacts:
+      software:
+        path: software.json
+        sha256: 717d...
 inputs:
   - role: resource:cms.lumimask.paths[0]
     declared: data/lumimasks/Cert_Collisions2022_355100_362760_Golden.json
@@ -94,10 +118,188 @@ inputs:
     sha256: 3b1f...
     size: 18432
     note: null
+    copied: false         # true when the snapshot holds a copy
 ```
 
-`declared` is what the author wrote, `resolved` what ended up in the plan. Rows are sorted
-by `role`, so two compiles of the same inputs give the same file.
+The top-level keys, in this order:
+
+| Key | Meaning |
+|---|---|
+| `version` | manifest format, `2` |
+| `root` | the project root of the compile |
+| `bundle_id` | identity of the whole compile bundle (see below) |
+| `plan_hash` | hash of `plan.yaml` that does not depend on the project root (see below) |
+| `software` | `software.json` listed with its `sha256` and `size`; `null` when no compile hook wrote it |
+| `invocation` | how the compile was called: `workflow_path`, `outdir`, `root`, `timestamp`, `hostname`, the caller's own options (`caller`) and `chunk_size` |
+| `hooks` | the phase compile hooks that ran (`after_datasets`, `after_compile`), with the parameters they ran with and the artifacts they wrote |
+| `inputs` | one row per input file |
+
+In `inputs`, `declared` is what the author wrote, `resolved` what ended up in the plan, and
+`copied` whether the snapshot (below) holds a copy of the file; it is `false` on every row
+when no snapshot was taken. For
+the `workflow`, `include` and `profile` rows `declared` is the absolute path of the file, not
+the text the author wrote. Rows are sorted by `role`. The roles are:
+
+- `workflow`: the entry workflow file;
+- `include`: a file pulled in by `include:`;
+- `profile`: a profile file from `use.profiles`;
+- `resource:<id>.<field>`: a resource path field;
+- `param:<stage>.<name>`: a `kind: path` parameter;
+- the files loaded by `flow.load_mapping`.
+
+Parameter compile hooks such as `flow.load_mapping` are not listed under `hooks`; their
+records stay in the plan node `meta`, as before. Values in `caller` and in hook parameters
+are stored as plain YAML: paths become strings, sets sorted lists, and any other object its
+`repr`.
+
+### `plan_hash` and `bundle_id`
+
+`plan_hash` is the sha256 of `plan.yaml`, loaded and dumped again without line wrapping,
+after every occurrence of the project root has been replaced by a placeholder
+(`canonicalization: root-prefix`). The same project compiled under
+two different roots, for example in two checkouts, gives the same `plan_hash`. It tells you
+whether the plan content is the same, wherever it was compiled. `plan_hash` is the portable
+value to compare across machines and checkouts.
+
+`bundle_id` is the sha256 of the manifest without `invocation`, without the `bundle_id`
+key itself and without the `copied` flags (taking a snapshot does not change the bundle). A hook counts with its name, phase, parameters and the names of its artifacts,
+not with the artifacts' `sha256` (a rendered graph, for example, names files below the
+output directory). It identifies the whole bundle, so it is **not** root independent. It
+changes with:
+
+- the project root and the resolved paths, because the manifest records them;
+- the content of any input file (the input hashes and the `plan_hash` change);
+- the software environment, through `software.json`: the platform string (which includes
+  the kernel release), the interpreter path and prefix, the installed distributions and,
+  with the default `git` capture, the commit and the dirty state of every editable
+  checkout. A new commit in an editable checkout changes the `bundle_id`. A git call that
+  times out (5 s per call) records a `note` instead of the revision, so it can change the
+  `bundle_id` too.
+
+It does not change with the output directory, the time or the invocation options, so
+compiling the same bundle again in the same environment gives the same `bundle_id`. `chunk_size` is recorded in
+`invocation`, but it also changes the partitioning in the plan, so it changes the
+`plan_hash` and with it the `bundle_id`.
+
+`run_summary.yaml` carries the `bundle_id` of the plan it ran, as a top-level key. A plan
+compiled by an older Flow has no manifest: the run works and the summary has no
+`bundle_id` key.
+
+### Software
+
+`software` is a reference, not an inlined record: `software.json` sits next to the manifest
+and is listed with its `sha256` and `size`. The built-in compile hook `flow.software` writes
+it (the hook can be replaced in the registry). It records the Python version and executable,
+the installed distributions, the lock file and the git state (commit and dirty flag) of the
+project and of editable checkouts. The
+hook parameter `git: false` switches the git capture off; the whole `git` value is then
+`null` and a sibling `git_note` says why. When git is missing or fails, each path entry
+(`git.root` and every `git.editable` entry) carries a `note` instead. A packaged profile
+layer is listed in `layers` by its distribution name; when no installed distribution matches
+its import package, the import name is listed and `layer_notes` says so. Within one process
+the distribution scan and the git states are reused for up to 30 seconds. The only environment variables recorded are those starting with
+`FASTHEP_` or `HEPFLOW_`.
+
+### What is never recorded
+
+- the full environment: only the `FASTHEP_*` and `HEPFLOW_*` variables are captured;
+- secrets: do not declare credential files as inputs (see above). Hook parameters are
+  recorded in the manifest exactly as written in the registry, so never put a secret in
+  one.
+
+## The snapshot
+
+A compile can also keep a copy of its source files, so that it can be compiled again later
+even when the project has moved on. It is opt-in: `compile_workflow_file(..., snapshot=True)`
+in the Python API (a command-line flag comes with the CLI). The snapshot is a plain
+directory, `compile/inputs/`, next to the manifest; it mirrors the tree below the project
+root, so
+
+```text
+compile/inputs/
+├── .hepflow-snapshot      # marker: this directory is a snapshot
+├── workflow.yaml
+├── parts/sources.yaml
+└── data/x.json
+```
+
+can be compiled again with `root=<outdir>/compile/inputs` (or `--root`). A systematics
+compile writes one snapshot per variation directory (`compile/<variation>/inputs/`), next to
+that variation's manifest.
+
+Each manifest row is treated as follows:
+
+| File | In the snapshot | `copied` |
+|---|---|---|
+| text file below the root, up to 100 MB | copied (a warning above 1 MB) | `true` |
+| binary file, file over 100 MB, file under `/cvmfs`, directory, below the root | symbolic link to the original | `false` |
+| file outside the root | nothing: path and sha256 only | `false` |
+| file that looks like a credential (see below) | nothing, and a warning | `false` |
+| URI, unreadable file | nothing | `false` |
+
+A text file is one whose first 8 KiB contain no NUL byte and read as UTF-8. The links keep
+the tree resolvable on the machine that compiled; elsewhere they point to files that may be
+missing, which `compile_from_bundle` reports (below). Packaged profiles are not copied: the
+software record lists the distribution and version that provided them. There is no archive
+format; pack the directory with any tool (dereferencing links copies the linked files).
+
+A file is never copied or linked when it looks like a credential. The rule errs on the side
+of not copying; the root-relative path is checked, so the location of the project does not
+matter:
+
+- base name (any case) `.env`, `.env.*`, `*.env`, `.netrc`, `.pgpass`, `.htpasswd`,
+  `id_rsa*`, `id_dsa*`, `id_ecdsa*`, `id_ed25519*`, `x509up_*`, `*.pem`, `*.key`, `*.p12`,
+  `*.pfx`, `*.jks`, `*.keytab`, or a name containing `secret`, `token`, `password`,
+  `passwd` or `credential`;
+- below a directory named `.ssh`, `.gnupg`, `.globus`, `.aws`, `.docker`, `.kube`,
+  `private` or `secrets`;
+- a file whose first 8 KiB contain `PRIVATE KEY-----`.
+
+Such a file is still hashed if it is a declared input; do not declare credentials as inputs
+(see the warning above).
+
+A compile removes a snapshot left by an earlier compile in the same compile directory, with
+or without `snapshot=True`, because it would describe another compile. A `compile/inputs`
+directory without the marker is never removed; a snapshot compile then fails instead.
+
+## Recompiling a bundle
+
+`hepflow.api.compile_from_bundle(bundle_dir, outdir, strict=False)` compiles a snapshot
+bundle again. `bundle_dir` is the compile directory that holds the manifest and `inputs/`
+(the build directory above it is accepted too; for systematics pass a variation directory).
+`outdir` must be a separate directory.
+
+1. Every file the snapshot holds no copy of (`copied: false` with a sha256) is hashed
+   again at its recorded path. A missing file is `unavailable`, a different hash `changed`:
+   both are warnings in the report and the recompile continues. With `strict=True` they
+   raise `BundleVerificationError` before anything is compiled.
+2. The snapshot copy of the workflow is compiled with `root=<bundle_dir>/inputs` and the
+   recorded `chunk_size`. Compile hooks run again; their recorded results are not replayed.
+   The new invocation records `caller.from_bundle` (the bundle path and `bundle_id`).
+3. The new manifest is compared with the recorded one.
+
+The returned `BundleReport` (`report.to_dict()` gives plain data) holds:
+
+| Field | Meaning |
+|---|---|
+| `recorded_plan_hash`, `recompiled_plan_hash`, `plan_hash_match` | the plan comparison; `plan_hash` does not depend on the root |
+| `recorded_bundle_id`, `recompiled_bundle_id` | the two `bundle_id` values as written |
+| `rebased_bundle_id`, `bundle_id_match` | the new `bundle_id` computed with the snapshot root replaced by the recorded root (in the manifest and `software.json`), and whether it equals the recorded one |
+| `checks` | one entry per verified file: `role`, `path`, `status` (`ok`, `changed`, `unavailable`), expected and actual sha256 |
+| `warnings` | one message per file that is not `ok` |
+| `hook_artifacts` | hook artifacts that differ (`changed`, `added`, `missing`), compared after the same root replacement |
+| `reproduced` | same `plan_hash`, every file verified and no hook artifact changed |
+
+`plan_hash_match` is the comparison to rely on. `bundle_id_match` is usually `false` when the
+project root is a git checkout and the `flow.software` git capture is on: the snapshot
+directory is not that checkout, so `software.json` (reported under `hook_artifacts`) differs.
+
+Limitations:
+
+- only the files the compile records as inputs are in the snapshot; a file read without a
+  manifest row (for example a dataset file list) is not;
+- a relative include or profile path that leaves the root does not resolve from the snapshot;
+- a lock file at the root is not part of the snapshot.
 
 ## Migrating from entry-directory paths
 

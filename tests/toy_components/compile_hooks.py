@@ -36,6 +36,18 @@ GRAPH_RENDER_HOOK_SPEC = {
     "result": {"artifacts": ["graph_render"]},
 }
 
+SILENT_HOOK_SPEC = {
+    "name": "toy.silent",
+    "kind": "compile_hook",
+    "version": "1.0",
+    "lifecycle": {"when": "after_datasets"},
+}
+
+
+def silent_hook(ctx: Any, **params: Any) -> None:
+    del ctx, params
+
+
 def dataset_metadata_hook(ctx: Any, **params: Any) -> dict[str, Any]:
     del params
     return {
@@ -66,3 +78,25 @@ def graph_render_hook(ctx: Any, **params: Any) -> dict[str, Any]:
             "graph_d2_exists": bool(graph_d2 and Path(graph_d2).is_file()),
         }
     }
+
+
+OUTDIR_ARTIFACT_HOOK_SPEC = {
+    "name": "toy.outdir_artifact",
+    "kind": "compile_hook",
+    "version": "1.0",
+    "lifecycle": {"when": "after_compile"},
+    "result": {"artifacts": ["outdir_artifact"]},
+}
+
+FAILING_AFTER_COMPILE_HOOK_SPEC = {
+    "name": "toy.fail_after_compile",
+    "kind": "compile_hook",
+    "version": "1.0",
+    "lifecycle": {"when": "after_compile"},
+}
+
+
+def outdir_artifact_hook(ctx: Any, **params: Any) -> dict[str, Any]:
+    """An artifact that names a file below the output directory (like a rendered graph)."""
+    del params
+    return {"outdir_artifact": {"svg": str(ctx.build_paths.graph_file("graph.svg"))}}

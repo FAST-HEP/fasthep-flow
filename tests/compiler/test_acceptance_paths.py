@@ -48,8 +48,13 @@ def test_compile_from_another_cwd_with_root_gives_same_plan_paths(
     assert resources("build-cwd") == expected
     assert resources("build-root") == expected
     manifests = [
-        (tmp_path / build / "compile" / "inputs.manifest.yaml").read_text()
+        yaml.safe_load(
+            (tmp_path / build / "compile" / "inputs.manifest.yaml").read_text()
+        )
         for build in ("build-cwd", "build-root")
     ]
+    # The invocation (outdir, timestamp, hostname) differs on every compile by design.
+    for manifest in manifests:
+        manifest.pop("invocation")
     assert manifests[0] == manifests[1]
-    assert f"root: {project}" in manifests[0]
+    assert manifests[0]["root"] == str(project)

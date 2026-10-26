@@ -33,8 +33,12 @@ def run_compile_hooks(
     build_paths: BuildPaths,
     when: str,
     artifacts: dict[str, Any] | None = None,
+    records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Run registry-provided compile hooks for one compile phase."""
+    """Run registry-provided compile hooks for one compile phase.
+
+    When ``records`` is given, one record per hook that ran is appended to it.
+    """
     artifact_map = dict(artifacts or {})
     ctx = CompileHookContext(
         normalized=dict(normalized or {}),
@@ -42,7 +46,9 @@ def run_compile_hooks(
         build_paths=build_paths,
         artifacts=artifact_map,
     )
-    return run_phase_hooks(registry=plan.registry, context=ctx, when=when)
+    return run_phase_hooks(
+        registry=plan.registry, context=ctx, when=when, records=records
+    )
 
 
 def run_param_compile_hooks(

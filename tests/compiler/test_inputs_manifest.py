@@ -7,6 +7,7 @@ from typing import Any
 import yaml
 
 from hepflow.api import compile_workflow_file
+from hepflow.compiler.bundle import SOURCE_ROLES
 from hepflow.compiler.input_paths import ResolvedInput
 from hepflow.compiler.inputs_manifest import InputCollector, write_inputs_manifest
 
@@ -43,7 +44,7 @@ def test_write_inputs_manifest_sorts_inputs_and_records_root(tmp_path: Path) -> 
 
     assert path == tmp_path / "inputs.manifest.yaml"
     manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert manifest["version"] == 1
+    assert manifest["version"] == 2
     assert manifest["root"] == "/r"
     assert [row["role"] for row in manifest["inputs"]] == [
         "param:a.path",
@@ -67,6 +68,7 @@ def test_write_inputs_manifest_keeps_only_the_documented_keys(tmp_path: Path) ->
         "sha256",
         "size",
         "note",
+        "copied",
     }
 
 
@@ -79,7 +81,9 @@ def test_workflow_without_inputs_writes_empty_list_and_root(
     compile_workflow_file(entry, outdir=tmp_path / "build", root=tmp_path)
 
     manifest = _manifest(tmp_path / "build")
-    assert manifest == {"version": 1, "root": str(tmp_path), "inputs": []}
+    assert manifest["version"] == 2
+    assert manifest["root"] == str(tmp_path)
+    assert [row["role"] for row in manifest["inputs"]] == ["workflow"]
 
 
 def _project(tmp_path: Path) -> tuple[Path, dict[str, bytes]]:
@@ -128,7 +132,11 @@ def test_manifest_lists_resources_params_and_mapping_files_with_hashes(
 
     manifest = _manifest(tmp_path / "build")
     assert manifest["root"] == str(tmp_path)
-    by_role = {row["role"]: row for row in manifest["inputs"]}
+    by_role = {
+        row["role"]: row
+        for row in manifest["inputs"]
+        if row["role"] not in SOURCE_ROLES
+    }
     assert sorted(by_role) == [
         "param:Config.config",
         "param:PathStage.path",
@@ -153,8 +161,11 @@ def test_manifest_is_deterministic(tmp_path: Path) -> None:
     compile_workflow_file(entry, outdir=tmp_path / "build-1", root=tmp_path)
     compile_workflow_file(entry, outdir=tmp_path / "build-2", root=tmp_path)
 
-    first = (tmp_path / "build-1" / "compile" / "inputs.manifest.yaml").read_text()
-    second = (tmp_path / "build-2" / "compile" / "inputs.manifest.yaml").read_text()
+    first = _manifest(tmp_path / "build-1")
+    second = _manifest(tmp_path / "build-2")
+    # The invocation (outdir, timestamp, hostname) differs on every compile by design.
+    first.pop("invocation")
+    second.pop("invocation")
     assert first == second
 
 
@@ -302,7 +313,11 @@ def test_manifest_has_one_row_for_a_param_that_is_both_a_path_and_a_mapping_file
 
     compile_workflow_file(entry, outdir=tmp_path / "build", root=tmp_path)
 
-    rows = _manifest(tmp_path / "build")["inputs"]
+    rows = [
+        row
+        for row in _manifest(tmp_path / "build")["inputs"]
+        if row["role"] not in SOURCE_ROLES
+    ]
     assert [(row["role"], row["declared"]) for row in rows] == [
         ("param:Config.config", "schemas/map.yaml")
     ]

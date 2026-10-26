@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from hepflow.backends.loaders import backend_build_directories, load_backend
 from hepflow.backends.model import BackendResult
@@ -18,6 +20,7 @@ from hepflow.build_layout import (
     write_run_summary,
 )
 from hepflow.compiler.artifacts import write_plan_artifacts
+from hepflow.compiler.bundle import record_source_files, write_invocation
 from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.context import CompileContext
 from hepflow.compiler.execution import (
@@ -32,6 +35,14 @@ from hepflow.compiler.plan_diff import (
     diff_plans,
     format_plan_diff,
     load_plan_yaml,
+)
+from hepflow.compiler.recompile import (
+    BundleReport,
+    BundleVerificationError,
+    check_outdir,
+    compare_bundle,
+    load_bundle,
+    verify_bundle,
 )
 from hepflow.compiler.registry_resolution import (
     resolve_workflow_registry,
@@ -68,7 +79,9 @@ from hepflow.runtime.reports import run_workflow_reports
 from hepflow.utils import read_yaml, write_yaml
 
 __all__ = [
+    "BundleReport",
     "InitResult",
+    "compile_from_bundle",
     "compile_workflow_file",
     "diff_plan_files",
     "init_project",
@@ -110,17 +123,28 @@ def normalise_workflow_file(
     *,
     outdir: str | Path,
     root: str | Path | None = None,
+    invocation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Normalise a workflow YAML file and write ``compile/normalized.yaml``.
 
     ``root`` is the project root that relative input paths resolve against; it defaults
-    to the current working directory and is recorded in the provenance.
+    to the current working directory and is recorded in the provenance. ``invocation`` is the
+    caller's own record (for example the command line) and goes to ``compile/invocation.yaml``
+    together with the timestamp and hostname, which stay out of the normalized workflow.
     """
     out_path = Path(outdir)
     context = CompileContext.for_workflow(workflow_path, root)
     compile_dir(out_path).mkdir(parents=True, exist_ok=True)
+    write_invocation(
+        compile_dir(out_path),
+        workflow_path=str(context.workflow_path),
+        outdir=str(out_path),
+        root=str(context.project_root),
+        invocation=invocation,
+    )
 
-    workflow = load_workflow_yaml(str(context.workflow_path))
+    loaded = load_workflow_with_includes(str(context.workflow_path))
+    workflow = loaded.doc
     normalized = normalize_workflow(workflow)
 
     registry_result = resolve_workflow_registry(workflow, context=context)
@@ -136,6 +160,14 @@ def normalise_workflow_file(
     normalized.setdefault("provenance", {}).update(hooks_result["provenance"])
     normalized["provenance"]["root"] = str(context.project_root)
     collector = InputCollector()
+    record_source_files(
+        collector,
+        workflow_path=context.workflow_path,
+        include_files=loaded.files,
+        registry_layers=registry_result.provenance.get("registry_layers") or [],
+        root=context.project_root,
+        entry_dir=context.entry_dir,
+    )
     resources, _entries = resolve_resource_paths(
         dict(normalized["execution"].get("resources") or {}),
         registry=normalized["registry"],
@@ -164,8 +196,13 @@ def make_plan_file(
     *,
     outdir: str | Path,
     chunk_size: int | None = None,
+    snapshot: bool = False,
 ) -> ExecutionPlan:
-    """Lower a normalized YAML file and write plan/graph artifacts."""
+    """Lower a normalized YAML file and write plan/graph artifacts.
+
+    ``snapshot=True`` copies the compile's source files into ``compile/inputs`` (one
+    snapshot per variation directory for systematics compiles).
+    """
     normalized_file = resolve_normalized_path(normalized_path)
     out_path = Path(outdir)
     normalized = read_yaml(str(normalized_file)) or {}
@@ -175,11 +212,17 @@ def make_plan_file(
             normalized,
             outdir=out_path,
             chunk_size=chunk_size,
+            snapshot=snapshot,
         )
 
     graph, plan = build_plan_from_normalized(normalized, chunk_size=chunk_size)
     write_plan_artifacts(
-        plan=plan, graph=graph, outdir=out_path, normalized=normalized,
+        plan=plan,
+        graph=graph,
+        outdir=out_path,
+        normalized=normalized,
+        chunk_size=chunk_size,
+        snapshot=snapshot,
     )
     return plan
 
@@ -190,15 +233,62 @@ def compile_workflow_file(
     outdir: str | Path,
     chunk_size: int | None = None,
     root: str | Path | None = None,
+    invocation: Mapping[str, Any] | None = None,
+    snapshot: bool = False,
 ) -> ExecutionPlan:
-    """Normalise a workflow YAML file, lower it, and write compile artifacts."""
+    """Normalise a workflow YAML file, lower it, and write compile artifacts.
+
+    ``snapshot=True`` (opt-in) also writes ``compile/inputs/``, a copy of the source files
+    mirroring the root-relative tree, so that :func:`compile_from_bundle` (or a compile with
+    ``root=<outdir>/compile/inputs``) can compile the bundle again.
+    """
     out_path = Path(outdir)
-    normalise_workflow_file(workflow_path, outdir=out_path, root=root)
+    normalise_workflow_file(
+        workflow_path, outdir=out_path, root=root, invocation=invocation
+    )
     return make_plan_file(
         normalized_path(out_path),
         outdir=out_path,
         chunk_size=chunk_size,
+        snapshot=snapshot,
     )
+
+
+def compile_from_bundle(
+    bundle_dir: str | Path,
+    outdir: str | Path,
+    *,
+    strict: bool = False,
+) -> BundleReport:
+    """Compile a snapshot bundle again and report whether the result is the same.
+
+    ``bundle_dir`` is a compile directory written with ``snapshot=True`` (or the build
+    directory above it). The sha256 of every file the snapshot holds no copy of is checked
+    first: an unavailable or changed file is a warning in the report, or with
+    ``strict=True`` a :class:`~hepflow.compiler.recompile.BundleVerificationError` before
+    anything is compiled. The workflow is then compiled from the snapshot
+    (``root=<bundle_dir>/inputs``) into ``outdir`` with the recorded chunk size; compile
+    hooks run again. The report compares ``plan_hash``, ``bundle_id`` and the hook
+    artifacts with the recorded ones.
+    """
+    bundle = load_bundle(bundle_dir)
+    check_outdir(bundle, outdir)
+    checks = verify_bundle(bundle)
+    if strict and any(check.status != "ok" for check in checks):
+        raise BundleVerificationError(checks)
+    compile_workflow_file(
+        bundle.workflow_path,
+        outdir=outdir,
+        chunk_size=bundle.chunk_size,
+        root=bundle.snapshot_root,
+        invocation={
+            "from_bundle": {
+                "path": str(bundle.compile_dir),
+                "bundle_id": bundle.manifest.get("bundle_id"),
+            }
+        },
+    )
+    return compare_bundle(bundle, outdir, checks)
 
 
 def load_plan_file(plan_path: str | Path) -> ExecutionPlan:
@@ -255,6 +345,23 @@ def load_plan_file(plan_path: str | Path) -> ExecutionPlan:
         plan.add_node(node)
 
     return plan
+
+
+def _read_bundle_id(compile_directory: Path) -> str | None:
+    """Return the ``bundle_id`` of the manifest next to a plan, if there is one.
+
+    A plan compiled by an older Flow has no manifest, or one without the key. An unreadable
+    or malformed manifest is treated the same way: reading it never fails a run.
+    """
+    try:
+        text = (compile_directory / "inputs.manifest.yaml").read_text(encoding="utf-8")
+        manifest = yaml.safe_load(text)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    value = manifest.get("bundle_id")
+    return value if isinstance(value, str) and value else None
 
 
 def run_plan_file(
@@ -326,6 +433,9 @@ def run_plan_file(
             selected_partitions=selected_partitions,
             numbers=requested_partition_numbers,
         )
+    recorded_bundle_id = _read_bundle_id(plan_file.parent)
+    if recorded_bundle_id is not None:
+        summary["bundle_id"] = recorded_bundle_id
     summary["summary_path"] = str(build_paths.run_summary())
     summary["artifacts_path"] = str(build_paths.artifacts_root())
     if build_paths.variation is not None:

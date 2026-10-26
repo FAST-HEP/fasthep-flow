@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from hepflow.api import normalise_workflow_file
+from hepflow.compiler.bundle import SOURCE_ROLES
 from hepflow.compiler.resource_paths import resolve_resource_paths
 
 REGISTRY: dict[str, Any] = {
@@ -207,7 +208,9 @@ def test_compile_resolves_resources_and_records_inputs(
     resources = normalized["execution"]["resources"]
     assert resources["kfactor"]["path"] == str(tmp_path / "data" / "kfactor.json")
     assert resources["default"] == {"cpus": 1, "memory": "2GB"}
-    inputs = normalized["provenance"]["inputs"]
+    inputs = [
+        i for i in normalized["provenance"]["inputs"] if i["role"] not in SOURCE_ROLES
+    ]
     assert inputs == [
         {
             "role": "resource:kfactor.path",
