@@ -199,3 +199,11 @@ artifacts/files/dimuon_candidates/
   preserve existing import paths where practical.
 - For broad contract changes, run at least `pixi run check`; for narrow changes,
   run the smallest relevant tests plus `pixi run lint` when Python files change.
+
+## Documentation and Changelog
+
+User-facing changes — new features, behavior changes, bug fixes, breaking changes — must add an
+entry to `CHANGELOG.md` under `## [Unreleased]`, in the matching [Keep a
+Changelog](https://keepachangelog.com/en/1.1.0/) category (Added, Changed, Deprecated, Removed,
+Fixed, Security). Changes that affect public APIs, CLI behaviour, or user-facing workflows should
+also update the relevant page under `docs/`.

@@ -138,4 +138,5 @@ execution/index
 extending/index
 reference/index
 developer/index
+changelog
 ```
