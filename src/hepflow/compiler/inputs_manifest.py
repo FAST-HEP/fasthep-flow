@@ -3,8 +3,8 @@
 The manifest (version 2) records the project root, the ``bundle_id``, the ``plan_hash``,
 the software record (``software.json``, listed by hash), the invocation, every compile
 hook run and, per declared input path, what the author wrote (``declared``), what the
-compiler resolved it to, and the sha256 and size of the file at compile time
-(fasthep-flow#94).
+compiler resolved it to, the sha256 and size of the file at compile time, and whether
+the opt-in snapshot holds a copy of it (``copied``, fasthep-flow#94).
 """
 
 from __future__ import annotations
@@ -80,15 +80,21 @@ def write_inputs_manifest(
     invocation: Mapping[str, Any] | None = None,
     hooks: Iterable[Mapping[str, Any]] | None = None,
     plan: str | Path | None = None,
+    copied: Mapping[str, bool] | None = None,
 ) -> Path:
     """Write the manifest into ``compile_dir`` and return its path.
 
     ``software`` is the path of ``software.json`` (listed by path, sha256 and size, or
     ``null`` when absent), ``invocation`` the invocation record, ``hooks`` the compile
     hook records and ``plan`` the path of ``plan.yaml`` (hashed into ``plan_hash``).
+    ``copied`` maps a resolved path to whether the snapshot holds a copy of it; every row
+    gets a ``copied`` flag (``false`` without a snapshot).
     ``bundle_id`` is computed from everything else (see :func:`bundle.bundle_id`).
     """
-    rows = InputCollector.from_rows(inputs).rows()
+    rows = [
+        {**row, "copied": bool((copied or {}).get(str(row["resolved"]), False))}
+        for row in InputCollector.from_rows(inputs).rows()
+    ]
     manifest: dict[str, Any] = {
         "version": MANIFEST_VERSION,
         "root": root,

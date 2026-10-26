@@ -68,6 +68,7 @@ def test_write_inputs_manifest_keeps_only_the_documented_keys(tmp_path: Path) ->
         "sha256",
         "size",
         "note",
+        "copied",
     }
 
 

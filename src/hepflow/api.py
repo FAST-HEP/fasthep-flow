@@ -186,8 +186,13 @@ def make_plan_file(
     *,
     outdir: str | Path,
     chunk_size: int | None = None,
+    snapshot: bool = False,
 ) -> ExecutionPlan:
-    """Lower a normalized YAML file and write plan/graph artifacts."""
+    """Lower a normalized YAML file and write plan/graph artifacts.
+
+    ``snapshot=True`` copies the compile's source files into ``compile/inputs`` (one
+    snapshot per variation directory for systematics compiles).
+    """
     normalized_file = resolve_normalized_path(normalized_path)
     out_path = Path(outdir)
     normalized = read_yaml(str(normalized_file)) or {}
@@ -197,6 +202,7 @@ def make_plan_file(
             normalized,
             outdir=out_path,
             chunk_size=chunk_size,
+            snapshot=snapshot,
         )
 
     graph, plan = build_plan_from_normalized(normalized, chunk_size=chunk_size)
@@ -206,6 +212,7 @@ def make_plan_file(
         outdir=out_path,
         normalized=normalized,
         chunk_size=chunk_size,
+        snapshot=snapshot,
     )
     return plan
 
@@ -217,8 +224,14 @@ def compile_workflow_file(
     chunk_size: int | None = None,
     root: str | Path | None = None,
     invocation: Mapping[str, Any] | None = None,
+    snapshot: bool = False,
 ) -> ExecutionPlan:
-    """Normalise a workflow YAML file, lower it, and write compile artifacts."""
+    """Normalise a workflow YAML file, lower it, and write compile artifacts.
+
+    ``snapshot=True`` (opt-in) also writes ``compile/inputs/``, a copy of the source files
+    mirroring the root-relative tree, so that :func:`compile_from_bundle` (or a compile with
+    ``root=<outdir>/compile/inputs``) can compile the bundle again.
+    """
     out_path = Path(outdir)
     normalise_workflow_file(
         workflow_path, outdir=out_path, root=root, invocation=invocation
@@ -227,6 +240,7 @@ def compile_workflow_file(
         normalized_path(out_path),
         outdir=out_path,
         chunk_size=chunk_size,
+        snapshot=snapshot,
     )
 
 

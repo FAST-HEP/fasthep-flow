@@ -21,6 +21,7 @@ from hepflow.compiler.inputs_manifest import (
     mapping_file_inputs,
     write_inputs_manifest,
 )
+from hepflow.compiler.snapshot import clear_snapshot, write_snapshot
 from hepflow.model.plan import ExecutionPlan
 from hepflow.model.worker_environment import worker_environment_plan_from_execution
 from hepflow.utils import write_json, write_yaml
@@ -33,6 +34,7 @@ def write_plan_artifacts(
     outdir: str | Path,
     normalized: dict[str, Any],
     chunk_size: int | None = None,
+    snapshot: bool = False,
 ) -> list[dict[str, Any]]:
     """Save one compiled plan and its artifacts before running render hooks.
 
@@ -40,11 +42,14 @@ def write_plan_artifacts(
     hooks first, then ``after_compile``), with artifact paths and sha256 hashes.
     The inputs manifest is written last, because it lists ``software.json``, the hook
     records and the hash of ``plan.yaml``. ``chunk_size`` is recorded in its invocation.
+    ``snapshot=True`` also copies the recorded source files into ``compile/inputs`` (see
+    :mod:`hepflow.compiler.snapshot`).
     """
     paths = BuildPaths.from_plan(plan, outdir=outdir)
     # A manifest left by an earlier compile must not survive a compile that fails before
     # the new one is written: it would describe another plan.
     paths.compile_file(MANIFEST_NAME).unlink(missing_ok=True)
+    clear_snapshot(paths.compile_dir())
     ensure_build_layout(
         paths.root,
         variation=paths.variation,
@@ -74,6 +79,7 @@ def write_plan_artifacts(
         build_paths=paths,
         records=records,
         chunk_size=chunk_size,
+        snapshot=snapshot,
     )
     return records
 
@@ -85,12 +91,14 @@ def write_bundle_manifest(
     build_paths: BuildPaths,
     records: list[dict[str, Any]],
     chunk_size: int | None,
+    snapshot: bool = False,
 ) -> Path:
     """Write ``inputs.manifest.yaml`` (version 2) into the plan's compile directory.
 
     ``invocation.yaml`` is read from the base compile directory, which a systematics
     compile shares between its variation directories; ``software.json`` is listed only
-    when a hook of this compile produced it.
+    when a hook of this compile produced it. With ``snapshot`` the source files are copied
+    into ``inputs/`` next to the manifest first, and the rows record what was copied.
     """
     provenance = dict(normalized.get("provenance") or {})
     collector = InputCollector.from_rows(provenance.get("inputs") or [])
@@ -100,10 +108,17 @@ def write_bundle_manifest(
         "chunk_size": chunk_size,
     }
     produced = {name for record in records for name in record["artifacts"]}
+    root = provenance.get("root") or normalized.get("project_root")
+    copied = (
+        write_snapshot(build_paths.compile_dir(), collector.rows(), root)
+        if snapshot
+        else None
+    )
     return write_inputs_manifest(
         build_paths.compile_dir(),
-        root=provenance.get("root") or normalized.get("project_root"),
+        root=root,
         inputs=collector.entries(),
+        copied=copied,
         software=(
             build_paths.compile_file("software.json")
             if "software" in produced

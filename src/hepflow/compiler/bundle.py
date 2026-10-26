@@ -33,6 +33,8 @@ _ROOT_PLACEHOLDER = "<root>"
 BUNDLE_ID_EXCLUDED_KEYS = frozenset(
     {"timestamp", "hostname", "invocation", "bundle_id"}
 )
+# Input row keys that bundle_id ignores.
+ROW_EXCLUDED_KEYS = frozenset({"copied"})
 
 
 def write_invocation(
@@ -131,7 +133,8 @@ def bundle_id(manifest: Mapping[str, Any]) -> str:
     ``timestamp``, ``hostname``, ``invocation`` and ``bundle_id``. Hook records count
     with their name, phase, parameters and artifact names only: an artifact's sha256 may
     depend on the output directory (for example a rendered graph path), and what reaches
-    the plan is already in ``plan_hash``. It therefore covers ``plan_hash``, the software
+    the plan is already in ``plan_hash``. Input rows count without their ``copied`` flag
+    (taking a snapshot does not change the bundle). It therefore covers ``plan_hash``, the software
     record, the hooks that ran and every input row, but not when or with which output
     directory the compile ran.
     """
@@ -142,6 +145,14 @@ def bundle_id(manifest: Mapping[str, Any]) -> str:
     }
     if isinstance(canonical.get("hooks"), list):
         canonical["hooks"] = [_hook_identity(record) for record in canonical["hooks"]]
+    if isinstance(canonical.get("inputs"), list):
+        # Whether a file was copied into the snapshot is storage, not identity.
+        canonical["inputs"] = [
+            {key: value for key, value in row.items() if key not in ROW_EXCLUDED_KEYS}
+            if isinstance(row, Mapping)
+            else row
+            for row in canonical["inputs"]
+        ]
     text = yaml.safe_dump(canonical, sort_keys=True, allow_unicode=True)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
