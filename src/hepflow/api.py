@@ -36,6 +36,14 @@ from hepflow.compiler.plan_diff import (
     format_plan_diff,
     load_plan_yaml,
 )
+from hepflow.compiler.recompile import (
+    BundleReport,
+    BundleVerificationError,
+    check_outdir,
+    compare_bundle,
+    load_bundle,
+    verify_bundle,
+)
 from hepflow.compiler.registry_resolution import (
     resolve_workflow_registry,
 )
@@ -71,7 +79,9 @@ from hepflow.runtime.reports import run_workflow_reports
 from hepflow.utils import read_yaml, write_yaml
 
 __all__ = [
+    "BundleReport",
     "InitResult",
+    "compile_from_bundle",
     "compile_workflow_file",
     "diff_plan_files",
     "init_project",
@@ -242,6 +252,43 @@ def compile_workflow_file(
         chunk_size=chunk_size,
         snapshot=snapshot,
     )
+
+
+def compile_from_bundle(
+    bundle_dir: str | Path,
+    outdir: str | Path,
+    *,
+    strict: bool = False,
+) -> BundleReport:
+    """Compile a snapshot bundle again and report whether the result is the same.
+
+    ``bundle_dir`` is a compile directory written with ``snapshot=True`` (or the build
+    directory above it). The sha256 of every file the snapshot holds no copy of is checked
+    first: an unavailable or changed file is a warning in the report, or with
+    ``strict=True`` a :class:`~hepflow.compiler.recompile.BundleVerificationError` before
+    anything is compiled. The workflow is then compiled from the snapshot
+    (``root=<bundle_dir>/inputs``) into ``outdir`` with the recorded chunk size; compile
+    hooks run again. The report compares ``plan_hash``, ``bundle_id`` and the hook
+    artifacts with the recorded ones.
+    """
+    bundle = load_bundle(bundle_dir)
+    check_outdir(bundle, outdir)
+    checks = verify_bundle(bundle)
+    if strict and any(check.status != "ok" for check in checks):
+        raise BundleVerificationError(checks)
+    compile_workflow_file(
+        bundle.workflow_path,
+        outdir=outdir,
+        chunk_size=bundle.chunk_size,
+        root=bundle.snapshot_root,
+        invocation={
+            "from_bundle": {
+                "path": str(bundle.compile_dir),
+                "bundle_id": bundle.manifest.get("bundle_id"),
+            }
+        },
+    )
+    return compare_bundle(bundle, outdir, checks)
 
 
 def load_plan_file(plan_path: str | Path) -> ExecutionPlan:

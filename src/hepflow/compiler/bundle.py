@@ -112,18 +112,29 @@ def plan_hash(plan_path: Path, root: str) -> dict[str, str]:
         sort_keys=False,
         width=float("inf"),
     )
-    forms = {root.rstrip("/") if len(root) > 1 else root}
-    if root:
-        forms.add(str(Path(root).resolve()).rstrip("/"))
-    for form in sorted(filter(None, forms), key=len, reverse=True):
-        # Replace only whole path prefixes: /a/b must not rewrite /a/bc/x.
-        text = re.sub(
-            rf"(?<![\w.\-/]){re.escape(form)}(?![\w.\-])", _ROOT_PLACEHOLDER, text
-        )
+    text = replace_root(text, root, _ROOT_PLACEHOLDER)
     return {
         "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
         "canonicalization": PLAN_HASH_CANONICALIZATION,
     }
+
+
+def replace_root(text: str, root: str, replacement: str) -> str:
+    """Replace every whole-path occurrence of ``root`` in ``text`` by ``replacement``.
+
+    Both the lexical root and its symlink-resolved form are replaced, at path boundaries
+    only: ``/a/b`` does not rewrite ``/a/bc/x``.
+    """
+    forms = {root.rstrip("/") if len(root) > 1 else root}
+    if root:
+        forms.add(str(Path(root).resolve()).rstrip("/"))
+    for form in sorted(filter(None, forms), key=len, reverse=True):
+        text = re.sub(
+            rf"(?<![\w.\-/]){re.escape(form)}(?![\w.\-])",
+            lambda _match: replacement,
+            text,
+        )
+    return text
 
 
 def bundle_id(manifest: Mapping[str, Any]) -> str:

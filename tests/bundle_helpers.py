@@ -42,12 +42,13 @@ def make_project(
     resources: Mapping[str, str] | None = None,
     extra_hooks: Mapping[str, Any] | None = None,
     systematics: bool = False,
+    git: bool = False,
 ) -> Path:
     """Write ``proj/workflow.yaml`` with an include and one ``file`` resource per entry.
 
     ``files`` are written below the project (relative keys) or as given (absolute keys);
     ``resources`` maps a resource id to its declared path (default: ``data/x.json``).
-    Returns the entry workflow path.
+    ``git`` switches the git capture of ``flow.software`` on. Returns the entry workflow path.
     """
     workflow = deepcopy(dict(toy_workflow))
     project = tmp_path / "proj"
@@ -62,7 +63,7 @@ def make_project(
     registry = dict(workflow["registry"])
     registry["compile_hooks"] = {
         **dict(registry.get("compile_hooks") or {}),
-        "flow.software": SOFTWARE_HOOK,
+        "flow.software": {**SOFTWARE_HOOK, "params": {"git": git}},
         **dict(extra_hooks or {}),
     }
     declared = resources if resources is not None else {"kfactor": "data/x.json"}
