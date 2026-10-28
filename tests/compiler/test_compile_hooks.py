@@ -14,6 +14,7 @@ from hepflow.build_layout import BuildPaths, ensure_build_layout
 from hepflow.compiler.artifacts import write_compile_artifacts
 from hepflow.compiler.compile_hooks import run_compile_hooks
 from hepflow.model.plan import ExecutionPlan
+from hepflow.registry.merge import RegistryLayer, merge_registry_layers
 
 
 def test_compile_hook_registry_entry_is_resolved_and_filtered_by_phase(
@@ -36,6 +37,93 @@ def test_compile_hook_registry_entry_is_resolved_and_filtered_by_phase(
             "has_dataset_entries": True,
         }
     }
+
+
+def test_compile_hook_with_enabled_false_is_skipped(tmp_path: Path) -> None:
+    plan = _plan_with_compile_hooks()
+    plan.registry["compile_hooks"]["toy.dataset_metadata"]["enabled"] = False
+
+    artifacts = run_compile_hooks(
+        plan=plan,
+        normalized={"sources": {}},
+        build_paths=BuildPaths(root=tmp_path),
+        artifacts={"dataset_entries": {"data": {"files": ["data.root"]}}},
+        when="after_datasets",
+    )
+
+    assert artifacts == {}
+
+
+def test_compile_hook_entry_with_only_enabled_false_is_skipped(tmp_path: Path) -> None:
+    # A workflow can switch a profile's hook off without repeating its spec and impl.
+    plan = ExecutionPlan(
+        registry={"compile_hooks": {"toy.dataset_metadata": {"enabled": False}}},
+    )
+    records: list[dict[str, Any]] = []
+
+    artifacts = run_compile_hooks(
+        plan=plan,
+        normalized={"sources": {}},
+        build_paths=BuildPaths(root=tmp_path),
+        when="after_datasets",
+        records=records,
+    )
+
+    assert artifacts == {}
+    assert records == []
+
+
+def test_compile_hook_enabled_true_still_runs(tmp_path: Path) -> None:
+    plan = _plan_with_compile_hooks()
+    plan.registry["compile_hooks"]["toy.dataset_metadata"]["enabled"] = True
+
+    artifacts = run_compile_hooks(
+        plan=plan,
+        normalized={"sources": {}},
+        build_paths=BuildPaths(root=tmp_path),
+        artifacts={"dataset_entries": {"data": {"files": ["data.root"]}}},
+        when="after_datasets",
+    )
+
+    assert "dataset_metadata" in artifacts
+
+
+def test_compile_hook_enabled_must_be_a_boolean(tmp_path: Path) -> None:
+    plan = _plan_with_compile_hooks()
+    plan.registry["compile_hooks"]["toy.dataset_metadata"]["enabled"] = "no"
+
+    with pytest.raises(TypeError, match="enabled"):
+        run_compile_hooks(
+            plan=plan,
+            normalized={"sources": {}},
+            build_paths=BuildPaths(root=tmp_path),
+            when="after_datasets",
+        )
+
+
+def test_workflow_layer_can_switch_off_a_profile_compile_hook(tmp_path: Path) -> None:
+    profile_registry = _plan_with_compile_hooks().registry
+    merged = merge_registry_layers(
+        [
+            RegistryLayer(name="profile", kind="profile", registry=profile_registry),
+            RegistryLayer(
+                name="workflow",
+                kind="workflow",
+                registry={"compile_hooks": {"toy.dataset_metadata": {"enabled": False}}},
+            ),
+        ]
+    )
+    plan = ExecutionPlan(registry=merged.registry)
+
+    artifacts = run_compile_hooks(
+        plan=plan,
+        normalized={"sources": {}},
+        build_paths=BuildPaths(root=tmp_path),
+        when="after_datasets",
+    )
+
+    assert artifacts == {}
+    assert "toy.ignored" in merged.registry["compile_hooks"]
 
 
 def test_compile_hook_artifacts_are_written_as_json(tmp_path: Path) -> None:

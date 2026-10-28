@@ -53,6 +53,8 @@ def phase_compile_hook_entries(
     for name, entry in hooks.items():
         if not isinstance(entry, dict):
             raise TypeError(f"Compile hook registry entry {name!r} must be a mapping")
+        if not _compile_hook_enabled(str(name), entry):
+            continue
         if entry.get("kind") == "parameter":
             continue
         resolved = resolve_compile_hook(registry, str(name), kind="phase")
@@ -67,6 +69,16 @@ def phase_compile_hook_entries(
             continue
         selected.append((str(name), dict(resolved.entry), spec))
     return selected
+
+
+def _compile_hook_enabled(name: str, entry: dict[str, Any]) -> bool:
+    enabled = entry.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise TypeError(
+            f"Compile hook registry entry {name!r} 'enabled' must be a boolean, "
+            f"got {type(enabled).__name__}"
+        )
+    return enabled
 
 
 def _compile_hook_entry(
