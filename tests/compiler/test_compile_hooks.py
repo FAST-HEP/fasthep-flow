@@ -13,6 +13,7 @@ from hepflow.api import compile_workflow_file
 from hepflow.build_layout import BuildPaths, ensure_build_layout
 from hepflow.compiler.artifacts import write_compile_artifacts
 from hepflow.compiler.compile_hooks import run_compile_hooks
+from hepflow.compiler.normalize import normalize_registry
 from hepflow.model.plan import ExecutionPlan
 from hepflow.registry.merge import RegistryLayer, merge_registry_layers
 
@@ -124,6 +125,38 @@ def test_workflow_layer_can_switch_off_a_profile_compile_hook(tmp_path: Path) ->
 
     assert artifacts == {}
     assert "toy.ignored" in merged.registry["compile_hooks"]
+
+
+def test_normalize_registry_accepts_a_switched_off_hook_without_spec_or_impl() -> None:
+    registry = normalize_registry(
+        {"compile_hooks": {"toy.graph_render": {"enabled": False}}}
+    )
+
+    assert registry["compile_hooks"] == {"toy.graph_render": {"enabled": False}}
+
+
+def test_normalize_registry_still_requires_impl_for_an_enabled_hook() -> None:
+    with pytest.raises(ValueError, match="impl"):
+        normalize_registry({"compile_hooks": {"toy.graph_render": {"enabled": True}}})
+    with pytest.raises(ValueError, match="impl"):
+        normalize_registry({"compile_hooks": {"toy.graph_render": {}}})
+
+
+def test_workflow_can_switch_off_a_compile_hook_when_compiling(
+    tmp_path: Path,
+    toy_workflow: dict[str, Any],
+) -> None:
+    workflow = dict(toy_workflow)
+    registry = dict(workflow["registry"])
+    registry["compile_hooks"] = {"toy.graph_render": {"enabled": False}}
+    workflow["registry"] = registry
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    build_dir = tmp_path / "build"
+
+    compile_workflow_file(workflow_path, outdir=build_dir)
+
+    assert not (build_dir / "compile" / "graph_render.json").exists()
 
 
 def test_compile_hook_artifacts_are_written_as_json(tmp_path: Path) -> None:
