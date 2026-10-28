@@ -28,11 +28,19 @@ def _list_of_str(x: Any, where: str) -> list[str]:
     return out
 
 
+def _dataset_dict(data: dict[str, Any]) -> dict[str, Any]:
+    """Drop the optional ``file_nevents`` key when the dataset does not set it."""
+    if data.get("file_nevents") is None:
+        data.pop("file_nevents", None)
+    return data
+
+
 @dataclass(frozen=True)
 class DatasetSpec:
     name: str
     files: list[str]
     nevents: str | None = None
+    file_nevents: list[int] | None = None
     eventtype: str = DEFAULT_DATASET_EVENTTYPE
     group: str | None = None
     meta: dict[str, Any] = field(default_factory=dict)
@@ -44,6 +52,17 @@ class DatasetSpec:
         )
         if self.nevents is not None:
             object.__setattr__(self, "nevents", str(self.nevents))
+        if self.file_nevents is not None:
+            counts = self.file_nevents
+            if (
+                not isinstance(counts, list)
+                or len(counts) != len(self.files)
+                or not all(isinstance(n, int) and n >= 0 for n in counts)
+            ):
+                raise ValueError(
+                    f"dataset[{self.name}].file_nevents must be a list with one "
+                    f"non-negative integer per file ({len(self.files)} files)"
+                )
         object.__setattr__(
             self,
             "eventtype",
@@ -59,7 +78,7 @@ class DatasetSpec:
             raise ValueError(f"dataset[{self.name}].meta must be a mapping")
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return _dataset_dict(asdict(self))
 
 
 @dataclass(frozen=True)
@@ -77,7 +96,9 @@ class DataBlock:
             pass
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data["datasets"] = [_dataset_dict(item) for item in data["datasets"]]
+        return data
         # dataclasses will already convert DatasetSpec -> dict
 
 
@@ -431,6 +452,9 @@ class NormalizedWorkflow:
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
+        data["data"]["datasets"] = [
+            _dataset_dict(item) for item in data["data"]["datasets"]
+        ]
         if self.systematics is None:
             data.pop("systematics", None)
         else:

@@ -160,6 +160,11 @@ For example, the exoplanet workflow contains a filtering node:
   materialize: never
 ```
 
+With `chunk_size` set, each file is split by its own event count. Datasets list these as
+`file_nevents`, one count per file in the order of `files`; a single-file dataset may use `nevents`
+instead. A multi-file dataset with only a dataset-level `nevents` total cannot be chunked, and the
+compile fails.
+
 This contains considerably more execution information than the original workflow declaration:
 
 ```yaml
