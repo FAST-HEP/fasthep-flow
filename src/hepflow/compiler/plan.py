@@ -57,6 +57,7 @@ def build_execution_plan(
             "name": str(dataset["name"]),
             "files": list(dataset.get("files") or []),
             "nevents": dataset.get("nevents"),
+            "file_nevents": dataset.get("file_nevents"),
             "eventtype": dataset.get("eventtype"),
             "group": dataset.get("group"),
             "meta": dict(dataset.get("meta") or {}),
@@ -97,6 +98,7 @@ def build_execution_plan(
                     "name": dataset_name,
                     "files": list(dataset.get("files") or []),
                     "nevents": dataset.get("nevents"),
+                    "file_nevents": dataset.get("file_nevents"),
                     "eventtype": dataset.get("eventtype"),
                     "group": dataset.get("group"),
                     "meta": dict(dataset.get("meta") or {}),
@@ -309,10 +311,12 @@ def build_execution_partitions(
                     f"Source {source_name!r} dataset {dataset_name!r} has no files"
                 )
 
-            nevents_raw = (dataset or {}).get("nevents")
-            nevents = _coerce_nevents(nevents_raw)
+            file_counts = _file_event_counts(dataset or {}, len(files))
+            if chunk_size is not None and file_counts is None:
+                _require_file_counts_for_chunking(dataset_name, dataset or {}, files)
 
             for file_index, file_path in enumerate(files):
+                nevents = file_counts[file_index] if file_counts is not None else None
                 if chunk_size is not None and nevents is not None:
                     for chunk_index, start in enumerate(range(0, nevents, chunk_size)):
                         stop = min(start + chunk_size, nevents)
@@ -345,6 +349,35 @@ def build_execution_partitions(
                 )
 
     return partitions
+
+
+def _file_event_counts(
+    dataset: dict[str, Any], n_files: int
+) -> list[int | None] | None:
+    """Event count of each file, or ``None`` when the dataset does not say.
+
+    ``file_nevents`` lists one count per file. A single-file dataset may instead
+    use the dataset-level ``nevents``, which is then that file's count; for several
+    files the dataset-level total says nothing about any one file.
+    """
+    per_file = dataset.get("file_nevents")
+    if per_file is not None:
+        return [int(n) for n in per_file]
+    total = _coerce_nevents(dataset.get("nevents"))
+    if total is not None and n_files == 1:
+        return [total]
+    return None
+
+
+def _require_file_counts_for_chunking(
+    dataset_name: str, dataset: dict[str, Any], files: list[Any]
+) -> None:
+    if len(files) > 1 and _coerce_nevents(dataset.get("nevents")) is not None:
+        raise ValueError(
+            f"Dataset {dataset_name!r} has {len(files)} files and only a dataset-level "
+            "'nevents' total, which cannot be used to chunk individual files. "
+            "Add 'file_nevents' (one event count per file, in the order of 'files')."
+        )
 
 
 def _coerce_nevents(value: Any) -> int | None:

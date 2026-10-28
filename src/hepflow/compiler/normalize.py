@@ -481,6 +481,7 @@ def normalize_datasets(
                 name=str(name) if name else "",
                 files=files,
                 nevents=ds.get("nevents"),
+                file_nevents=ds.get("file_nevents"),
                 eventtype=str(
                     ds.get(
                         "eventtype",
