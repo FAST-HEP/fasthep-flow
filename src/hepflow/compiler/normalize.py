@@ -927,6 +927,9 @@ def normalize_registry(raw: dict[str, Any] | None) -> dict[str, Any]:
             raise ValueError(
                 f"registry.compile_hooks[{name!r}] must be a mapping with 'impl'"
             )
+        if entry.get("enabled") is False:
+            # A switched-off hook needs no spec or impl: a workflow can disable a profile's hook.
+            continue
         impl_ref = entry.get("impl")
         if not isinstance(impl_ref, str) or ":" not in impl_ref:
             raise ValueError(f"registry.compile_hooks[{name!r}].impl must be 'module:object'")

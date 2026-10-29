@@ -12,6 +12,10 @@ Add new entries under `## [Unreleased]`, in the category they belong to. At rele
 
 ### Added
 
+- Compile hook registry entries accept `enabled: false` to skip the hook. A workflow's `registry:`
+  section can switch off a hook that a profile registers (for example the D2 graph render, which
+  takes minutes on large graphs) without repeating its `spec` and `impl`.
+
 - Datasets accept `file_nevents`, one event count per file in the order of `files`. Event chunking
   (`chunk_size`) uses each file's own count.
 

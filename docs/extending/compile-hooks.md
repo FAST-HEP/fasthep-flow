@@ -54,6 +54,21 @@ Once made available through an active profile, Flow can invoke these capabilitie
 
 Compile hooks therefore use the same registry and profile infrastructure as other Flow extensions.
 
+### Switching a compile hook off
+
+A registry entry accepts `enabled: false`, and the hook is then skipped (the default is `true`).
+The workflow's own `registry:` section is merged after the profiles, so a workflow can switch off
+a hook that a profile registers without repeating its `spec` and `impl`:
+
+```yaml
+registry:
+  compile_hooks:
+    fasthep.render.graph_d2:
+      enabled: false
+```
+
+The entry replaces the profile's entry as a whole; the merge provenance records the overwrite.
+
 ---
 
 ## Enriching compilation with external information
