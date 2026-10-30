@@ -61,6 +61,28 @@ fields are paths. Flow provides the generic kind `file` (`path_fields: [path]`).
 - `~` expands to the home directory at compile time;
 - environment variables are **not** expanded.
 
+## Dataset files and site access
+
+Dataset `files` are not resolved against the project root. A dataset names its files the way the
+experiment does, for CMS the logical file name `/store/...`; how a site reaches them (an XRootD
+redirector, a local mount) is an execution setting:
+
+```yaml
+execution:
+  file_access:
+  - match: /store/
+    prefix: root://cms-xrd-global.cern.ch/
+```
+
+The first rule whose `match` starts a file name puts `prefix` in front of it: `/store/mc/a.root`
+becomes `root://cms-xrd-global.cern.ch//store/mc/a.root`. File names that no rule matches, URIs and
+relative paths among them, are kept. A site file that the entries include holds the rules, so the
+dataset files stay the same at every site.
+
+The plan resolves the names once: `context.datasets.<name>.files` and every partition's `file` are
+the URLs, so sources and compile hooks open them as they are; `logical_files` keeps the declared
+names when a rule changed them, and `execution.file_access` records the rules.
+
 ## Checks and hashes
 
 ```{warning}

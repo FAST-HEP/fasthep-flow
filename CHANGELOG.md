@@ -12,6 +12,13 @@ Add new entries under `## [Unreleased]`, in the category they belong to. At rele
 
 ### Added
 
+- `execution.file_access` maps dataset file names to the URLs a site reads them from: a list of
+  `{match, prefix}` rules, the first matching rule puts its prefix in front of the name (for
+  example `/store/` with `root://cms-xrd-global.cern.ch/`). Dataset files keep logical names and
+  no redirector; the plan lists the URLs in `context.datasets.<name>.files` and the partitions,
+  and the declared names in `logical_files`. The normalized `execution` block now always has
+  `file_access` (empty by default).
+
 - Compile hook registry entries accept `enabled: false` to skip the hook. A workflow's `registry:`
   section can switch off a hook that a profile registers (for example the D2 graph render, which
   takes minutes on large graphs) without repeating its `spec` and `impl`.

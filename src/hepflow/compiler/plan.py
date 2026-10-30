@@ -20,6 +20,7 @@ from hepflow.compiler.execution import (
     normalize_global_execution,
     validate_stage_execution_resource_references,
 )
+from hepflow.compiler.file_access import resolve_file_access
 from hepflow.compiler.inline_variations import apply_inline_variation_branches_to_graph
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.output_claims import validate_output_claims
@@ -52,16 +53,9 @@ def build_execution_plan(
     plan.provenance = dict(provenance or {})
     plan.execution = normalize_global_execution(execution)
     plan.execution_hooks = _normalize_execution_hooks(execution_hooks or [])
+    file_access = list(plan.execution.get("file_access") or [])
     context_datasets_by_name: dict[str, dict[str, Any]] = {
-        str(dataset["name"]): {
-            "name": str(dataset["name"]),
-            "files": list(dataset.get("files") or []),
-            "nevents": dataset.get("nevents"),
-            "file_nevents": dataset.get("file_nevents"),
-            "eventtype": dataset.get("eventtype"),
-            "group": dataset.get("group"),
-            "meta": dict(dataset.get("meta") or {}),
-        }
+        str(dataset["name"]): _context_dataset(dataset, file_access)
         for dataset in list(graph.graph.get("datasets") or [])
         if isinstance(dataset, dict) and dataset.get("name") is not None
     }
@@ -94,15 +88,9 @@ def build_execution_plan(
                 dataset_name = str(dataset["name"])
                 if dataset_name in context_datasets_by_name:
                     continue
-                context_datasets_by_name[dataset_name] = {
-                    "name": dataset_name,
-                    "files": list(dataset.get("files") or []),
-                    "nevents": dataset.get("nevents"),
-                    "file_nevents": dataset.get("file_nevents"),
-                    "eventtype": dataset.get("eventtype"),
-                    "group": dataset.get("group"),
-                    "meta": dict(dataset.get("meta") or {}),
-                }
+                context_datasets_by_name[dataset_name] = _context_dataset(
+                    dataset, file_access
+                )
         if graph_node.role == "source" and "datasets" in params:
             params.pop("datasets", None)
             params["datasets_ref"] = "context.datasets"
@@ -264,6 +252,26 @@ def _normalize_execution_hooks(
             ]
         normalized.append(item)
     return normalized
+
+
+def _context_dataset(
+    dataset: dict[str, Any], file_access: list[dict[str, str]]
+) -> dict[str, Any]:
+    """The plan's record of a dataset; ``files`` are the URLs under ``file_access``."""
+    declared = [str(path) for path in dataset.get("files") or []]
+    files = [resolve_file_access(path, file_access) for path in declared]
+    record: dict[str, Any] = {
+        "name": str(dataset["name"]),
+        "files": files,
+        "nevents": dataset.get("nevents"),
+        "file_nevents": dataset.get("file_nevents"),
+        "eventtype": dataset.get("eventtype"),
+        "group": dataset.get("group"),
+        "meta": dict(dataset.get("meta") or {}),
+    }
+    if files != declared:
+        record["logical_files"] = declared
+    return record
 
 
 def build_plan_context(
