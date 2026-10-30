@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from hepflow.compiler.context import CompileContext
+from hepflow.compiler.file_access import normalize_file_access
 from hepflow.compiler.profiles import (
     expand_profile_names,
     load_profile_config_with_provenance,
@@ -89,6 +90,7 @@ def normalize_global_execution(raw: Any) -> dict[str, Any]:
         environment=environment,
         staging=staging,
         config=config,
+        file_access=normalize_file_access(raw.get("file_access")),
     ).to_dict()
 
 

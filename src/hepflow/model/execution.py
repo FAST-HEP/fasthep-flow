@@ -14,6 +14,7 @@ class ExecutionConfig:
     environment: dict[str, Any] = field(default_factory=dict)
     staging: dict[str, Any] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
+    file_access: list[dict[str, str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

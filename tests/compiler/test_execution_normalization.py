@@ -23,6 +23,7 @@ def test_missing_execution_block_gives_defaults(toy_workflow: dict[str, Any]) ->
         "environment": {},
         "staging": {"mode": "shared"},
         "config": {},
+        "file_access": [],
     }
 
 
@@ -69,6 +70,7 @@ def test_global_execution_normalization_preserves_metadata(
                 "config": {},
             }
         },
+        "file_access": [],
     }
 
 
