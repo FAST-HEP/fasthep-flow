@@ -1,3 +1,5 @@
+default_install_hook_types: [pre-commit, commit-msg]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -21,3 +23,7 @@ repos:
     rev: v2.3.0
     hooks:
       - id: codespell
+  - repo: https://github.com/FAST-HEP/.github
+    rev: fb215a2162fe299c04b76f2511fe764063e18205  # bump with `pre-commit autoupdate`
+    hooks:
+      - id: fasthep-commit-msg
