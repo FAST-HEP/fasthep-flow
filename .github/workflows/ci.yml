@@ -8,48 +8,11 @@ on:
       - main
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${ github.workflow }-${ github.ref }
   cancel-in-progress: true
-
-env:
-  FORCE_COLOR: "3"
 
 jobs:
   ci:
-    name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
-    # Temporary during alpha while package APIs and PyPI releases are not yet in sync.
-    # Remove this once alpha CI is deleted and normal PyPI-based CI becomes required again.
-    continue-on-error: true
-
-    strategy:
-      fail-fast: false
-
-      matrix:
-        include:
-          - pixi-env: py311
-            python-version: "3.11"
-            experimental: false
-
-          - pixi-env: py313
-            python-version: "3.13"
-            experimental: false
-
-          - pixi-env: py314
-            python-version: "3.14"
-            experimental: true
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up Pixi
-        uses: prefix-dev/setup-pixi@v0.11.2
-        with:
-          pixi-version: v0.62.2
-          cache: false
-
-      - name: Run CI
-        run: pixi run --environment ${{ matrix.pixi-env }} ci
+    # Shared in FAST-HEP/.github. Alpha: a failing run does not block; its `allow-failure` default
+    # is the switch for making CI strict.
+    uses: FAST-HEP/.github/.github/workflows/package-ci.yml@main
