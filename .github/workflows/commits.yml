@@ -1,0 +1,12 @@
+name: Commits
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  commits:
+    name: Conventional commits
+    uses: FAST-HEP/.github/.github/workflows/commit-check.yml@main
