@@ -1,6 +1,6 @@
-# Temporary alpha workflow.
-# Installs FAST-HEP dependencies from Git main because PyPI releases may lag during alpha.
-# Remove this workflow once package APIs stabilise and normal PyPI-based CI is required again.
+# Temporary alpha workflow: installs the FAST-HEP dependencies from Git main because PyPI releases may
+# lag during alpha. The logic is shared in FAST-HEP/.github (`enabled` there is the central off
+# switch); once alpha CI is retired, delete this file.
 name: Alpha CI
 
 on:
@@ -9,69 +9,6 @@ on:
 
 jobs:
   alpha-ci:
-    name: Python 3.13
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
-
-      - name: Install package
-        run: |
-          python -m pip install --upgrade pip
-          python - <<'PY'
-          import re
-          import subprocess
-          import sys
-          import tomllib
-
-          with open("pyproject.toml", "rb") as handle:
-              project = tomllib.load(handle)["project"]
-
-          optional = project.get("optional-dependencies", {})
-
-          requirements = list(project.get("dependencies", []))
-          requirements.extend(optional.get("test", []))
-          requirements.extend(optional.get("distributed", []))
-          requirements.extend(["ruff", "mypy", "build"])
-
-          fasthep_pattern = re.compile(
-              r"^\s*(fasthep-[A-Za-z0-9_.-]+)(\[[^\]]+\])?",
-              re.IGNORECASE,
-          )
-
-          resolved = []
-          for requirement in requirements:
-              match = fasthep_pattern.match(requirement)
-              if match:
-                  package = match.group(1).lower().replace("_", "-")
-                  extras = match.group(2) or ""
-                  resolved.append(
-                      f"{package}{extras} @ "
-                      f"git+https://github.com/FAST-HEP/{package}.git@main"
-                  )
-              else:
-                  resolved.append(requirement)
-
-          subprocess.check_call(
-              [sys.executable, "-m", "pip", "install", *resolved]
-          )
-          PY
-
-          python -m pip install -e . --no-deps
-
-      - name: Lint
-        run: ruff check src tests
-                
-      - name: Typecheck
-        run: mypy src tests
-                
-      - name: Test
-        run: pytest
+    uses: FAST-HEP/.github/.github/workflows/package-alpha-ci.yml@main
+    with:
+      extras: "test,distributed"
