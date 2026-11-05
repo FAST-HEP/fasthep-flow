@@ -62,6 +62,7 @@ from hepflow.model.plan import (
 from hepflow.profiles.init import InitResult
 from hepflow.profiles.init import init_project as _init_project
 from hepflow.progress import ProgressReporter, ProgressSink
+from hepflow.provenance.compilation_info import compilation_provenance
 from hepflow.runtime.config import (
     _runtime_execution_with_overrides,
     default_run_outdir_for_plan,
@@ -159,6 +160,7 @@ def normalise_workflow_file(
     normalized.setdefault("provenance", {}).update(execution_result["provenance"])
     normalized.setdefault("provenance", {}).update(hooks_result["provenance"])
     normalized["provenance"]["root"] = str(context.project_root)
+    normalized["provenance"]["compilation"] = compilation_provenance()
     collector = InputCollector()
     record_source_files(
         collector,
