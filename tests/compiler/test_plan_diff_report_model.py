@@ -170,3 +170,16 @@ def test_render_location() -> None:
     )
     assert render_location(location) == "nodes[id='n1',part=0].params.x[2]"
     assert render_location(()) == "<root>"
+
+
+def test_display_keys_are_omitted_when_none_and_emitted_when_set() -> None:
+    plain = _entry(DiffSection.PROVENANCE, (Key("a"),))
+    shown = _entry(
+        DiffSection.PROVENANCE,
+        (Key("a"),),
+        old_display={"value": "x", "label": "relative"},
+        new_display={"value": "y", "label": "external"},
+    )
+    assert "old_display" not in plain.to_dict()
+    assert shown.to_dict()["old_display"] == {"value": "x", "label": "relative"}
+    assert shown.to_dict()["new_display"] == {"value": "y", "label": "external"}

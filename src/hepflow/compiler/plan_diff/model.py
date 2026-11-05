@@ -105,6 +105,8 @@ class PlanDiffEntry:
     new: Any = None
     identity: dict[str, Any] | None = None
     fallback: bool = False
+    old_display: Any = None
+    new_display: Any = None
 
     @property
     def rendered_location(self) -> str:
@@ -132,6 +134,10 @@ class PlanDiffEntry:
             out["old"] = self.old
         if self.new_present:
             out["new"] = self.new
+        if self.old_display is not None:
+            out["old_display"] = self.old_display
+        if self.new_display is not None:
+            out["new_display"] = self.new_display
         return out
 
 

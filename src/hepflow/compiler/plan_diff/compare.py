@@ -24,6 +24,7 @@ from hepflow.compiler.plan_diff.model import (
     PlanDiffWarning,
     Selector,
 )
+from hepflow.compiler.plan_diff.paths import ROOT_FIELDS, display_path, is_path_field
 from hepflow.compiler.plan_diff.validate import validate_plan
 from hepflow.utils import read_yaml
 
@@ -37,10 +38,10 @@ def diff_plans(old: Mapping[str, Any], new: Mapping[str, Any]) -> PlanDiffReport
     """Compare two loaded plans; neither is modified."""
     validate_plan(old, side="old")
     validate_plan(new, side="new")
-    entries: list[PlanDiffEntry] = []
-    _compare(old, new, (), entries, fallback=False)
+    comparer = _Comparer(_project_root(old), _project_root(new))
+    comparer.compare(old, new, ())
     return PlanDiffReport(
-        entries,
+        comparer.entries,
         classifier_version=CLASSIFIER_VERSION,
         warnings=_version_warnings(old, new),
     )
@@ -53,125 +54,18 @@ def _load(path: str | Path, side: str) -> Any:
         raise InvalidPlan(f"{side} plan is not valid YAML: {error}") from error
 
 
-def _compare(
-    old: Any, new: Any, loc: Location, out: list[PlanDiffEntry], *, fallback: bool
-) -> None:
-    if isinstance(old, dict) and isinstance(new, dict):
-        for key in sorted(set(old) | set(new)):
-            child = (*loc, Key(key))
-            if key not in new:
-                out.append(_removed(child, old[key], fallback=fallback))
-            elif key not in old:
-                out.append(_added(child, new[key], fallback=fallback))
-            else:
-                _compare(old[key], new[key], child, out, fallback=fallback)
-    elif isinstance(old, list) and isinstance(new, list):
-        _compare_list(old, new, loc, out, fallback=fallback)
-    elif type(old) is not type(new) or old != new:
-        out.append(
-            PlanDiffEntry(
-                section=classify(loc),
-                kind=DiffKind.CHANGED,
-                location=loc,
-                old_present=True,
-                new_present=True,
-                old=old,
-                new=new,
-                fallback=fallback,
-            )
-        )
-
-
-def _added(
-    loc: Location,
-    value: Any,
-    *,
-    whole: DiffSection | None = None,
-    identity: dict[str, Any] | None = None,
-    fallback: bool,
-) -> PlanDiffEntry:
-    return PlanDiffEntry(
-        section=classify(loc, whole_object_section=whole),
-        kind=DiffKind.ADDED,
-        location=loc,
-        old_present=False,
-        new_present=True,
-        new=value,
-        identity=identity,
-        fallback=fallback,
-    )
-
-
-def _removed(
-    loc: Location,
-    value: Any,
-    *,
-    whole: DiffSection | None = None,
-    identity: dict[str, Any] | None = None,
-    fallback: bool,
-) -> PlanDiffEntry:
-    return PlanDiffEntry(
-        section=classify(loc, whole_object_section=whole),
-        kind=DiffKind.REMOVED,
-        location=loc,
-        old_present=True,
-        new_present=False,
-        old=value,
-        identity=identity,
-        fallback=fallback,
-    )
+def _project_root(plan: Mapping[str, Any]) -> str | None:
+    context = plan.get("context")
+    root = context.get("project_root") if isinstance(context, dict) else None
+    return root if isinstance(root, str) else None
 
 
 def _key_path(loc: Location) -> tuple[str, ...]:
     return tuple(s.name for s in loc if isinstance(s, Key))
 
 
-def _compare_list(
-    old: list[Any],
-    new: list[Any],
-    loc: Location,
-    out: list[PlanDiffEntry],
-    *,
-    fallback: bool,
-) -> None:
-    spec = identity_spec(_key_path(loc))
-    if spec is None:
-        _compare_anonymous(old, new, loc, out, fallback=fallback)
-    else:
-        _compare_identified(old, new, loc, spec, out, fallback=fallback)
-
-
 def _canon(item: Any) -> str:
     return json.dumps(item, sort_keys=True, separators=(",", ":"))
-
-
-def _compare_anonymous(
-    old: list[Any],
-    new: list[Any],
-    loc: Location,
-    out: list[PlanDiffEntry],
-    *,
-    fallback: bool,
-) -> None:
-    matcher = SequenceMatcher(
-        None, [_canon(i) for i in old], [_canon(i) for i in new], autojunk=False
-    )
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == "equal":
-            continue
-        paired = min(i2 - i1, j2 - j1) if tag == "replace" else 0
-        for k in range(paired):
-            _compare(
-                old[i1 + k], new[j1 + k], (*loc, Index(j1 + k)), out, fallback=fallback
-            )
-        for i in range(i1 + paired, i2):
-            out.append(_removed((*loc, Index(i)), old[i], fallback=fallback))
-        for j in range(j1 + paired, j2):
-            out.append(_added((*loc, Index(j)), new[j], fallback=fallback))
-
-
-def _ident_key(identity: tuple[tuple[str, Any], ...]) -> tuple[Any, ...]:
-    return tuple((name, type(value).__name__, value) for name, value in identity)
 
 
 def _collapse(items: list[Any]) -> list[Any]:
@@ -185,21 +79,22 @@ def _collapse(items: list[Any]) -> list[Any]:
     return kept
 
 
-def _index(
-    items: list[Any], spec: IdentitySpec
-) -> dict[tuple[Any, ...], tuple[tuple[tuple[str, Any], ...], list[Any]]]:
-    index: dict[tuple[Any, ...], tuple[tuple[tuple[str, Any], ...], list[Any]]] = {}
+_IndexMap = dict[tuple[Any, ...], tuple[tuple[tuple[str, Any], ...], list[Any]]]
+
+
+def _ident_key(identity: tuple[tuple[str, Any], ...]) -> tuple[Any, ...]:
+    return tuple((name, type(value).__name__, value) for name, value in identity)
+
+
+def _index(items: list[Any], spec: IdentitySpec) -> _IndexMap:
+    index: _IndexMap = {}
     for item in items:
         identity = identity_of(spec, item)
-        key = _ident_key(identity)
-        index.setdefault(key, (identity, []))[1].append(item)
+        index.setdefault(_ident_key(identity), (identity, []))[1].append(item)
     return index
 
 
-def _drop_identical_duplicates(
-    old_index: dict[tuple[Any, ...], tuple[tuple[tuple[str, Any], ...], list[Any]]],
-    new_index: dict[tuple[Any, ...], tuple[tuple[tuple[str, Any], ...], list[Any]]],
-) -> None:
+def _drop_identical_duplicates(old_index: _IndexMap, new_index: _IndexMap) -> None:
     """Remove duplicated identities whose rows are identical on both sides.
 
     Such a group is no difference (a plan equals itself); only duplicate groups that
@@ -214,73 +109,213 @@ def _drop_identical_duplicates(
             del old_index[key], new_index[key]
 
 
-def _compare_identified(
-    old: list[Any],
-    new: list[Any],
-    loc: Location,
-    spec: IdentitySpec,
-    out: list[PlanDiffEntry],
-    *,
-    fallback: bool,
-) -> None:
-    if spec.collapse_exact_duplicates:
-        old, new = _collapse(old), _collapse(new)
-    old_index, new_index = _index(old, spec), _index(new, spec)
-    _drop_identical_duplicates(old_index, new_index)
-    conflicts = sorted(
-        (
-            key
-            for key in old_index.keys() | new_index.keys()
-            if len(old_index.get(key, (None, []))[1]) > 1
-            or len(new_index.get(key, (None, []))[1]) > 1
-        ),
-        key=repr,
-    )
-    if conflicts:
-        for key in conflicts:
-            identity = (old_index.get(key) or new_index[key])[0]
-            out.append(
+class _Comparer:
+    """Compares two plans and collects entries; knows each side's project root."""
+
+    def __init__(self, old_root: str | None, new_root: str | None) -> None:
+        self.old_root = old_root
+        self.new_root = new_root
+        self.entries: list[PlanDiffEntry] = []
+
+    # -- entries ---------------------------------------------------------------
+
+    def _displays(
+        self, loc: Location, old: Any, new: Any, *, old_present: bool, new_present: bool
+    ) -> tuple[Any, Any]:
+        key_path = _key_path(loc)
+        if not is_path_field(key_path):
+            return None, None
+        root = key_path in ROOT_FIELDS
+
+        def show(value: Any, side_root: str | None, present: bool) -> Any:
+            if not present or not isinstance(value, str):
+                return None
+            shown = display_path(value, None if root else side_root)
+            return {"value": value, "label": "root"} if root else shown.to_dict()
+
+        return (
+            show(old, self.old_root, old_present),
+            show(new, self.new_root, new_present),
+        )
+
+    def _added(
+        self,
+        loc: Location,
+        value: Any,
+        *,
+        whole: DiffSection | None = None,
+        identity: dict[str, Any] | None = None,
+        fallback: bool,
+    ) -> None:
+        _, new_display = self._displays(
+            loc, None, value, old_present=False, new_present=True
+        )
+        self.entries.append(
+            PlanDiffEntry(
+                section=classify(loc, whole_object_section=whole),
+                kind=DiffKind.ADDED,
+                location=loc,
+                old_present=False,
+                new_present=True,
+                new=value,
+                identity=identity,
+                fallback=fallback,
+                new_display=new_display,
+            )
+        )
+
+    def _removed(
+        self,
+        loc: Location,
+        value: Any,
+        *,
+        whole: DiffSection | None = None,
+        identity: dict[str, Any] | None = None,
+        fallback: bool,
+    ) -> None:
+        old_display, _ = self._displays(
+            loc, value, None, old_present=True, new_present=False
+        )
+        self.entries.append(
+            PlanDiffEntry(
+                section=classify(loc, whole_object_section=whole),
+                kind=DiffKind.REMOVED,
+                location=loc,
+                old_present=True,
+                new_present=False,
+                old=value,
+                identity=identity,
+                fallback=fallback,
+                old_display=old_display,
+            )
+        )
+
+    # -- recursion -------------------------------------------------------------
+
+    def compare(
+        self, old: Any, new: Any, loc: Location, *, fallback: bool = False
+    ) -> None:
+        if isinstance(old, dict) and isinstance(new, dict):
+            for key in sorted(set(old) | set(new)):
+                child = (*loc, Key(key))
+                if key not in new:
+                    self._removed(child, old[key], fallback=fallback)
+                elif key not in old:
+                    self._added(child, new[key], fallback=fallback)
+                else:
+                    self.compare(old[key], new[key], child, fallback=fallback)
+        elif isinstance(old, list) and isinstance(new, list):
+            self.compare_list(old, new, loc, fallback=fallback)
+        elif type(old) is not type(new) or old != new:
+            old_display, new_display = self._displays(
+                loc, old, new, old_present=True, new_present=True
+            )
+            self.entries.append(
                 PlanDiffEntry(
-                    section=spec.section,
-                    kind=DiffKind.IDENTITY_CONFLICT,
-                    location=(*loc, Selector(identity)),
-                    old_present=key in old_index,
-                    new_present=key in new_index,
-                    old=old_index[key][1] if key in old_index else None,
-                    new=new_index[key][1] if key in new_index else None,
-                    identity=dict(identity),
+                    section=classify(loc),
+                    kind=DiffKind.CHANGED,
+                    location=loc,
+                    old_present=True,
+                    new_present=True,
+                    old=old,
+                    new=new,
                     fallback=fallback,
+                    old_display=old_display,
+                    new_display=new_display,
                 )
             )
-        _compare_anonymous(old, new, loc, out, fallback=True)
-        return
-    for key in sorted(old_index.keys() | new_index.keys(), key=repr):
-        in_old, in_new = old_index.get(key), new_index.get(key)
-        identity = (in_old or in_new)[0]  # type: ignore[index]
-        child = (*loc, Selector(identity))
-        if in_old is None:
-            assert in_new is not None
-            out.append(
-                _added(
+
+    def compare_list(
+        self, old: list[Any], new: list[Any], loc: Location, *, fallback: bool
+    ) -> None:
+        spec = identity_spec(_key_path(loc))
+        if spec is None:
+            self.compare_anonymous(old, new, loc, fallback=fallback)
+        else:
+            self.compare_identified(old, new, loc, spec, fallback=fallback)
+
+    def compare_anonymous(
+        self, old: list[Any], new: list[Any], loc: Location, *, fallback: bool
+    ) -> None:
+        matcher = SequenceMatcher(
+            None, [_canon(i) for i in old], [_canon(i) for i in new], autojunk=False
+        )
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                continue
+            paired = min(i2 - i1, j2 - j1) if tag == "replace" else 0
+            for k in range(paired):
+                self.compare(
+                    old[i1 + k], new[j1 + k], (*loc, Index(j1 + k)), fallback=fallback
+                )
+            for i in range(i1 + paired, i2):
+                self._removed((*loc, Index(i)), old[i], fallback=fallback)
+            for j in range(j1 + paired, j2):
+                self._added((*loc, Index(j)), new[j], fallback=fallback)
+
+    def compare_identified(
+        self,
+        old: list[Any],
+        new: list[Any],
+        loc: Location,
+        spec: IdentitySpec,
+        *,
+        fallback: bool,
+    ) -> None:
+        if spec.collapse_exact_duplicates:
+            old, new = _collapse(old), _collapse(new)
+        old_index, new_index = _index(old, spec), _index(new, spec)
+        _drop_identical_duplicates(old_index, new_index)
+        conflicts = sorted(
+            (
+                key
+                for key in old_index.keys() | new_index.keys()
+                if len(old_index.get(key, (None, []))[1]) > 1
+                or len(new_index.get(key, (None, []))[1]) > 1
+            ),
+            key=repr,
+        )
+        if conflicts:
+            for key in conflicts:
+                identity = (old_index.get(key) or new_index[key])[0]
+                self.entries.append(
+                    PlanDiffEntry(
+                        section=spec.section,
+                        kind=DiffKind.IDENTITY_CONFLICT,
+                        location=(*loc, Selector(identity)),
+                        old_present=key in old_index,
+                        new_present=key in new_index,
+                        old=old_index[key][1] if key in old_index else None,
+                        new=new_index[key][1] if key in new_index else None,
+                        identity=dict(identity),
+                        fallback=fallback,
+                    )
+                )
+            self.compare_anonymous(old, new, loc, fallback=True)
+            return
+        for key in sorted(old_index.keys() | new_index.keys(), key=repr):
+            in_old, in_new = old_index.get(key), new_index.get(key)
+            identity = (in_old or in_new)[0]  # type: ignore[index]
+            child = (*loc, Selector(identity))
+            if in_old is None:
+                assert in_new is not None
+                self._added(
                     child,
                     in_new[1][0],
                     whole=spec.section,
                     identity=dict(identity),
                     fallback=fallback,
                 )
-            )
-        elif in_new is None:
-            out.append(
-                _removed(
+            elif in_new is None:
+                self._removed(
                     child,
                     in_old[1][0],
                     whole=spec.section,
                     identity=dict(identity),
                     fallback=fallback,
                 )
-            )
-        else:
-            _compare(in_old[1][0], in_new[1][0], child, out, fallback=fallback)
+            else:
+                self.compare(in_old[1][0], in_new[1][0], child, fallback=fallback)
 
 
 def _flow_version(plan: Mapping[str, Any]) -> str | None:

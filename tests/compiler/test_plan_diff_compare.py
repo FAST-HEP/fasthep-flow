@@ -407,3 +407,45 @@ def test_conflict_is_reported_only_when_duplicate_groups_differ() -> None:
     report = _diff(old, new)
     assert DiffKind.IDENTITY_CONFLICT in [e.kind for e in report.entries]
     assert report.semantically_equal
+
+
+def test_changed_path_leaf_carries_displays_relative_to_each_root() -> None:
+    old = _mutated(lambda p: p["context"].update(workflow_path="/a/wf.yaml"))
+    new = _mutated(
+        lambda p: p["context"].update(
+            workflow_path="/b/skim/wf.yaml", project_root="/b"
+        )
+    )
+    entries = [
+        e
+        for e in _diff(old, new).entries
+        if e.rendered_location == "context.workflow_path"
+    ]
+    (entry,) = entries
+    assert (entry.old, entry.new) == ("/a/wf.yaml", "/b/skim/wf.yaml")
+    assert entry.old_display == {"value": "wf.yaml", "label": "relative"}
+    assert entry.new_display == {"value": "skim/wf.yaml", "label": "relative"}
+
+
+def test_non_path_leaf_gets_no_display() -> None:
+    (entry,) = _diff(
+        _plan(), _mutated(lambda p: p["nodes"][0]["params"].update(path="b.txt", x=1))
+    ).entries
+    assert entry.old_display is None
+    assert entry.new_display is None
+
+
+def test_path_display_without_a_recorded_root() -> None:
+    old = _mutated(lambda p: p["context"].pop("project_root"))
+    new = copy.deepcopy(old)
+    new["context"]["workflow_path"] = "/c/wf.yaml"
+    (entry,) = _diff(old, new).entries
+    assert entry.new_display == {"value": "/c/wf.yaml", "label": "no_root"}
+
+
+def test_root_fields_are_displayed_as_written_with_the_root_label() -> None:
+    old = _mutated(lambda p: p["provenance"].update(root="/a"))
+    new = _mutated(lambda p: p["provenance"].update(root="/b"))
+    (entry,) = _diff(old, new).entries
+    assert entry.old_display == {"value": "/a", "label": "root"}
+    assert entry.new_display == {"value": "/b", "label": "root"}
