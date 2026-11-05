@@ -213,3 +213,16 @@ def test_classifier_version_guard() -> None:
         1,
         "4415ea01960951db5ed6ed5fef8c4fd3d29bc38c3f61b7ae9b0a050992a73f1e",
     ), "table changed: bump CLASSIFIER_VERSION and update the pinned hash"
+
+
+def test_docs_list_every_classifier_row() -> None:
+    page = (
+        Path(__file__).resolve().parents[2] / "docs" / "reference" / "plan-diff.md"
+    ).read_text(encoding="utf-8")
+    missing = [
+        ".".join(prefix)
+        for prefix, _ in classifier_table()
+        if f"`{'.'.join(prefix)}`" not in page
+    ]
+    assert missing == []
+    assert f"Classifier version: {CLASSIFIER_VERSION}" in page
