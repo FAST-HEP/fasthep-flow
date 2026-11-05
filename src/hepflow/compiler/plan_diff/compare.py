@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -12,7 +13,12 @@ import yaml
 
 from hepflow.compiler.plan_diff.classify import CLASSIFIER_VERSION, classify
 from hepflow.compiler.plan_diff.errors import InvalidPlan
-from hepflow.compiler.plan_diff.identity import IdentitySpec, identity_of, identity_spec
+from hepflow.compiler.plan_diff.identity import (
+    IdentitySpec,
+    MoveSpec,
+    identity_of,
+    identity_spec,
+)
 from hepflow.compiler.plan_diff.model import (
     DiffKind,
     DiffSection,
@@ -78,6 +84,8 @@ def _collapse(items: list[Any]) -> list[Any]:
             kept.append(item)
     return kept
 
+
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 _IndexMap = dict[tuple[Any, ...], tuple[tuple[tuple[str, Any], ...], list[Any]]]
 
@@ -293,29 +301,115 @@ class _Comparer:
                 )
             self.compare_anonymous(old, new, loc, fallback=True)
             return
+        removed: list[tuple[tuple[tuple[str, Any], ...], Any]] = []
+        added: list[tuple[tuple[tuple[str, Any], ...], Any]] = []
         for key in sorted(old_index.keys() | new_index.keys(), key=repr):
             in_old, in_new = old_index.get(key), new_index.get(key)
-            identity = (in_old or in_new)[0]  # type: ignore[index]
-            child = (*loc, Selector(identity))
             if in_old is None:
                 assert in_new is not None
-                self._added(
-                    child,
-                    in_new[1][0],
-                    whole=spec.section,
-                    identity=dict(identity),
-                    fallback=fallback,
-                )
+                added.append((in_new[0], in_new[1][0]))
             elif in_new is None:
-                self._removed(
-                    child,
+                removed.append((in_old[0], in_old[1][0]))
+            else:
+                identity = in_old[0]
+                self.compare(
                     in_old[1][0],
-                    whole=spec.section,
-                    identity=dict(identity),
+                    in_new[1][0],
+                    (*loc, Selector(identity)),
                     fallback=fallback,
                 )
-            else:
-                self.compare(in_old[1][0], in_new[1][0], child, fallback=fallback)
+        if spec.move is not None:
+            removed, added = self._pair_moves(spec.move, loc, removed, added, fallback)
+        for identity, row in removed:
+            self._removed(
+                (*loc, Selector(identity)),
+                row,
+                whole=spec.section,
+                identity=dict(identity),
+                fallback=fallback,
+            )
+        for identity, row in added:
+            self._added(
+                (*loc, Selector(identity)),
+                row,
+                whole=spec.section,
+                identity=dict(identity),
+                fallback=fallback,
+            )
+
+    def _pair_moves(
+        self,
+        move: MoveSpec,
+        loc: Location,
+        removed: list[tuple[tuple[tuple[str, Any], ...], Any]],
+        added: list[tuple[tuple[tuple[str, Any], ...], Any]],
+        fallback: bool,
+    ) -> tuple[
+        list[tuple[tuple[tuple[str, Any], ...], Any]],
+        list[tuple[tuple[tuple[str, Any], ...], Any]],
+    ]:
+        """Pair unmatched rows into moves; anything not uniquely and fully evidenced stays."""
+
+        def group(
+            rows: list[tuple[tuple[tuple[str, Any], ...], Any]],
+        ) -> dict[Any, list[int]]:
+            groups: dict[Any, list[int]] = {}
+            for position, (_, row) in enumerate(rows):
+                digest = row.get(move.hash_field)
+                if not isinstance(digest, str) or not _SHA256.match(digest):
+                    continue
+                key = tuple(
+                    (name, type(row.get(name)).__name__, row.get(name))
+                    for name in move.pair_key
+                )
+                groups.setdefault(key, []).append(position)
+            return groups
+
+        old_groups, new_groups = group(removed), group(added)
+        paired_old: set[int] = set()
+        paired_new: set[int] = set()
+        for key in sorted(old_groups.keys() & new_groups.keys(), key=repr):
+            if len(old_groups[key]) != 1 or len(new_groups[key]) != 1:
+                continue
+            i, j = old_groups[key][0], new_groups[key][0]
+            old_row, new_row = removed[i][1], added[j][1]
+            if any(
+                (name in old_row) != (name in new_row)
+                or type(old_row.get(name)) is not type(new_row.get(name))
+                or old_row.get(name) != new_row.get(name)
+                for name in move.metadata_fields
+            ):
+                continue
+            paired_old.add(i)
+            paired_new.add(j)
+            identity = {name: old_row.get(name) for name in move.pair_key}
+            self.entries.append(
+                PlanDiffEntry(
+                    section=DiffSection.PROVENANCE,
+                    kind=DiffKind.MOVED,
+                    location=(*loc, Selector(tuple(identity.items()))),
+                    old_present=True,
+                    new_present=True,
+                    old=old_row,
+                    new=new_row,
+                    identity=identity,
+                    fallback=fallback,
+                    old_display=self._row_display(old_row, self.old_root),
+                    new_display=self._row_display(new_row, self.new_root),
+                )
+            )
+        return (
+            [r for n, r in enumerate(removed) if n not in paired_old],
+            [r for n, r in enumerate(added) if n not in paired_new],
+        )
+
+    @staticmethod
+    def _row_display(row: dict[str, Any], root: str | None) -> dict[str, Any]:
+        return {
+            name: display_path(row[name], root).to_dict()
+            for name in ("declared", "resolved")
+            if isinstance(row.get(name), str)
+        }
 
 
 def _flow_version(plan: Mapping[str, Any]) -> str | None:

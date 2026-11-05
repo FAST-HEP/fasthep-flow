@@ -12,12 +12,25 @@ from hepflow.compiler.plan_diff.model import DiffSection
 
 
 @dataclass(frozen=True)
+class MoveSpec:
+    """How unmatched rows of an identified list are paired into a move."""
+
+    pair_key: tuple[str, ...]
+    hash_field: str
+    #: Fields that may legitimately differ in a move.
+    location_fields: tuple[str, ...]
+    #: Fields that must be equal for rows to count as the same thing at a new place.
+    metadata_fields: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class IdentitySpec:
     fields: tuple[str, ...]
     #: Section of a whole added or removed object of this list.
     section: DiffSection
     #: Whether rows that are equal in every field collapse to one before matching.
     collapse_exact_duplicates: bool = False
+    move: MoveSpec | None = None
 
 
 _G, _D, _R, _P = (
@@ -34,7 +47,17 @@ _SPECS: dict[tuple[str, ...], IdentitySpec] = {
     ("partitions",): IdentitySpec(("source", "dataset", "file", "part"), _D),
     ("nodes", "inputs"): IdentitySpec(("node_id", "input_name"), _G),
     ("reports",): IdentitySpec(("id",), _R),
-    ("provenance", "inputs"): IdentitySpec(("role", "declared"), _P, True),
+    ("provenance", "inputs"): IdentitySpec(
+        ("role", "declared"),
+        _P,
+        True,
+        MoveSpec(
+            pair_key=("role", "sha256"),
+            hash_field="sha256",
+            location_fields=("declared", "resolved", "origin"),
+            metadata_fields=("size", "note"),
+        ),
+    ),
     ("provenance", "registry_layers"): _LAYER,
     ("provenance", "execution_layers"): _LAYER,
     ("provenance", "execution_hook_layers"): _LAYER,

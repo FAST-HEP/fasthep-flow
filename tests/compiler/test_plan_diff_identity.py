@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from hepflow.compiler.plan_diff.identity import identity_of, identity_spec
+from hepflow.compiler.plan_diff.identity import (
+    identity_of,
+    identity_spec,
+    registered_paths,
+)
 from hepflow.compiler.plan_diff.model import DiffSection
 
 G, D, R, P = (
@@ -81,3 +85,17 @@ def test_identity_of_returns_ordered_field_value_pairs() -> None:
         ("file", "f"),
         ("part", 1),
     )
+
+
+def test_only_provenance_inputs_has_a_move_spec() -> None:
+    with_move = {}
+    for path in registered_paths():
+        spec = identity_spec(path)
+        if spec is not None and spec.move is not None:
+            with_move[path] = spec.move
+    assert list(with_move) == [("provenance", "inputs")]
+    move = with_move[("provenance", "inputs")]
+    assert move.pair_key == ("role", "sha256")
+    assert move.hash_field == "sha256"
+    assert move.location_fields == ("declared", "resolved", "origin")
+    assert move.metadata_fields == ("size", "note")
