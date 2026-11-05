@@ -186,3 +186,22 @@ def test_error_codes() -> None:
     assert NoPlanFound("p").code == "no_plan_found"
     assert AmbiguousPlans("p", []).code == "ambiguous_plans"
     assert InvalidPlan("m").code == "invalid_plan"
+
+
+def test_relative_compile_directory_resolves_declared_plans(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (plan,) = _variations(tmp_path, ["only"])
+    monkeypatch.chdir(tmp_path / "compile")
+
+    assert resolve_plan_input(".").resolve() == plan.resolve()
+    assert resolve_plan_input("..").resolve() == plan.resolve()
+
+
+def test_non_utf8_systematics_yaml_is_invalid(tmp_path: Path) -> None:
+    path = tmp_path / "compile" / "systematics.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"\xff\xfe\x00bad")
+
+    with pytest.raises(InvalidPlan):
+        resolve_plan_input(tmp_path)

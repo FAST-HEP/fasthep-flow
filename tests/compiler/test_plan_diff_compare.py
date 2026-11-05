@@ -456,3 +456,12 @@ def test_a_directory_is_not_a_plan_file(tmp_path: Path) -> None:
     good.write_text(yaml.safe_dump(_plan()), encoding="utf-8")
     with pytest.raises(InvalidPlan):
         diff_plan_files(good, tmp_path)
+
+
+def test_unreadable_plan_file_is_invalid_plan(tmp_path: Path) -> None:
+    good = tmp_path / "good.yaml"
+    good.write_text(yaml.safe_dump(_plan()), encoding="utf-8")
+    binary = tmp_path / "binary.yaml"
+    binary.write_bytes(b"\xff\xfe\x00not utf-8")
+    with pytest.raises(InvalidPlan):
+        diff_plan_files(good, binary)

@@ -61,8 +61,10 @@ def _load(path: str | Path, side: str) -> Any:
         raise InvalidPlan(f"{side} plan {location} is a directory, not a plan file")
     try:
         return read_yaml(location)
-    except yaml.YAMLError as error:
+    except (yaml.YAMLError, UnicodeDecodeError) as error:
         raise InvalidPlan(f"{side} plan is not valid YAML: {error}") from error
+    except OSError as error:
+        raise InvalidPlan(f"{side} plan cannot be read: {error}") from error
 
 
 def _project_root(plan: Mapping[str, Any]) -> str | None:

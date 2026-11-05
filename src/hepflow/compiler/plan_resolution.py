@@ -48,7 +48,8 @@ def resolve_plan_input(path: str | Path) -> Path:
         build_root = candidate
         compile_dir = BuildPaths(root=candidate).compile_dir()
     elif direct:
-        build_root = candidate.parent
+        # lexical parent of the absolute path: '.' and '..' still have a real parent
+        build_root = Path(posixpath.normpath(candidate.absolute())).parent
         compile_dir = candidate
     else:
         raise NoPlanFound(candidate)
@@ -81,8 +82,10 @@ def _select_declared(origin: Path, build_root: Path, manifest: Path) -> Path:
 def _declared(manifest: Path, build_root: Path) -> list[tuple[str, Path]]:
     try:
         data: Any = read_yaml(manifest)
-    except yaml.YAMLError as error:
+    except (yaml.YAMLError, UnicodeDecodeError) as error:
         raise InvalidPlan(f"{manifest} is not valid YAML: {error}") from error
+    except OSError as error:
+        raise InvalidPlan(f"{manifest} cannot be read: {error}") from error
     variations = data.get("variations") if isinstance(data, dict) else None
     if variations is None and isinstance(data, dict):
         variations = []
