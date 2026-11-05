@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
+from hepflow.compiler.plan_diff.compare import diff_plan_files, diff_plans
 from hepflow.compiler.plan_diff.errors import (
     EmptyScopeError,
     InvalidPlan,
     PlanDiffError,
-)
-from hepflow.compiler.plan_diff.legacy import (
-    diff_plans,
-    format_plan_diff,
-    load_plan_yaml,
 )
 from hepflow.compiler.plan_diff.model import (
     DiffKind,
@@ -31,7 +27,6 @@ __all__ = [
     "PlanDiffReport",
     "PlanDiffScope",
     "PlanDiffWarning",
+    "diff_plan_files",
     "diff_plans",
-    "format_plan_diff",
-    "load_plan_yaml",
 ]

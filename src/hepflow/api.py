@@ -31,7 +31,7 @@ from hepflow.compiler.includes import load_workflow_with_includes
 from hepflow.compiler.inputs_manifest import InputCollector
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
-from hepflow.compiler.plan_diff import (
+from hepflow.compiler.plan_diff.legacy import (
     diff_plans,
     format_plan_diff,
     load_plan_yaml,
