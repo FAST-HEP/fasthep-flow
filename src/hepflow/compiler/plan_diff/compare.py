@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from hepflow.compiler.plan_diff.classify import CLASSIFIER_VERSION, classify
-from hepflow.compiler.plan_diff.errors import InvalidPlan
+from hepflow.compiler.plan_diff.errors import InputNotFound, InvalidPlan
 from hepflow.compiler.plan_diff.identity import (
     IdentitySpec,
     MoveSpec,
@@ -36,7 +36,7 @@ from hepflow.utils import read_yaml
 
 
 def diff_plan_files(old_plan: str | Path, new_plan: str | Path) -> PlanDiffReport:
-    """Load two plan files and compare them; a missing file is not handled here."""
+    """Load two plan files and compare them."""
     return diff_plans(_load(old_plan, "old"), _load(new_plan, "new"))
 
 
@@ -54,8 +54,13 @@ def diff_plans(old: Mapping[str, Any], new: Mapping[str, Any]) -> PlanDiffReport
 
 
 def _load(path: str | Path, side: str) -> Any:
+    location = Path(path)
+    if not location.exists():
+        raise InputNotFound(location)
+    if location.is_dir():
+        raise InvalidPlan(f"{side} plan {location} is a directory, not a plan file")
     try:
-        return read_yaml(path)
+        return read_yaml(location)
     except yaml.YAMLError as error:
         raise InvalidPlan(f"{side} plan is not valid YAML: {error}") from error
 

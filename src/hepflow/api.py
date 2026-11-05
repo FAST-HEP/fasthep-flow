@@ -32,10 +32,13 @@ from hepflow.compiler.inputs_manifest import InputCollector
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.compiler.plan_diff import (
+    AmbiguousPlans,
     DiffKind,
     DiffSection,
     EmptyScopeError,
+    InputNotFound,
     InvalidPlan,
+    NoPlanFound,
     PlanDiffEntry,
     PlanDiffError,
     PlanDiffReport,
@@ -43,6 +46,7 @@ from hepflow.compiler.plan_diff import (
     PlanDiffWarning,
 )
 from hepflow.compiler.plan_diff import diff_plan_files as _diff_plan_files
+from hepflow.compiler.plan_resolution import resolve_plan_input as _resolve_plan_input
 from hepflow.compiler.recompile import (
     BundleReport,
     BundleVerificationError,
@@ -87,12 +91,15 @@ from hepflow.runtime.reports import run_workflow_reports
 from hepflow.utils import read_yaml, write_yaml
 
 __all__ = [
+    "AmbiguousPlans",
     "BundleReport",
     "DiffKind",
     "DiffSection",
     "EmptyScopeError",
     "InitResult",
+    "InputNotFound",
     "InvalidPlan",
+    "NoPlanFound",
     "PlanDiffEntry",
     "PlanDiffError",
     "PlanDiffReport",
@@ -110,6 +117,7 @@ __all__ = [
     "provenance_artifact_text",
     "provenance_graph_text",
     "provenance_summary_text",
+    "resolve_plan_input",
     "run_plan_file",
     "run_workflow_file",
 ]
@@ -544,6 +552,15 @@ def diff_plan_files(
     be compared.
     """
     return _diff_plan_files(old_plan, new_plan)
+
+
+def resolve_plan_input(path: str | Path) -> Path:
+    """Resolve a plan file, build root or ``compile/`` directory to one plan file.
+
+    Raises :class:`InputNotFound`, :class:`NoPlanFound`, :class:`AmbiguousPlans` (several
+    declared variation plans; pass an explicit plan file) or :class:`InvalidPlan`.
+    """
+    return _resolve_plan_input(path)
 
 
 def provenance_summary_text(outdir: str | Path) -> str:

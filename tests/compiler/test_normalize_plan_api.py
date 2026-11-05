@@ -25,12 +25,15 @@ from hepflow.utils import read_yaml
 
 def test_public_api_exports_stable_facade_symbols() -> None:
     assert api.__all__ == [
+        "AmbiguousPlans",
         "BundleReport",
         "DiffKind",
         "DiffSection",
         "EmptyScopeError",
         "InitResult",
+        "InputNotFound",
         "InvalidPlan",
+        "NoPlanFound",
         "PlanDiffEntry",
         "PlanDiffError",
         "PlanDiffReport",
@@ -48,6 +51,7 @@ def test_public_api_exports_stable_facade_symbols() -> None:
         "provenance_artifact_text",
         "provenance_graph_text",
         "provenance_summary_text",
+        "resolve_plan_input",
         "run_plan_file",
         "run_workflow_file",
     ]

@@ -449,3 +449,10 @@ def test_root_fields_are_displayed_as_written_with_the_root_label() -> None:
     (entry,) = _diff(old, new).entries
     assert entry.old_display == {"value": "/a", "label": "root"}
     assert entry.new_display == {"value": "/b", "label": "root"}
+
+
+def test_a_directory_is_not_a_plan_file(tmp_path: Path) -> None:
+    good = tmp_path / "good.yaml"
+    good.write_text(yaml.safe_dump(_plan()), encoding="utf-8")
+    with pytest.raises(InvalidPlan):
+        diff_plan_files(good, tmp_path)

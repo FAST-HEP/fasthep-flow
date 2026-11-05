@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from hepflow.compiler.plan_diff.compare import diff_plan_files, diff_plans
 from hepflow.compiler.plan_diff.errors import (
+    AmbiguousPlans,
     EmptyScopeError,
+    InputNotFound,
     InvalidPlan,
+    NoPlanFound,
     PlanDiffError,
 )
 from hepflow.compiler.plan_diff.model import (
