@@ -18,10 +18,13 @@ from hepflow.compiler.plan_diff.model import (
 )
 
 __all__ = [
+    "AmbiguousPlans",
     "DiffKind",
     "DiffSection",
     "EmptyScopeError",
+    "InputNotFound",
     "InvalidPlan",
+    "NoPlanFound",
     "PlanDiffEntry",
     "PlanDiffError",
     "PlanDiffReport",
