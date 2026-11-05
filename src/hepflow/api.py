@@ -31,11 +31,18 @@ from hepflow.compiler.includes import load_workflow_with_includes
 from hepflow.compiler.inputs_manifest import InputCollector
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
-from hepflow.compiler.plan_diff.legacy import (
-    diff_plans,
-    format_plan_diff,
-    load_plan_yaml,
+from hepflow.compiler.plan_diff import (
+    DiffKind,
+    DiffSection,
+    EmptyScopeError,
+    InvalidPlan,
+    PlanDiffEntry,
+    PlanDiffError,
+    PlanDiffReport,
+    PlanDiffScope,
+    PlanDiffWarning,
 )
+from hepflow.compiler.plan_diff import diff_plan_files as _diff_plan_files
 from hepflow.compiler.recompile import (
     BundleReport,
     BundleVerificationError,
@@ -81,7 +88,16 @@ from hepflow.utils import read_yaml, write_yaml
 
 __all__ = [
     "BundleReport",
+    "DiffKind",
+    "DiffSection",
+    "EmptyScopeError",
     "InitResult",
+    "InvalidPlan",
+    "PlanDiffEntry",
+    "PlanDiffError",
+    "PlanDiffReport",
+    "PlanDiffScope",
+    "PlanDiffWarning",
     "compile_from_bundle",
     "compile_workflow_file",
     "diff_plan_files",
@@ -520,13 +536,14 @@ def run_workflow_file(
 def diff_plan_files(
     old_plan: str | Path,
     new_plan: str | Path,
-) -> tuple[str, bool]:
-    """Return a formatted structural diff and equality flag for two plan files."""
-    report = diff_plans(
-        load_plan_yaml(old_plan),
-        load_plan_yaml(new_plan),
-    )
-    return format_plan_diff(report), report.equal
+) -> PlanDiffReport:
+    """Compare two compiled plan files and return the structured report.
+
+    ``PlanDiffReport.equal`` is true without any difference; ``semantically_equal`` is true
+    when every difference is provenance. Raises :class:`InvalidPlan` for a plan that cannot
+    be compared.
+    """
+    return _diff_plan_files(old_plan, new_plan)
 
 
 def provenance_summary_text(outdir: str | Path) -> str:

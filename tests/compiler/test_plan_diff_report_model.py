@@ -13,6 +13,7 @@ from hepflow.compiler.plan_diff.model import (
     Key,
     PlanDiffEntry,
     PlanDiffReport,
+    PlanDiffWarning,
     Selector,
     render_location,
 )
@@ -111,7 +112,8 @@ def test_to_dict_is_json_serialisable_and_distinguishes_null_from_absent() -> No
     data = _report(present_null, absent).to_dict()
     json.dumps(data, sort_keys=True)
     by_loc = {e["rendered_location"]: e for e in data["entries"]}
-    assert "old" in by_loc["a"] and by_loc["a"]["old"] is None
+    assert "old" in by_loc["a"]
+    assert by_loc["a"]["old"] is None
     assert "old" not in by_loc["b"]
     assert data["report_schema_version"] == 1
     assert data["classifier_version"] == 1
@@ -128,17 +130,17 @@ def test_scoped_applies_include_then_ignore_and_recomputes_equality() -> None:
         ignore=[DiffSection.GRAPH],
     )
     assert view.entries == (prov,)
-    assert view.semantically_equal and not view.equal
+    assert view.semantically_equal
+    assert not view.equal
     assert view.to_dict()["scope"] == {
         "include": ["graph", "provenance"],
         "ignore": ["graph"],
     }
-    assert report.entries == (graph, prov) and report.scope is None
+    assert report.entries == (graph, prov)
+    assert report.scope is None
 
 
 def test_scoped_keeps_warnings() -> None:
-    from hepflow.compiler.plan_diff.model import PlanDiffWarning
-
     warning = PlanDiffWarning(code="w", message="m")
     report = PlanDiffReport([], classifier_version=1, warnings=[warning]).scoped(
         ignore=[DiffSection.UNKNOWN]
