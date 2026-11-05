@@ -618,6 +618,11 @@ provenance:
 
 The provenance section can also record which registry entries were added or overwritten by each layer.
 
+`provenance.compilation.flow_version` is the installed `fasthep-flow` version that compiled the plan
+(`0+unknown` for a source tree without version metadata). It is provenance: when two plans are
+compared, a different version is reported as a provenance difference and never changes the
+analysis itself.
+
 This information is primarily useful for:
 
 - debugging capability resolution
