@@ -21,9 +21,6 @@ counts towards semantic inequality, including execution policy and report config
 fields fail closed: a changed field the classifier does not know belongs to `unknown` and counts as
 semantic.
 
-Move detection (a relocated file with the same hash) and project-root-relative path display are
-not part of this version yet.
-
 ## Sections
 
 The public order is fixed: `graph`, `data`, `execution`, `reports`, `provenance`, `unknown`.
@@ -86,6 +83,81 @@ Every other list is anonymous and order-sensitive. It is compared by sequence al
 insertion is one `added` entry rather than a shift of every later index; a pure reorder remains a
 difference.
 
+## Moves
+
+A relocated input is one `moved` entry, not an `added` plus a `removed`. It is a `provenance`
+entry: `equal` is false and `semantically_equal` is unaffected.
+
+Moves are looked for among the unmatched rows of `provenance.inputs` (identity `(role, declared)`).
+A move is reported only when all of these hold:
+
+- one removed and one added row pair uniquely on `(role, sha256)`;
+- both rows carry a valid canonical SHA-256 (64 lowercase hex characters);
+- the SHA-256 values match;
+- the non-location metadata matches: `size` and `note`.
+
+The location fields that may differ are `declared`, `resolved` and `origin`. Nothing is guessed:
+ambiguous equal hashes (several rows sharing `(role, sha256)` on either side), a missing or
+malformed hash, a changed role, size or note all leave the rows as plain `added` / `removed`
+entries. A row whose `(role, declared)` is unchanged but whose `resolved` path differs is an
+ordinary `changed` leaf, not a move. Compile-hook records (`nodes[].meta.compile_hooks`) and layer
+`path` fields are never paired; they are `changed` leaves with path display.
+
+## Path display
+
+Each side is displayed relative to its own recorded `context.project_root`. The registry of
+path-valued fields is exact (no key-name guessing):
+
+- `context.workflow_path`
+- `context.project_root`
+- `provenance.root`
+- `provenance.inputs.declared`
+- `provenance.inputs.resolved`
+- `provenance.registry_layers.path`
+- `provenance.execution_layers.path`
+- `provenance.execution_hook_layers.path`
+- `nodes.meta.compile_hooks.*.resolved_path`
+
+Normalisation is lexical (`posixpath`); it never resolves symlinks or reads the filesystem. The
+display value of a leaf entry is `{"value", "label"}` in `old_display` / `new_display`, with the
+raw value kept in `old` / `new`. A moved entry has a display for `declared` and `resolved` per
+side. Labels:
+
+| Label | Meaning |
+|---|---|
+| `relative` | under the recorded root (shown relative to it; the root itself is `.`); an already relative value stays as written |
+| `external` | an absolute path outside the root, unchanged |
+| `uri` | `scheme://...`, unchanged |
+| `no_root` | the plan records no `context.project_root` (older plans), unchanged |
+| `root` | the root fields themselves, shown as written |
+
+Whole added or removed objects expose raw values only.
+
+## Resolving a build directory
+
+`hepflow.api.resolve_plan_input(path)` turns what a user passes into one plan file; `diff_plan_files`
+itself always takes files.
+
+1. An existing regular file is returned exactly as supplied (its contents are not read here).
+2. A directory is a build root (it holds `compile/`) or a compile directory (it holds `plan.yaml` or
+   `systematics.yaml`); both at once is an error.
+3. `compile/plan.yaml` is the canonical plan of standard and inline-systematics builds. If both
+   `plan.yaml` and `systematics.yaml` are present the layout is conflicting.
+4. Otherwise `systematics.yaml` supplies the candidates: only its `variations[].plan` entries, which
+   are relative to the build root and include the `compile/` prefix.
+5. Exactly one declared plan is selected. Several raise `AmbiguousPlans`, listing each variation name
+   and path; `nominal` is never chosen silently.
+
+Nothing is searched recursively. Errors carry a stable `code`:
+
+| Error | Code | When |
+|---|---|---|
+| `InputNotFound` | `input_not_found` | the path or a declared plan does not exist |
+| `NoPlanFound` | `no_plan_found` | a directory holds no plan, or `systematics.yaml` declares none |
+| `AmbiguousPlans` | `ambiguous_plans` | several declared plans; pass an explicit plan file |
+| `InvalidPlan` | `invalid_plan` | malformed or duplicate declarations, a path escaping the build root, conflicting artifacts, a plan that fails validation |
+| `PlanDiffError` | `comparison_failed` | base class and fallback for any other comparison failure |
+
 ## Validation
 
 Both plans are validated before comparison without being modified: the root must be a mapping,
@@ -97,7 +169,7 @@ violation raises `InvalidPlan` with the path of the offending value.
 
 `PlanDiffReport` exposes `entries`, `warnings`, `equal`, `semantically_equal`, `counts()`, `scoped()`
 and `to_dict()`. Entry kinds are `added`, `removed`, `changed`, `moved` and `identity_conflict`
-(`moved` is produced by a later version). Each `PlanDiffEntry` has a section, kind, typed
+(`moved` pairs a relocated input, see above). Each `PlanDiffEntry` has a section, kind, typed
 `location` (mapping keys, sequence positions, identity selectors), a rendered location, identity,
 `old_present` / `new_present`, the raw `old` / `new` values and a `fallback` flag. Counts count
 entries, not every scalar inside an added object. Entries are ordered by section, then location,
@@ -134,6 +206,13 @@ A changed parameter: one graph entry.
 
 ```text
 graph  changed  nodes[id='Scale'].params.factor  2.0 -> 3.0
+```
+
+A relocated input (same hash, new path): one provenance move.
+
+```text
+provenance  moved  provenance.inputs[role='workflow',sha256='3b0c...']
+                   skim/legacy/Run3/x.yaml -> skim/productions/x.yaml
 ```
 
 A field the classifier does not know: fail-closed.

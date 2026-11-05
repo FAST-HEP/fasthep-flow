@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from hepflow.compiler.plan_diff.paths import (
+    PATH_FIELDS,
     PathDisplay,
     display_path,
     is_path_field,
@@ -89,3 +92,11 @@ def test_path_fields_are_exact_structural_paths(path: tuple[str, ...]) -> None:
 )
 def test_other_paths_are_not_path_fields(path: tuple[str, ...]) -> None:
     assert not is_path_field(path)
+
+
+def test_docs_list_every_path_field() -> None:
+    page = (
+        Path(__file__).resolve().parents[2] / "docs" / "reference" / "plan-diff.md"
+    ).read_text(encoding="utf-8")
+    missing = [".".join(p) for p in PATH_FIELDS if f"`{'.'.join(p)}`" not in page]
+    assert missing == []
