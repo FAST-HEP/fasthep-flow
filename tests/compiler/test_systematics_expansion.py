@@ -9,6 +9,7 @@ import pytest
 import yaml
 from tests.toy_components import compile_hooks
 
+import hepflow
 from hepflow.api import (
     compile_workflow_file,
     make_plan_file,
@@ -987,3 +988,19 @@ def test_source_graphs_survive_render_hook_failure(
     assert (outdir / "compile" / "nominal" / "plan.yaml").is_file()
     for extension in ("mmd", "dot", "json", "d2"):
         assert (outdir / "graph" / "nominal" / f"graph.{extension}").is_file()
+
+
+def test_every_variation_plan_records_flow_version(
+    toy_workflow: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_workflow(tmp_path, _workflow_with_systematics(toy_workflow))
+    build_dir = tmp_path / "build"
+
+    compile_workflow_file(workflow_path, outdir=build_dir)
+
+    summary = read_yaml(build_dir / "compile" / "systematics.yaml")
+    assert len(summary["variations"]) == 2
+    for variation in summary["variations"]:
+        plan = read_yaml(build_dir / variation["plan"])
+        assert plan["provenance"]["compilation"] == {"flow_version": hepflow.__version__}
