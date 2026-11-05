@@ -196,6 +196,24 @@ def _index(
     return index
 
 
+def _drop_identical_duplicates(
+    old_index: dict[tuple[Any, ...], tuple[tuple[tuple[str, Any], ...], list[Any]]],
+    new_index: dict[tuple[Any, ...], tuple[tuple[tuple[str, Any], ...], list[Any]]],
+) -> None:
+    """Remove duplicated identities whose rows are identical on both sides.
+
+    Such a group is no difference (a plan equals itself); only duplicate groups that
+    differ between the plans are conflicts.
+    """
+    for key in old_index.keys() & new_index.keys():
+        old_rows, new_rows = old_index[key][1], new_index[key][1]
+        duplicated = len(old_rows) > 1 or len(new_rows) > 1
+        if duplicated and sorted(map(_canon, old_rows)) == sorted(
+            map(_canon, new_rows)
+        ):
+            del old_index[key], new_index[key]
+
+
 def _compare_identified(
     old: list[Any],
     new: list[Any],
@@ -208,6 +226,7 @@ def _compare_identified(
     if spec.collapse_exact_duplicates:
         old, new = _collapse(old), _collapse(new)
     old_index, new_index = _index(old, spec), _index(new, spec)
+    _drop_identical_duplicates(old_index, new_index)
     conflicts = sorted(
         (
             key

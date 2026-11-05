@@ -380,3 +380,30 @@ def test_diff_plan_files_on_real_compiled_plans(
     assert report.semantically_equal
     assert report.entries
     assert {e.section for e in report.entries} == {P}
+
+
+def test_a_plan_with_duplicate_identities_equals_itself() -> None:
+    def duplicate_rows(plan: dict[str, Any]) -> None:
+        first = plan["provenance"]["inputs"][0]
+        plan["provenance"]["inputs"].append(dict(first, resolved="/elsewhere/wf.yaml"))
+        plan["nodes"][0]["inputs"].append(
+            {"node_id": "src", "output_name": "other", "input_name": "stream"}
+        )
+
+    plan = _mutated(duplicate_rows)
+    report = _diff(plan, copy.deepcopy(plan))
+    assert report.equal
+    assert report.entries == ()
+
+
+def test_conflict_is_reported_only_when_duplicate_groups_differ() -> None:
+    def duplicate_rows(plan: dict[str, Any]) -> None:
+        first = plan["provenance"]["inputs"][0]
+        plan["provenance"]["inputs"].append(dict(first, resolved="/elsewhere/wf.yaml"))
+
+    old = _mutated(duplicate_rows)
+    new = copy.deepcopy(old)
+    new["provenance"]["inputs"][1]["resolved"] = "/changed/wf.yaml"
+    report = _diff(old, new)
+    assert DiffKind.IDENTITY_CONFLICT in [e.kind for e in report.entries]
+    assert report.semantically_equal
