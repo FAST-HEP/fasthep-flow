@@ -26,6 +26,12 @@ registry:
     toy.write:
       spec: tests.toy_components.sinks:TOY_WRITE_SPEC
       impl: tests.toy_components.sinks:run_toy_write
+    toy.write_path:
+      spec: tests.toy_components.sinks:TOY_WRITE_PATH_SPEC
+      impl: tests.toy_components.sinks:run_toy_write_path
+    toy.write_manifest:
+      spec: tests.toy_components.sinks:TOY_WRITE_MANIFEST_SPEC
+      impl: tests.toy_components.sinks:run_toy_write_manifest
     toy.capture_registry:
       spec: tests.toy_components.sinks:TOY_CAPTURE_REGISTRY_SPEC
       impl: tests.toy_components.sinks:run_toy_capture_registry

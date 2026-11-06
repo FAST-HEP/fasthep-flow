@@ -28,6 +28,7 @@ from hepflow.registry.loaders import (
     runtime_registry_from_config,
 )
 from hepflow.registry.runtime import RuntimeRegistry
+from hepflow.runtime.artifacts import localise_artifacts
 from hepflow.runtime.boundary import (
     PartitionBoundaryResult,
     PartitionExecutionSummary,
@@ -1250,6 +1251,7 @@ def _store_node_outputs(
     if isinstance(result, OperationResult):
         for output_name, product in result.products.items():
             if output_name in outputs:
+                _localise_artifact_product(product, outputs[output_name], ctx)
                 value_store[(node_id, output_name)] = product
         return
 
@@ -1283,6 +1285,34 @@ def _store_node_outputs(
 
 
 def _normalize_single_output(
+    result: Any,
+    *,
+    node_id: str,
+    output_name: str,
+    product_kind: str,
+    ctx: dict[str, Any] | None,
+) -> Any:
+    normalised = _normalize_artifact_dict(
+        result,
+        node_id=node_id,
+        output_name=output_name,
+        product_kind=product_kind,
+        ctx=ctx,
+    )
+    _localise_artifact_product(normalised, product_kind, ctx)
+    return normalised
+
+
+def _localise_artifact_product(
+    value: Any, product_kind: str, ctx: dict[str, Any] | None
+) -> None:
+    """Store artifact locations as Flow records them, in the producing process."""
+    outdir = (ctx or {}).get("outdir")
+    if product_kind == "artifact" and outdir:
+        localise_artifacts(value, str(outdir))
+
+
+def _normalize_artifact_dict(
     result: Any,
     *,
     node_id: str,

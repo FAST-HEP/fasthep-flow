@@ -176,6 +176,9 @@ the layout. Workflow authors set only a `path`:
   `runtime/handlers.py`, manifests are written by
   `runtime/writer_manifests.py`.
 
+What a sink returns and what Flow stores (outdir-relative, absolute or URI) is in
+`docs/execution/artifacts.md`, section "Artifact Locations".
+
 Example (workshop `04-save-data/01-skims`, `path: dimuon_candidates.root`):
 
 ```text

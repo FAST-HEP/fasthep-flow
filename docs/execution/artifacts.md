@@ -17,6 +17,37 @@ more ordered artifact references. For a partitioned ROOT skim, the default
 dataset product is therefore a manifest of ROOT part files, not one merged ROOT
 file.
 
+## Artifact Locations
+
+A sink tells Flow where it wrote an artifact by returning one of:
+
+- a path usable from the sink's own working directory (for example the
+  `--outdir` as given, relative or absolute, plus the file name);
+- an absolute path;
+- a URI (`scheme://`, for example `root://` or `file://`).
+
+A relative path is always read from the working directory of the process that
+ran the sink, never from the outdir. A sink must not return a path relative to
+the outdir.
+
+Flow normalises the result once, in the process that produced it, before it
+is stored, and stores:
+
+| Sink returned | Flow stores | Provenance `path_type` |
+|---|---|---|
+| a path inside the outdir | the path relative to the outdir | `relative_to_outdir` |
+| a path outside the outdir | an absolute path | `absolute` |
+| a URI | the URI unchanged | `uri` |
+
+Paths are made absolute and normalised lexically (`..` is collapsed); symbolic
+links are not resolved. The result is the same for a relative and an absolute
+`--outdir`. Provenance evidence is read-relocatable: a finished bundle can be
+copied elsewhere and every `relative_to_outdir` record resolves under the copy.
+This is not a restart guarantee.
+
+Provenance bundles written before this contract with a relative `--outdir`
+hold wrong record paths and should be regenerated.
+
 ## Boundary Representations
 
 Boundary product policies keep lifetime and representation separate:

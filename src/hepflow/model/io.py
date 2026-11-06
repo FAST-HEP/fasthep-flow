@@ -8,6 +8,15 @@ from typing import Any
 
 @dataclass(slots=True)
 class ArtifactReference:
+    """
+    A produced artifact.
+
+    ``uri`` (also ``path``) is where the artifact is. A sink returns a path usable
+    from its working directory, an absolute path or a URI; once Flow has stored the
+    result it is a path relative to the outdir for files inside it, an absolute path
+    for files outside it, or a URI (``scheme://``) unchanged.
+    """
+
     uri: str
     product_kind: str
     format: str | None = None

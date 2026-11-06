@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from hepflow.model.io import OutputResult
+
 TOY_WRITE_SPEC = {
     "name": "toy.write",
     "kind": "sink",
@@ -37,6 +39,83 @@ def run_toy_write(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(target, sort_keys=True), encoding="utf-8")
     return {"path": str(output_path)}
+
+
+TOY_WRITE_PATH_SPEC = {
+    "name": "toy.write_path",
+    "kind": "sink",
+    "input": {"name": "target", "required": True},
+    "params": {"path": {"required": True}},
+    "result": {"artifact": "artifact"},
+}
+
+
+def run_toy_write_path(*, target: Any, path: str) -> dict[str, str]:
+    """Write exactly at ``path`` and return it as given, like render's plot sinks."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(target, sort_keys=True), encoding="utf-8")
+    return {"path": str(output_path)}
+
+
+TOY_WRITE_MANIFEST_SPEC = {
+    "name": "toy.write_manifest",
+    "kind": "sink",
+    "input": {"name": "target", "required": True},
+    "params": {
+        "path": {"required": True},
+    },
+    "result": {"artifact": "artifact"},
+}
+
+
+def run_toy_write_manifest(
+    *,
+    target: Any,
+    path: str,
+    ctx: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
+) -> OutputResult:
+    """Like a carpenter writer: returns a cwd-relative path and its own writer manifest."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(b"0123456789")
+    partition = dict((ctx or {}).get("partition") or {})
+    dataset = partition.get("dataset") or "toy"
+    outdir = Path(str((ctx or {}).get("outdir") or "."))
+    try:
+        recorded = output_path.resolve().relative_to(outdir.resolve()).as_posix()
+        path_type = "relative_to_outdir"
+    except ValueError:
+        recorded = output_path.resolve().as_posix()
+        path_type = "absolute"
+    node_id = str((meta or {}).get("node_id") or "")
+    manifest = {
+        "kind": "toy_file",
+        "name": Path(path).stem,
+        "node_id": node_id,
+        "input_node": "",
+        "tree": "Events",
+        "format": "toy",
+        "path": recorded,
+        "path_type": path_type,
+        "dataset": dataset,
+        "partition": 0,
+        "attempt": 0,
+        "entries": 1,
+        "size_bytes": 10,
+    }
+    return OutputResult(
+        kind="artifact",
+        path=str(output_path),
+        format="toy",
+        producer_node=node_id,
+        output_name="artifact",
+        dataset_name=dataset,
+        partition_id=partition.get("id"),
+        partition_index=0,
+        metadata={"writer_manifest": manifest},
+    )
 
 
 TOY_CAPTURE_REGISTRY_SPEC = {
