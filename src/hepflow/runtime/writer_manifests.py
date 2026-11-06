@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from hepflow.build_layout import BuildPaths
+from hepflow.compiler.input_paths import is_uri
 from hepflow.model.io import ArtifactManifest, ArtifactReference
 from hepflow.model.plan import ExecutionPartition, ExecutionPlan
 from hepflow.runtime.provenance import (
@@ -139,9 +140,17 @@ def _artifact_record_from_output(
 
 
 def _artifact_path(path: str | Path, outdir: Path) -> tuple[str, str]:
+    """
+    Classify a stored artifact location.
+
+    Flow has already normalised it in the producing process (outdir-relative,
+    absolute or URI), so a relative path is not joined with ``outdir`` again.
+    """
+    if is_uri(str(path)):
+        return str(path), "uri"
     candidate = Path(path)
     if not candidate.is_absolute():
-        candidate = outdir / candidate
+        return candidate.as_posix(), "relative_to_outdir"
     resolved = candidate.resolve()
     resolved_outdir = outdir.resolve()
     try:

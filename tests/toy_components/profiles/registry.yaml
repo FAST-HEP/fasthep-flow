@@ -32,6 +32,12 @@ registry:
     toy.write:
       spec: tests.toy_components.sinks:TOY_WRITE_SPEC
       impl: tests.toy_components.sinks:run_toy_write
+    toy.write_path:
+      spec: tests.toy_components.sinks:TOY_WRITE_PATH_SPEC
+      impl: tests.toy_components.sinks:run_toy_write_path
+    toy.write_manifest:
+      spec: tests.toy_components.sinks:TOY_WRITE_MANIFEST_SPEC
+      impl: tests.toy_components.sinks:run_toy_write_manifest
   observers:
     toy.observe:
       spec: tests.toy_components.observers:TOY_OBSERVER_SPEC

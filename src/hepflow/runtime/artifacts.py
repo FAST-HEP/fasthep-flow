@@ -1,10 +1,50 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
+from hepflow.compiler.input_paths import is_uri
 from hepflow.model.io import ArtifactManifest, ArtifactReference, OutputResult
 from hepflow.model.plan import ExecutionNode
+
+
+def normalise_location(uri: str, outdir: str | Path) -> str:
+    """
+    Express where a sink put an artifact the way Flow stores it.
+
+    A sink returns a path usable from its own working directory, an absolute
+    path, or a URI. Flow stores a URI unchanged, a path inside ``outdir``
+    relative to it (POSIX separators) and any other path as an absolute path.
+    A relative input is read from the current working directory, never from
+    ``outdir``, so run this once per result in the process that produced it.
+    Paths are made absolute and normalised lexically; symlinks are not
+    resolved. An ``outdir`` that is a URI leaves the input unchanged.
+    """
+    if is_uri(uri) or is_uri(str(outdir)):
+        return uri
+    cwd = Path.cwd()
+    location = Path(os.path.normpath(cwd / uri))
+    root = Path(os.path.normpath(cwd / outdir))
+    try:
+        return location.relative_to(root).as_posix()
+    except ValueError:
+        return location.as_posix()
+
+
+def localise_artifacts(value: Any, outdir: str | Path) -> None:
+    """Normalise the location of every artifact reference in ``value`` in place."""
+    if isinstance(value, ArtifactManifest):
+        for part in value.parts:
+            localise_artifacts(part, outdir)
+    elif isinstance(value, ArtifactReference):
+        value.path = normalise_location(value.path, outdir)
+    elif isinstance(value, dict) and isinstance(value.get("path"), str):
+        value["path"] = normalise_location(value["path"], outdir)
+    elif isinstance(value, list | tuple):
+        for item in value:
+            localise_artifacts(item, outdir)
 
 
 def is_artifact_reference_like(value: Any) -> bool:
