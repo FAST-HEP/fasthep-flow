@@ -218,13 +218,12 @@ def test_empty_event_stream_still_publishes_stream_value(
         "start": 0,
         "stop": 0,
     }
+    # The stream's only sink fires at partition end, so the stream stays in the
+    # partition; the sink still received it (checked on the artifact below).
     assert {
         (output["node"], output["port"], output["kind"])
         for output in partition["outputs"]
-    } >= {
-        ("stage.Scale", "stream", "event_stream"),
-        ("stage.WriteEmpty", "artifact", "artifact"),
-    }
+    } == {("stage.WriteEmpty", "artifact", "artifact")}
 
     provenance_manifest = json.loads(
         (tmp_path / "build" / "artifacts" / "provenance" / "manifest.json").read_text(
