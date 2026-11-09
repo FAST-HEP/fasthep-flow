@@ -458,12 +458,12 @@ def _consumers_by_output(
 
 
 def _consumer_crosses_partition_boundary(node: ExecutionNode) -> bool:
-    if _scope_rank(node.input_scope) > _SCOPE_RANK["partition"]:
-        return True
     if node.role == "sink":
-        when = _sink_when(node)
-        return when in {"dataset_end", "run_end"}
-    return False
+        # A sink consumes its input when it fires, whatever scope its input
+        # declares: a partition_end sink has used the value before the
+        # partition boundary, so retaining it would only hold it until merge.
+        return _sink_when(node) in {"dataset_end", "run_end"}
+    return _scope_rank(node.input_scope) > _SCOPE_RANK["partition"]
 
 
 def _scope_rank(scope: str) -> int:

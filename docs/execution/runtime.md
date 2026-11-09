@@ -176,6 +176,13 @@ product crosses the partition boundary when either a wider-scope consumer needs
 it, such as a dataset-level or run-level sink, or its registered product handler
 declares that it should be retained even without a wider graph consumer.
 
+A sink needs its input at the point where it fires (`when`), whatever scope its
+input declares. A `partition_end` sink, such as a per-partition skim writer, has
+used its input before the partition ends, so that input does not cross the
+boundary; only a `dataset_end` or `run_end` sink keeps it alive. The sink's own
+output, for example the artifact describing the written file, still crosses by
+its handler policy.
+
 Representation is declared independently by the product handler:
 
 - `value` carries the runtime value itself, suitable for small mergeable
