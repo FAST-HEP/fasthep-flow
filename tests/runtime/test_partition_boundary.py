@@ -184,6 +184,56 @@ def test_wider_scope_consumer_retains_transient_event_stream() -> None:
     assert stream_spec.reasons == ("dataset_consumer:sink.DatasetSummary",)
 
 
+def test_partition_end_sink_does_not_retain_its_event_stream() -> None:
+    plan = ExecutionPlan()
+    _add_node(
+        plan,
+        "stage.Select",
+        outputs={"stream": "event_stream"},
+    )
+    _add_node(
+        plan,
+        "write.skim",
+        role="sink",
+        inputs=[("stage.Select", "stream", "target")],
+        input_scope="global",
+        output_scope="global",
+        outputs={"artifact": "artifact"},
+        params={"when": "partition_end"},
+    )
+
+    boundary = plan_partition_boundary(plan, runtime_registry=_boundary_registry())
+
+    assert [spec for spec in boundary if spec.kind == "event_stream"] == []
+
+
+@pytest.mark.parametrize("when", ["dataset_end", "run_end"])
+def test_wider_end_sink_retains_event_stream_whatever_its_input_scope(
+    when: str,
+) -> None:
+    plan = ExecutionPlan()
+    _add_node(
+        plan,
+        "stage.Select",
+        outputs={"stream": "event_stream"},
+    )
+    _add_node(
+        plan,
+        "write.merged",
+        role="sink",
+        inputs=[("stage.Select", "stream", "target")],
+        input_scope="global",
+        output_scope="global",
+        outputs={"artifact": "artifact"},
+        params={"when": when},
+    )
+
+    boundary = plan_partition_boundary(plan, runtime_registry=_boundary_registry())
+
+    stream_spec = next(spec for spec in boundary if spec.kind == "event_stream")
+    assert stream_spec.reasons == ("global_consumer:write.merged",)
+
+
 def test_artifact_reference_boundary_product_wraps_output_result_identity() -> None:
     plan = ExecutionPlan()
     _add_node(
