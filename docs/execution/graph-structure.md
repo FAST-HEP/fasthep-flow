@@ -235,7 +235,17 @@ the workflow declares that the operation belongs only to that context.
 
 The operation can therefore remain focused on performing its computation, while Flow is responsible for deciding where it participates in the workflow.
 
-`applies_to` currently provides the basic mechanism for conditional participation. More expressive controls may be added as the workflow language evolves.
+A stage can also be restricted by the `group` of the dataset record (the `group` key of a dataset in the `data` section), alone or together with `eventtype`:
+
+```yaml
+applies_to:
+  eventtype: mc
+  dataset_groups: [QCD_Zjet, QCD_DY]
+```
+
+The keys combine with AND; the names in `dataset_groups` are exact (no patterns yet) and a dataset without a `group` matches no `dataset_groups` restriction. Applicability is resolved per dataset when the plan is compiled, so a stage that reads a field written by a restricted stage takes part only for the datasets where the writer does: restrict both the same way, or the data-flow pass reports the missing input for the datasets in between. Inline systematic variations inherit the restriction of the stage they vary.
+
+`applies_to` currently provides the basic mechanism for conditional participation. More expressive controls (other dataset attributes, patterns, negation) may be added as the workflow language evolves; the keys are listed in one table in `hepflow/model/applicability.py`.
 
 ---
 
