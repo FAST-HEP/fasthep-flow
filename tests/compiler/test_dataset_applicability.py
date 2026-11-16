@@ -11,6 +11,7 @@ from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.model.applicability import (
     applicability_is_empty,
     intersect_applicability,
+    node_applies_to_dataset,
 )
 from hepflow.model.plan_applicability import active_plan_nodes_for_dataset
 from hepflow.runtime.engine import build_partition_context, execute_plan_partition
@@ -480,3 +481,145 @@ def _data_only_workflow(toy_workflow: dict[str, Any]) -> dict[str, Any]:
         },
     ]
     return workflow
+
+
+# applies_to: dataset_groups (the group of the dataset record), alone or with eventtype
+
+
+def test_stage_applies_to_dataset_groups_normalizes_sorted_and_unique(
+    toy_workflow: dict[str, Any],
+) -> None:
+    workflow = deepcopy(toy_workflow)
+    workflow["analysis"]["stages"][0]["applies_to"] = {
+        "eventtype": "MC",
+        "dataset_groups": ["QCD_Zjet", "QCD_DY", "QCD_Zjet"],
+    }
+
+    normalized = normalize_workflow(workflow)
+
+    assert normalized["analysis"]["stages"][0]["applies_to"] == {
+        "eventtype": "mc",
+        "dataset_groups": ["QCD_DY", "QCD_Zjet"],
+    }
+
+
+def test_stage_applies_to_dataset_groups_without_eventtype_and_single_string(
+    toy_workflow: dict[str, Any],
+) -> None:
+    workflow = deepcopy(toy_workflow)
+    workflow["analysis"]["stages"][0]["applies_to"] = {"dataset_groups": "QCD_Wjet"}
+
+    normalized = normalize_workflow(workflow)
+
+    assert normalized["analysis"]["stages"][0]["applies_to"] == {
+        "dataset_groups": ["QCD_Wjet"]
+    }
+
+
+@pytest.mark.parametrize(
+    ("applies_to", "match"),
+    [
+        ({"dataset_groups": []}, "dataset_groups must be a non-empty"),
+        ({"dataset_groups": [""]}, "dataset_groups entries must be non-empty"),
+        ({"dataset_groups": [3]}, "dataset_groups entries must be strings"),
+        ({}, "needs at least one of"),
+        ({"dataset_group": ["QCD"]}, "only supports eventtype, dataset_groups"),
+    ],
+)
+def test_stage_applies_to_dataset_groups_rejects_bad_values(
+    toy_workflow: dict[str, Any],
+    applies_to: Any,
+    match: str,
+) -> None:
+    workflow = deepcopy(toy_workflow)
+    workflow["analysis"]["stages"][0]["applies_to"] = applies_to
+
+    with pytest.raises(ValueError, match=match):
+        normalize_workflow(workflow)
+
+
+def test_applies_to_dataset_group_matches_the_dataset_record_group() -> None:
+    applicability = {"eventtype": "mc", "dataset_groups": ["QCD_Zjet", "QCD_DY"]}
+
+    def applies(dataset: dict[str, Any]) -> bool:
+        return node_applies_to_dataset(applicability, dataset=dataset)
+
+    assert applies({"name": "z", "eventtype": "mc", "group": "QCD_Zjet"})
+    assert applies({"name": "dy", "eventtype": "mc", "group": "QCD_DY"})
+    assert not applies({"name": "w", "eventtype": "mc", "group": "QCD_Wjet"})
+    assert not applies({"name": "z", "eventtype": "data", "group": "QCD_Zjet"})
+    assert not applies({"name": "nogroup", "eventtype": "mc"})
+    assert not applies({"name": "nogroup", "eventtype": "mc", "group": None})
+
+
+def test_applicability_intersection_dataset_groups() -> None:
+    assert intersect_applicability(
+        {"dataset_groups": ["QCD_Zjet", "QCD_DY"]},
+        {"dataset_groups": ["QCD_DY", "QCD_Wjet"]},
+    ) == {"dataset_groups": ["QCD_DY"]}
+    assert intersect_applicability(
+        {"eventtype": "mc", "dataset_groups": ["QCD_DY"]},
+        {"eventtypes": ["mc"]},
+    ) == {"eventtypes": ["mc"], "dataset_groups": ["QCD_DY"]}
+    assert applicability_is_empty(
+        intersect_applicability(
+            {"dataset_groups": ["QCD_Zjet"]},
+            {"dataset_groups": ["QCD_Wjet"]},
+        )
+    )
+
+
+def _group_workflow(toy_workflow: dict[str, Any]) -> dict[str, Any]:
+    workflow = deepcopy(toy_workflow)
+    workflow["data"] = {
+        "datasets": [
+            {"name": "data", "eventtype": "data", "files": ["data.root"]},
+            {"name": "zjets", "eventtype": "mc", "group": "QCD_Zjet", "files": ["z.root"]},
+            {"name": "wjets", "eventtype": "mc", "group": "QCD_Wjet", "files": ["w.root"]},
+            {"name": "ttbar", "eventtype": "mc", "group": "TTbar", "files": ["tt.root"]},
+        ]
+    }
+    workflow["analysis"]["stages"] = [
+        {
+            "id": "Common",
+            "op": "toy.scale",
+            "params": {"source": "pt", "output": "scaled_pt", "factor": 2},
+        },
+        {
+            "id": "ZOnly",
+            "op": "toy.scale",
+            "params": {"source": "scaled_pt", "output": "z_scaled", "factor": 3},
+            "applies_to": {"eventtype": "mc", "dataset_groups": ["QCD_Zjet", "QCD_DY"]},
+        },
+        {
+            "id": "WOnly",
+            "op": "toy.scale",
+            "params": {"source": "scaled_pt", "output": "w_scaled", "factor": 4},
+            "applies_to": {"dataset_groups": ["QCD_Wjet"]},
+        },
+        {
+            "id": "Final",
+            "op": "toy.scale",
+            "params": {"source": "scaled_pt", "output": "final_pt", "factor": 1},
+        },
+    ]
+    return workflow
+
+
+def test_active_plan_nodes_follow_the_dataset_group(toy_workflow: dict[str, Any]) -> None:
+    _graph, plan = build_plan_from_normalized(
+        normalize_workflow(_group_workflow(toy_workflow))
+    )
+
+    def active(name: str) -> list[str]:
+        dataset = dict(plan.context["datasets"][name])
+        return [
+            node.id
+            for node in active_plan_nodes_for_dataset(plan, dataset=dataset)
+            if node.id.startswith("stage.") and node.id != "stage.Common"
+        ]
+
+    assert active("zjets") == ["stage.ZOnly", "stage.Final"]
+    assert active("wjets") == ["stage.WOnly", "stage.Final"]
+    assert active("ttbar") == ["stage.Final"]
+    assert active("data") == ["stage.Final"]
