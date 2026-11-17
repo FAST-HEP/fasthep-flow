@@ -17,6 +17,7 @@ def test_missing_execution_block_gives_defaults(toy_workflow: dict[str, Any]) ->
     assert normalized["execution"] == {
         "backend": "local",
         "strategy": "default",
+        "partitioning": {},
         "profiles": [],
         "resources": {},
         "pools": {},
@@ -61,6 +62,7 @@ def test_global_execution_normalization_preserves_metadata(
 
     assert normalized["execution"] == {
         **workflow["execution"],
+        "partitioning": {},
         "environment": {},
         "staging": {"mode": "shared"},
         "pools": {
@@ -123,6 +125,11 @@ def test_global_execution_normalization_preserves_metadata(
         ({"config": []}, "execution.config must be a mapping"),
         ({"environment": []}, "execution.environment must be a mapping"),
         ({"staging": []}, "execution.staging must be a mapping"),
+        ({"partitioning": []}, "execution.partitioning must be a mapping"),
+        (
+            {"partitioning": {"chunk_size": 0}},
+            "execution.partitioning.chunk_size must be a positive integer",
+        ),
         (
             {"staging": {"mode": "elsewhere"}},
             "execution.staging.mode must be 'shared' or 'transfer'",

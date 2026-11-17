@@ -29,9 +29,11 @@ def _list_of_str(x: Any, where: str) -> list[str]:
 
 
 def _dataset_dict(data: dict[str, Any]) -> dict[str, Any]:
-    """Drop the optional ``file_nevents`` key when the dataset does not set it."""
+    """Drop optional dataset keys when the dataset does not set them."""
     if data.get("file_nevents") is None:
         data.pop("file_nevents", None)
+    if data.get("chunk_size") is None:
+        data.pop("chunk_size", None)
     return data
 
 
@@ -41,6 +43,7 @@ class DatasetSpec:
     files: list[str]
     nevents: str | None = None
     file_nevents: list[int] | None = None
+    chunk_size: int | None = None
     eventtype: str = DEFAULT_DATASET_EVENTTYPE
     group: str | None = None
     meta: dict[str, Any] = field(default_factory=dict)
@@ -63,6 +66,14 @@ class DatasetSpec:
                     f"dataset[{self.name}].file_nevents must be a list with one "
                     f"non-negative integer per file ({len(self.files)} files)"
                 )
+        if self.chunk_size is not None and (
+            isinstance(self.chunk_size, bool)
+            or not isinstance(self.chunk_size, int)
+            or self.chunk_size <= 0
+        ):
+            raise ValueError(
+                f"dataset[{self.name}].chunk_size must be a positive integer"
+            )
         object.__setattr__(
             self,
             "eventtype",
