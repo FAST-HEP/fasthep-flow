@@ -43,6 +43,7 @@ def test_public_api_exports_stable_facade_symbols() -> None:
         "compile_workflow_file",
         "diff_plan_files",
         "init_project",
+        "list_workflow_partitions",
         "load_plan_file",
         "load_workflow_yaml",
         "make_plan_file",

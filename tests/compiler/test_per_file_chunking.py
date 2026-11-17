@@ -88,3 +88,46 @@ def test_unchunked_partitions_use_the_files_own_event_count(
     _graph, plan = build_plan_from_normalized(normalize_workflow(workflow))
 
     assert _ranges(plan) == [("0_0", 0, 10), ("1_0", 0, 7)]
+
+
+def test_legacy_partition_dictionaries_stay_unchanged(
+    toy_registry: dict[str, Any],
+) -> None:
+    workflow = _workflow(
+        toy_registry,
+        {"files": ["a.root", "b.root"], "file_nevents": [6, 3]},
+    )
+
+    _graph, plan = build_plan_from_normalized(
+        normalize_workflow(workflow), chunk_size=5
+    )
+
+    assert [partition.to_dict() for partition in plan.partitions] == [
+        {
+            "id": "events__sample__0_0",
+            "dataset": "sample",
+            "file": "a.root",
+            "source": "events",
+            "part": "0_0",
+            "start": 0,
+            "stop": 5,
+        },
+        {
+            "id": "events__sample__0_1",
+            "dataset": "sample",
+            "file": "a.root",
+            "source": "events",
+            "part": "0_1",
+            "start": 5,
+            "stop": 6,
+        },
+        {
+            "id": "events__sample__1_0",
+            "dataset": "sample",
+            "file": "b.root",
+            "source": "events",
+            "part": "1_0",
+            "start": 0,
+            "stop": 3,
+        },
+    ]

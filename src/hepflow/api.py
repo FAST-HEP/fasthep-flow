@@ -30,6 +30,11 @@ from hepflow.compiler.execution import (
 from hepflow.compiler.includes import load_workflow_with_includes
 from hepflow.compiler.inputs_manifest import InputCollector
 from hepflow.compiler.normalize import normalize_workflow
+from hepflow.compiler.partitioning import (
+    derive_dataset_partitions,
+    resolve_chunk_size,
+    uncounted_file_count,
+)
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.compiler.plan_diff import (
     AmbiguousPlans,
@@ -109,6 +114,7 @@ __all__ = [
     "compile_workflow_file",
     "diff_plan_files",
     "init_project",
+    "list_workflow_partitions",
     "load_plan_file",
     "load_workflow_yaml",
     "make_plan_file",
@@ -125,6 +131,51 @@ __all__ = [
 
 def load_workflow_yaml(path: str | Path) -> dict[str, Any]:
     return load_workflow_with_includes(str(path)).doc
+
+
+def list_workflow_partitions(
+    workflow_path: str | Path,
+    *,
+    dataset: str | None = None,
+    chunk_size: int | None = None,
+) -> list[dict[str, object]]:
+    """List dataset partition counts without compiling or running the workflow."""
+    context = CompileContext.for_workflow(workflow_path, root=None)
+    loaded = load_workflow_with_includes(str(context.workflow_path))
+    normalized = normalize_workflow(loaded.doc)
+    execution = resolve_workflow_execution(loaded.doc, context=context)["execution"]
+    datasets = list((normalized.get("data") or {}).get("datasets") or [])
+    names = [str(item.get("name")) for item in datasets]
+    if dataset is not None and dataset not in names:
+        available = ", ".join(names)
+        raise ValueError(
+            f"Unknown dataset {dataset!r}; available datasets: {available}."
+        )
+
+    result: list[dict[str, object]] = []
+    for item in datasets:
+        dataset_record = dict(item)
+        dataset_name = str(dataset_record.get("name"))
+        if dataset is not None and dataset_name != dataset:
+            continue
+        effective_chunk_size = resolve_chunk_size(
+            chunk_size, dataset_record, execution
+        )
+        partitions = derive_dataset_partitions(
+            dataset_record,
+            source_name="events",
+            chunk_size=effective_chunk_size,
+        )
+        result.append(
+            {
+                "dataset": dataset_name,
+                "chunk_size": effective_chunk_size,
+                "n_partitions": len(partitions),
+                "n_files": len(list(dataset_record.get("files") or [])),
+                "n_uncounted": uncounted_file_count(dataset_record),
+            }
+        )
+    return result
 
 
 def init_project(

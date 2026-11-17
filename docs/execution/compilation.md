@@ -301,6 +301,29 @@ context:
 
 Flow then constructs the partitions available for execution.
 
+When event counts are available, a dataset may choose its own chunk size:
+
+```yaml
+data:
+  datasets:
+    - name: nasa_exoplanets
+      files: [data/NASA/exoplanets.parquet]
+      nevents: 1200000
+      chunk_size: 250000
+```
+
+The effective chunk size is the first value set by the command line, the
+dataset, or `execution.partitioning.chunk_size`, in that order. With none of
+those set, Flow keeps its existing whole-file partitioning. A multi-file
+dataset needs one `file_nevents` value per file before Flow can split the files;
+otherwise it reports the missing counts instead of applying the dataset total
+to each file.
+
+`fasthep run workflow.yaml --list-partitions` reports the effective chunk size
+and partition count for each dataset as JSON without compiling or running the
+workflow. Add `--dataset NAME` to inspect one dataset and `--chunk-size N` to
+preview a command-line override.
+
 For the small exoplanet dataset, the plan contains a single partition:
 
 ```yaml
