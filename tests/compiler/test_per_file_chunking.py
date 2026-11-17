@@ -131,3 +131,32 @@ def test_legacy_partition_dictionaries_stay_unchanged(
             "stop": 3,
         },
     ]
+
+
+def test_dataset_chunk_size_drives_actual_plan_partitions(
+    toy_registry: dict[str, Any],
+) -> None:
+    workflow = _workflow(
+        toy_registry,
+        {"files": ["a.root"], "nevents": 12, "chunk_size": 5},
+    )
+
+    _graph, plan = build_plan_from_normalized(normalize_workflow(workflow))
+
+    assert _ranges(plan) == [("0_0", 0, 5), ("0_1", 5, 10), ("0_2", 10, 12)]
+
+
+def test_dataset_chunk_size_overrides_workflow_chunk_size_in_actual_plan(
+    toy_registry: dict[str, Any],
+) -> None:
+    workflow = {
+        **_workflow(
+            toy_registry,
+            {"files": ["a.root"], "nevents": 12, "chunk_size": 5},
+        ),
+        "execution": {"partitioning": {"chunk_size": 3}},
+    }
+
+    _graph, plan = build_plan_from_normalized(normalize_workflow(workflow))
+
+    assert _ranges(plan) == [("0_0", 0, 5), ("0_1", 5, 10), ("0_2", 10, 12)]

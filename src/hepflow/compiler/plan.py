@@ -273,6 +273,8 @@ def _context_dataset(
         "group": dataset.get("group"),
         "meta": dict(dataset.get("meta") or {}),
     }
+    if dataset.get("chunk_size") is not None:
+        record["chunk_size"] = dataset["chunk_size"]
     if files != declared:
         record["logical_files"] = declared
     return record
