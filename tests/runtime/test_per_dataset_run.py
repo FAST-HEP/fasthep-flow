@@ -219,3 +219,15 @@ def test_old_mode_run_still_resets_final_product_manifests(
     run_workflow_file(workflow, outdir=out)
 
     assert not manifest.exists()
+
+
+def test_invalid_dataset_selection_writes_nothing(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    workflow = _write_workflow(tmp_path, toy_workflow, per_dataset=False)
+    out = tmp_path / "out"
+
+    with pytest.raises(ValueError, match="not per-dataset"):
+        compile_workflow_file(workflow, outdir=out, dataset="alpha")
+
+    assert not out.exists()

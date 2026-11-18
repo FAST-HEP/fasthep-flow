@@ -194,15 +194,6 @@ def normalise_workflow_file(
     """
     out_path = Path(outdir)
     context = CompileContext.for_workflow(workflow_path, root)
-    compile_dir(out_path).mkdir(parents=True, exist_ok=True)
-    write_invocation(
-        compile_dir(out_path),
-        workflow_path=str(context.workflow_path),
-        outdir=str(out_path),
-        root=str(context.project_root),
-        invocation=invocation,
-    )
-
     loaded = load_workflow_with_includes(str(context.workflow_path))
     workflow = loaded.doc
     normalized = normalize_workflow(workflow)
@@ -255,6 +246,14 @@ def normalise_workflow_file(
     )
     normalized["provenance"]["inputs"] = collector.entries()
 
+    compile_dir(out_path).mkdir(parents=True, exist_ok=True)
+    write_invocation(
+        compile_dir(out_path),
+        workflow_path=str(context.workflow_path),
+        outdir=str(out_path),
+        root=str(context.project_root),
+        invocation=invocation,
+    )
     write_yaml(normalized, str(normalized_path(out_path)))
     return normalized
 
