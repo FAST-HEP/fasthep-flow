@@ -339,9 +339,9 @@ execution:
 In this mode `--dataset NAME` (also `compile`, `make-plan` and `run-plan`)
 selects one dataset:
 
-- Only the selected dataset keeps its file data in the plan. The other datasets
-  stay as metadata (`name`, `group`, `eventtype`, `meta`), so applicability and
-  data flow see every dataset but only the selected one is partitioned. With a
+- Only the selected dataset keeps its file data. The other datasets stay as
+  metadata (`name`, `group`, `eventtype`, `meta`, `chunk_size`), so applicability
+  and data flow see every dataset but only the selected one is partitioned. With a
   dataset-replacing systematic variation the replacement files are resolved for
   the selected dataset only.
 - Partition numbers are 1-based inside the dataset, and `--partition` counts
@@ -361,8 +361,39 @@ selects one dataset:
 Workflows without the mode keep their plan, partition numbers (`<file>_<chunk>`)
 and output names.
 
-`normalized.yaml` still carries the file data of every dataset in this release;
-the plan carries only the selected one.
+#### Shared plan and dataset units
+
+Jobs for many datasets compile into one output root, so a per-dataset compile
+writes shared files and one unit per dataset instead of one `compile/plan.yaml`
+with every partition:
+
+```text
+compile/[<variation>/]
+├── plan.yaml                  shared: metadata-only datasets, partitions: []
+├── deps.yaml, graph, render specs, worker_environment.json   shared
+└── datasets/<name>/           unit: complete once manifest.yaml exists
+    ├── manifest.yaml          files, event counts, counted flags, chunk size, record hash
+    ├── normalized.yaml        this dataset's files only
+    └── analysis.ir.yaml, dataset_entries.json, report.compile.yaml,
+        invocation.yaml, inputs.manifest.yaml, hook artifacts, inputs/
+```
+
+- Shared files are published create-if-absent (a temporary file, `fsync`, then
+  `os.link`): the first compile wins, a later one with identical content does
+  nothing, and different content fails and names the file and both hashes.
+  Compiling the same dataset again with the same manifest changes nothing; a
+  different chunk size or file list fails and keeps the existing unit.
+- `plan.yaml` names the unit as `execution.partitioning.manifest:
+  datasets/{dataset}/manifest.yaml`. The manifest freezes what partitioning needs,
+  so listing, compile and run use the same partitions.
+- `load_plan_file(plan_file, dataset=NAME)` assembles the plan with the partitions
+  of that unit; without `dataset` it loads every compiled unit. `run-plan` does
+  this, and its `--chunk-size` check compares with the manifest.
+- A compile without `--dataset` in this mode writes a unit for each dataset.
+  `normalized.yaml` of the compile root is not written.
+- Not yet covered: concurrent compiles of the same dataset (the unit files are
+  written without a lock), a unit's compile-hook output written by another
+  dataset, and the run bindings and per-partition summaries of the next change.
 
 For the small exoplanet dataset, the plan contains a single partition:
 
