@@ -24,16 +24,16 @@ from hepflow.compiler.file_access import resolve_file_access
 from hepflow.compiler.inline_variations import apply_inline_variation_branches_to_graph
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.output_claims import validate_output_claims
+from hepflow.compiler.partitioning import (
+    derive_dataset_partitions,
+    resolve_chunk_size,
+)
 from hepflow.compiler.per_dataset import (
     per_dataset_enabled,
     stub_unselected_datasets,
     validate_dataset_selection,
     validate_per_dataset_plan,
     with_per_dataset,
-)
-from hepflow.compiler.partitioning import (
-    derive_dataset_partitions,
-    resolve_chunk_size,
 )
 from hepflow.model.graph import get_graph_node
 from hepflow.model.lifecycle import WHEN_ALIASES

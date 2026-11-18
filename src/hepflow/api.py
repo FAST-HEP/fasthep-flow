@@ -24,6 +24,7 @@ from hepflow.compiler.bundle import record_source_files, write_invocation
 from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.context import CompileContext
 from hepflow.compiler.execution import (
+    normalize_global_execution,
     resolve_workflow_execution,
     resolve_workflow_execution_hooks,
 )
@@ -32,6 +33,11 @@ from hepflow.compiler.inputs_manifest import InputCollector
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.partitioning import (
     list_dataset_partitions,
+)
+from hepflow.compiler.per_dataset import (
+    per_dataset_enabled,
+    validate_dataset_selection,
+    with_per_dataset,
 )
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.compiler.plan_diff import (
@@ -80,12 +86,6 @@ from hepflow.provenance.compilation_info import compilation_provenance
 from hepflow.runtime.config import (
     _runtime_execution_with_overrides,
     default_run_outdir_for_plan,
-)
-from hepflow.compiler.execution import normalize_global_execution
-from hepflow.compiler.per_dataset import (
-    per_dataset_enabled,
-    validate_dataset_selection,
-    with_per_dataset,
 )
 from hepflow.runtime.partitions import (
     describe_partition_selection,

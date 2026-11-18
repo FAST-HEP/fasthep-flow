@@ -115,7 +115,7 @@ def test_global_partition_on_multi_dataset_per_dataset_workflow_is_ambiguous(
 ) -> None:
     workflow = _write_workflow(tmp_path, toy_workflow)
 
-    with pytest.raises(ValueError, match="ambiguous.*--dataset"):
+    with pytest.raises(ValueError, match=r"ambiguous.*--dataset"):
         run_workflow_file(workflow, outdir=tmp_path / "out", partition_numbers=[2])
 
 
@@ -173,7 +173,7 @@ def test_run_plan_rejects_other_chunk_size(
     out = tmp_path / "build"
     compile_workflow_file(workflow, outdir=out, chunk_size=2)
 
-    with pytest.raises(ValueError, match="compiled with chunk size 2.*recompile"):
+    with pytest.raises(ValueError, match=r"compiled with chunk size 2.*recompile"):
         run_plan_file(
             out / "compile" / "plan.yaml",
             outdir=out,

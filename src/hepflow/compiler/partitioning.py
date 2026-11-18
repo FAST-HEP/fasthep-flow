@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import warnings
-from dataclasses import replace
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from typing import Any
 
 from hepflow.model.plan import ExecutionPartition

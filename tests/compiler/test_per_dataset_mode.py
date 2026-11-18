@@ -84,7 +84,7 @@ def test_selected_dataset_gets_local_one_based_partition_numbers(
         ("alpha", "3", 0, 5),
         ("alpha", "4", 5, 7),
     ]
-    assert [p.id for p in plan.partitions][0] == "events__alpha__1"
+    assert plan.partitions[0].id == "events__alpha__1"
 
 
 def test_other_datasets_stay_as_metadata_stubs(toy_registry: dict[str, Any]) -> None:
@@ -161,7 +161,7 @@ def test_per_dataset_argument_overrides_the_workflow_value(
 def test_unknown_dataset_lists_the_available_names(
     toy_registry: dict[str, Any],
 ) -> None:
-    with pytest.raises(ValueError, match="Unknown dataset 'gamma'.*alpha, beta"):
+    with pytest.raises(ValueError, match=r"Unknown dataset 'gamma'.*alpha, beta"):
         _plan(_workflow(toy_registry), dataset="gamma")
 
 
@@ -183,7 +183,7 @@ def test_global_observer_is_rejected_in_per_dataset_mode(
         observers=[{"kind": "toy.observe", "at": ["read.events"]}],
     )
 
-    with pytest.raises(ValueError, match="per-dataset.*aggregation"):
+    with pytest.raises(ValueError, match=r"per-dataset.*aggregation"):
         _plan(workflow, dataset="alpha")
 
 
@@ -204,7 +204,7 @@ def test_run_end_sink_is_rejected_in_per_dataset_mode(
         ],
     )
 
-    with pytest.raises(ValueError, match="per-dataset.*run_end"):
+    with pytest.raises(ValueError, match=r"per-dataset.*run_end"):
         _plan(workflow, dataset="alpha")
 
 
