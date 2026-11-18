@@ -324,6 +324,46 @@ and partition count for each dataset as JSON without compiling or running the
 workflow. Add `--dataset NAME` to inspect one dataset and `--chunk-size N` to
 preview a command-line override.
 
+### Per-dataset mode
+
+A production over many datasets can use one workflow while each job runs one
+dataset. The mode is opt-in, either in the workflow or on the command line
+(`--per-dataset`, which wins over the workflow value):
+
+```yaml
+execution:
+  partitioning:
+    per_dataset: true
+```
+
+In this mode `--dataset NAME` (also `compile`, `make-plan` and `run-plan`)
+selects one dataset:
+
+- Only the selected dataset keeps its file data in the plan. The other datasets
+  stay as metadata (`name`, `group`, `eventtype`, `meta`), so applicability and
+  data flow see every dataset but only the selected one is partitioned. With a
+  dataset-replacing systematic variation the replacement files are resolved for
+  the selected dataset only.
+- Partition numbers are 1-based inside the dataset, and `--partition` counts
+  inside it. `<dataset>/<N>.<ext>` is the name of a partition writer's file.
+  Without `--dataset`, `--partition` on a workflow with several datasets is
+  rejected as ambiguous; `--dataset NAME` alone runs all partitions of that
+  dataset.
+- `--dataset` without the mode is an error, an unknown name lists the names of
+  the workflow, and an out-of-range partition names the dataset, its chunk size
+  and the valid range.
+- `run-plan` accepts `--chunk-size` only if it equals the value the plan was
+  compiled with.
+- Run-level work cannot be shared by concurrent jobs: observers and `run_end`
+  sinks are rejected at compile time (aggregation belongs to the merge step), and
+  a run does not reset the shared histogram and cutflow manifests.
+
+Workflows without the mode keep their plan, partition numbers (`<file>_<chunk>`)
+and output names.
+
+`normalized.yaml` still carries the file data of every dataset in this release;
+the plan carries only the selected one.
+
 For the small exoplanet dataset, the plan contains a single partition:
 
 ```yaml

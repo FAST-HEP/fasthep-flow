@@ -81,9 +81,15 @@ from hepflow.runtime.config import (
     _runtime_execution_with_overrides,
     default_run_outdir_for_plan,
 )
+from hepflow.compiler.execution import normalize_global_execution
+from hepflow.compiler.per_dataset import (
+    per_dataset_enabled,
+    validate_dataset_selection,
+    with_per_dataset,
+)
 from hepflow.runtime.partitions import (
     describe_partition_selection,
-    select_partitions,
+    select_dataset_partitions,
 )
 from hepflow.runtime.provenance import (
     format_provenance_artifact,
@@ -173,8 +179,13 @@ def normalise_workflow_file(
     outdir: str | Path,
     root: str | Path | None = None,
     invocation: Mapping[str, Any] | None = None,
+    dataset: str | None = None,
+    per_dataset: bool | None = None,
 ) -> dict[str, Any]:
     """Normalise a workflow YAML file and write ``compile/normalized.yaml``.
+
+    ``per_dataset`` overrides ``execution.partitioning.per_dataset`` in the normalized
+    workflow; ``dataset`` is validated against it (per-dataset mode only).
 
     ``root`` is the project root that relative input paths resolve against; it defaults
     to the current working directory and is recorded in the provenance. ``invocation`` is the
@@ -202,6 +213,16 @@ def normalise_workflow_file(
 
     normalized["registry"] = registry_result.registry
     normalized["execution"] = execution_result["execution"]
+    if per_dataset is not None:
+        normalized["execution"] = with_per_dataset(normalized["execution"], per_dataset)
+    validate_dataset_selection(
+        dataset,
+        enabled=per_dataset_enabled(normalized["execution"]),
+        names=[
+            str(record.get("name"))
+            for record in list((normalized.get("data") or {}).get("datasets") or [])
+        ],
+    )
     normalized["execution_hooks"] = hooks_result["execution_hooks"]
     normalized.update(context.to_normalized())
     normalized.setdefault("provenance", {}).update(registry_result.provenance)
@@ -247,8 +268,13 @@ def make_plan_file(
     outdir: str | Path,
     chunk_size: int | None = None,
     snapshot: bool = False,
+    dataset: str | None = None,
+    per_dataset: bool | None = None,
 ) -> ExecutionPlan:
     """Lower a normalized YAML file and write plan/graph artifacts.
+
+    ``dataset`` selects one dataset (per-dataset mode, see
+    ``execution.partitioning.per_dataset``): only its files are resolved and partitioned.
 
     ``snapshot=True`` copies the compile's source files into ``compile/inputs`` (one
     snapshot per variation directory for systematics compiles).
@@ -256,6 +282,10 @@ def make_plan_file(
     normalized_file = resolve_normalized_path(normalized_path)
     out_path = Path(outdir)
     normalized = read_yaml(str(normalized_file)) or {}
+    if per_dataset is not None:
+        normalized["execution"] = with_per_dataset(
+            normalize_global_execution(normalized.get("execution")), per_dataset
+        )
     if has_separate_plan_systematics(normalized):
         compile_dir(out_path).mkdir(parents=True, exist_ok=True)
         return make_systematic_plan_files(
@@ -263,9 +293,12 @@ def make_plan_file(
             outdir=out_path,
             chunk_size=chunk_size,
             snapshot=snapshot,
+            dataset=dataset,
         )
 
-    graph, plan = build_plan_from_normalized(normalized, chunk_size=chunk_size)
+    graph, plan = build_plan_from_normalized(
+        normalized, chunk_size=chunk_size, dataset=dataset
+    )
     write_plan_artifacts(
         plan=plan,
         graph=graph,
@@ -285,8 +318,13 @@ def compile_workflow_file(
     root: str | Path | None = None,
     invocation: Mapping[str, Any] | None = None,
     snapshot: bool = False,
+    dataset: str | None = None,
+    per_dataset: bool | None = None,
 ) -> ExecutionPlan:
     """Normalise a workflow YAML file, lower it, and write compile artifacts.
+
+    ``per_dataset`` and ``dataset`` select the opt-in per-dataset mode: the plan then has
+    partitions for the selected dataset only, numbered from 1 inside it.
 
     ``snapshot=True`` (opt-in) also writes ``compile/inputs/``, a copy of the source files
     mirroring the root-relative tree, so that :func:`compile_from_bundle` (or a compile with
@@ -294,13 +332,19 @@ def compile_workflow_file(
     """
     out_path = Path(outdir)
     normalise_workflow_file(
-        workflow_path, outdir=out_path, root=root, invocation=invocation
+        workflow_path,
+        outdir=out_path,
+        root=root,
+        invocation=invocation,
+        dataset=dataset,
+        per_dataset=per_dataset,
     )
     return make_plan_file(
         normalized_path(out_path),
         outdir=out_path,
         chunk_size=chunk_size,
         snapshot=snapshot,
+        dataset=dataset,
     )
 
 
@@ -425,15 +469,30 @@ def run_plan_file(
     progress: ProgressReporter | None = None,
     progress_sinks: list[ProgressSink] | None = None,
     partition_numbers: Iterable[int] | None = None,
+    dataset: str | None = None,
+    chunk_size: int | None = None,
 ) -> BackendResult:
-    """Run a compiled plan file and write ``run_summary.yaml``."""
+    """Run a compiled plan file and write ``run_summary.yaml``.
+
+    In a per-dataset plan ``dataset`` restricts the run to that dataset and
+    ``partition_numbers`` count inside it. ``chunk_size`` is checked against the chunk size
+    the plan was compiled with; it never re-chunks.
+    """
     plan_file = resolve_plan_path(plan_path)
     plan = load_plan_file(plan_file)
     requested_partition_numbers = (
         list(partition_numbers) if partition_numbers is not None else None
     )
-    selected_partitions = select_partitions(
+    per_dataset = per_dataset_enabled(plan.execution)
+    selectable_partitions = plan.partitions
+    if per_dataset and dataset is not None:
+        selectable_partitions = [p for p in plan.partitions if p.dataset == dataset]
+    selected_partitions = select_dataset_partitions(
         plan.partitions,
+        context=plan.context,
+        per_dataset=per_dataset,
+        dataset=dataset,
+        chunk_size=chunk_size,
         numbers=requested_partition_numbers,
     )
     execution_plan = replace(plan, partitions=selected_partitions)
@@ -464,6 +523,7 @@ def run_plan_file(
         "outdir": str(build_paths.root.resolve()),
         "build_paths": build_paths,
         "execution": runtime_execution,
+        "per_dataset": per_dataset,
     }
     reporter = progress
     if reporter is None and progress_sinks:
@@ -479,7 +539,7 @@ def run_plan_file(
     }
     if requested_partition_numbers is not None:
         summary["partition_selection"] = describe_partition_selection(
-            plan.partitions,
+            selectable_partitions,
             selected_partitions=selected_partitions,
             numbers=requested_partition_numbers,
         )
@@ -526,11 +586,18 @@ def run_workflow_file(
     progress: ProgressReporter | None = None,
     progress_sinks: list[ProgressSink] | None = None,
     partition_numbers: Iterable[int] | None = None,
+    dataset: str | None = None,
+    per_dataset: bool | None = None,
 ) -> BackendResult:
     """Compile and run a workflow YAML file in one call."""
     out_path = Path(outdir)
     compile_workflow_file(
-        workflow_path, outdir=out_path, chunk_size=chunk_size, root=root
+        workflow_path,
+        outdir=out_path,
+        chunk_size=chunk_size,
+        root=root,
+        dataset=dataset,
+        per_dataset=per_dataset,
     )
     normalized = read_yaml(str(normalized_path(out_path))) or {}
     if has_separate_plan_systematics(normalized):
@@ -551,6 +618,7 @@ def run_workflow_file(
             progress=progress,
             progress_sinks=progress_sinks,
             partition_numbers=partition_numbers,
+            dataset=dataset,
         )
     return run_plan_file(
         plan_path(out_path),
@@ -562,6 +630,7 @@ def run_workflow_file(
         progress=progress,
         progress_sinks=progress_sinks,
         partition_numbers=partition_numbers,
+        dataset=dataset,
     )
 
 

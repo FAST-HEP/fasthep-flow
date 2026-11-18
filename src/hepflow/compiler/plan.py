@@ -24,6 +24,13 @@ from hepflow.compiler.file_access import resolve_file_access
 from hepflow.compiler.inline_variations import apply_inline_variation_branches_to_graph
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.output_claims import validate_output_claims
+from hepflow.compiler.per_dataset import (
+    per_dataset_enabled,
+    stub_unselected_datasets,
+    validate_dataset_selection,
+    validate_per_dataset_plan,
+    with_per_dataset,
+)
 from hepflow.compiler.partitioning import (
     derive_dataset_partitions,
     resolve_chunk_size,
@@ -46,6 +53,7 @@ def build_execution_plan(
     graph: nx.DiGraph,
     *,
     chunk_size: int | None = None,
+    dataset: str | None = None,
     registry: dict[str, Any] | None = None,
     provenance: dict[str, Any] | None = None,
     execution: dict[str, Any] | None = None,
@@ -88,12 +96,12 @@ def build_execution_plan(
 
         params = dict(graph_node.params)
         if graph_node.role == "source":
-            for dataset in list(graph_node.params.get("datasets") or []):
-                dataset_name = str(dataset["name"])
+            for record in list(graph_node.params.get("datasets") or []):
+                dataset_name = str(record["name"])
                 if dataset_name in context_datasets_by_name:
                     continue
                 context_datasets_by_name[dataset_name] = _context_dataset(
-                    dataset, file_access
+                    record, file_access
                 )
         if graph_node.role == "source" and "datasets" in params:
             params.pop("datasets", None)
@@ -131,7 +139,11 @@ def build_execution_plan(
     apply_data_flow_to_sources(plan)
     validate_output_claims(plan)
     _validate_backend_policy(plan)
-    plan.partitions = build_execution_partitions(plan, chunk_size=chunk_size)
+    if per_dataset_enabled(plan.execution):
+        validate_per_dataset_plan(plan)
+    plan.partitions = build_execution_partitions(
+        plan, chunk_size=chunk_size, dataset=dataset
+    )
     return plan
 
 
@@ -157,9 +169,28 @@ def build_plan_from_normalized(
     normalized: dict[str, Any],
     *,
     chunk_size: int | None = None,
+    dataset: str | None = None,
+    per_dataset: bool | None = None,
 ) -> tuple[nx.DiGraph, ExecutionPlan]:
+    """Lower a normalized workflow to a graph and plan.
+
+    ``per_dataset`` overrides ``execution.partitioning.per_dataset``. ``dataset`` selects one
+    dataset (per-dataset mode only): the others keep metadata only and get no partitions.
+    """
     normalized = apply_component_param_defaults(normalized)
     execution = normalize_global_execution(normalized.get("execution"))
+    enabled = per_dataset_enabled(execution, per_dataset)
+    execution = with_per_dataset(execution, enabled)
+    validate_dataset_selection(
+        dataset,
+        enabled=enabled,
+        names=[
+            str(record.get("name"))
+            for record in list((normalized.get("data") or {}).get("datasets") or [])
+        ],
+    )
+    if dataset is not None:
+        normalized = stub_unselected_datasets(normalized, dataset)
     validate_stage_execution_resource_references(
         list((normalized.get("analysis") or {}).get("stages") or []),
         execution["resources"],
@@ -170,6 +201,7 @@ def build_plan_from_normalized(
     plan = build_execution_plan(
         graph,
         chunk_size=chunk_size,
+        dataset=dataset,
         registry=dict(normalized.get("registry") or {}),
         provenance=dict(normalized.get("provenance") or {}),
         execution=execution,
@@ -303,6 +335,7 @@ def build_execution_partitions(
     plan: ExecutionPlan,
     *,
     chunk_size: int | None = None,
+    dataset: str | None = None,
 ) -> list[ExecutionPartition]:
     source_nodes = [node for node in plan.nodes if node.role == "source"]
     if not source_nodes:
@@ -318,16 +351,24 @@ def build_execution_partitions(
         if not datasets_by_name:
             continue
 
-        for dataset_name, dataset in datasets_by_name.items():
-            dataset_record = {"name": dataset_name, **dict(dataset or {})}
+        local_numbers = per_dataset_enabled(plan.execution)
+        for dataset_name, dataset_context in datasets_by_name.items():
+            if dataset is not None and dataset_name != dataset:
+                continue
+            dataset_record = {"name": dataset_name, **dict(dataset_context or {})}
             effective_chunk_size = resolve_chunk_size(
                 chunk_size, dataset_record, plan.execution
             )
+            if local_numbers:
+                plan.context.setdefault("chunk_sizes", {})[dataset_name] = (
+                    effective_chunk_size
+                )
             partitions.extend(
                 derive_dataset_partitions(
                     dataset_record,
                     source_name=source_name,
                     chunk_size=effective_chunk_size,
+                    local_numbers=local_numbers,
                 )
             )
 

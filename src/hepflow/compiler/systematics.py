@@ -277,6 +277,7 @@ def make_systematic_plan_files(
     outdir: Path,
     chunk_size: int | None = None,
     snapshot: bool = False,
+    dataset: str | None = None,
 ) -> ExecutionPlan:
     expanded = expand_systematics(normalized)
     if not expanded:
@@ -300,6 +301,7 @@ def make_systematic_plan_files(
         graph, plan = build_plan_from_normalized(
             item.workflow,
             chunk_size=chunk_size,
+            dataset=dataset,
         )
         if first_plan is None:
             first_plan = plan

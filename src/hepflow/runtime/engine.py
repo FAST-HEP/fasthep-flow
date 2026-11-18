@@ -348,7 +348,9 @@ def execute_plan_locally(
     if "dataset_names" not in base_ctx:
         base_ctx["dataset_names"] = list((base_ctx.get("datasets") or {}).keys())
     hook_manager = HookManager.from_plan(plan)
-    _reset_final_product_manifests(str(base_ctx.get("outdir") or "."))
+    if not base_ctx.get("per_dataset"):
+        # Per-partition jobs share one out-dir: none may delete the manifests of the others.
+        _reset_final_product_manifests(str(base_ctx.get("outdir") or "."))
     if progress is not None:
         progress.run_started()
         progress.phase_started("executing")
