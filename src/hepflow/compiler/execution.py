@@ -124,19 +124,30 @@ def normalize_stage_execution(raw: Any) -> dict[str, Any] | None:
     ).to_dict()
 
 
-def _normalize_execution_partitioning(raw: Any) -> dict[str, int]:
+def _normalize_execution_partitioning(raw: Any) -> dict[str, Any]:
     if raw is None:
         return {}
     if not isinstance(raw, dict):
         raise ValueError("execution.partitioning must be a mapping")
+    result: dict[str, Any] = {}
     chunk_size = raw.get("chunk_size")
-    if chunk_size is None:
-        return {}
-    if isinstance(chunk_size, bool) or not isinstance(chunk_size, int) or chunk_size <= 0:
-        raise ValueError(
-            "execution.partitioning.chunk_size must be a positive integer"
-        )
-    return {"chunk_size": chunk_size}
+    if chunk_size is not None:
+        if (
+            isinstance(chunk_size, bool)
+            or not isinstance(chunk_size, int)
+            or chunk_size <= 0
+        ):
+            raise ValueError(
+                "execution.partitioning.chunk_size must be a positive integer"
+            )
+        result["chunk_size"] = chunk_size
+    per_dataset = raw.get("per_dataset")
+    if per_dataset is not None:
+        if not isinstance(per_dataset, bool):
+            raise ValueError("execution.partitioning.per_dataset must be a boolean")
+        if per_dataset:
+            result["per_dataset"] = True
+    return result
 
 
 def _normalize_worker_environment(raw: dict[str, Any]) -> dict[str, Any]:

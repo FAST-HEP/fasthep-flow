@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from typing import Any
 
 from hepflow.model.plan import ExecutionPartition
@@ -31,8 +32,13 @@ def derive_dataset_partitions(
     *,
     source_name: str,
     chunk_size: int | None,
+    local_numbers: bool = False,
 ) -> list[ExecutionPartition]:
-    """Derive one dataset's partitions in file order, then chunk order."""
+    """Derive one dataset's partitions in file order, then chunk order.
+
+    With ``local_numbers`` (per-dataset mode) ``part`` is the 1-based position inside the
+    dataset; otherwise it is ``<file_index>_<chunk_index>``.
+    """
     dataset_name = str(dataset.get("name") or "")
     files = list(dataset.get("files") or [])
     if not files:
@@ -83,6 +89,15 @@ def derive_dataset_partitions(
                 stop=nevents,
             )
         )
+    if local_numbers:
+        partitions = [
+            replace(
+                partition,
+                id=f"{source_name}__{dataset_name}__{number}",
+                part=str(number),
+            )
+            for number, partition in enumerate(partitions, start=1)
+        ]
     return partitions
 
 
