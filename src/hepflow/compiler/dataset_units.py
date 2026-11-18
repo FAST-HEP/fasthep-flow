@@ -18,6 +18,9 @@ from typing import Any
 
 import yaml
 
+from hepflow.compiler.partitioning import derive_dataset_partitions
+from hepflow.model.plan import ExecutionPartition, ExecutionPlan
+
 MANIFEST_VERSION = 1
 MANIFEST_NAME = "manifest.yaml"
 
@@ -70,7 +73,9 @@ def manifest_hash(manifest: Mapping[str, Any]) -> str:
     return _sha256(text.encode("utf-8"))
 
 
-def dataset_manifest(record: Mapping[str, Any], *, chunk_size: int) -> dict[str, Any]:
+def dataset_manifest(
+    record: Mapping[str, Any], *, chunk_size: int | None
+) -> dict[str, Any]:
     """Freeze what partitioning a dataset needs: files, event counts and chunk size."""
     files = [str(item) for item in record.get("files") or []]
     counts = list(record.get("file_nevents") or [None] * len(files))
@@ -81,7 +86,7 @@ def dataset_manifest(record: Mapping[str, Any], *, chunk_size: int) -> dict[str,
         "nevents": record.get("nevents"),
         "file_nevents": counts,
         "counted": [count is not None for count in counts],
-        "chunk_size": int(chunk_size),
+        "chunk_size": chunk_size,
     }
     manifest["record_hash"] = manifest_hash(manifest)
     return manifest
@@ -106,3 +111,102 @@ def read_manifest(path: str | Path) -> dict[str, Any]:
     if manifest.get("record_hash") != manifest_hash(manifest):
         raise ValueError(f"{path}: record_hash does not match the manifest content")
     return dict(manifest)
+
+
+#: Keys of a dataset record that stay in the shared plan; the rest is file data.
+SHARED_DATASET_KEYS = ("name", "eventtype", "group", "meta", "chunk_size")
+MANIFEST_TEMPLATE = "datasets/{dataset}/manifest.yaml"
+
+
+def unit_dir(compile_directory: str | Path, dataset: str) -> Path:
+    """Directory of one dataset's unit below a compile (or variation) directory."""
+    if not dataset or dataset in {".", ".."} or "/" in dataset or "\\" in dataset:
+        raise ValueError(f"Dataset name {dataset!r} cannot name a unit directory")
+    return Path(compile_directory) / "datasets" / dataset
+
+
+def shared_plan_dict(plan: ExecutionPlan) -> dict[str, Any]:
+    """The plan every dataset's compile publishes: no files, counts or partitions.
+
+    Dataset records keep their metadata only, and the partitioning section names the
+    manifest template that :func:`assemble_unit_partitions` fills per dataset.
+    """
+    doc = plan.to_dict()
+    context = dict(doc.get("context") or {})
+    context["datasets"] = {
+        name: {key: record[key] for key in SHARED_DATASET_KEYS if key in record}
+        for name, record in dict(context.get("datasets") or {}).items()
+    }
+    context.pop("chunk_sizes", None)
+    doc["context"] = context
+    execution = dict(doc.get("execution") or {})
+    partitioning = dict(execution.get("partitioning") or {})
+    partitioning["manifest"] = MANIFEST_TEMPLATE
+    execution["partitioning"] = partitioning
+    doc["execution"] = execution
+    doc["partitions"] = []
+    # The chunk size of a dataset is frozen in its manifest, not in the shared plan.
+    for node in doc.get("nodes") or []:
+        if (node.get("partitioning") or {}).get("chunk_size") is not None:
+            node["partitioning"] = {**node["partitioning"], "chunk_size": None}
+    return doc
+
+
+def assemble_unit_partitions(
+    plan: ExecutionPlan, plan_dir: str | Path, dataset: str | None = None
+) -> None:
+    """Fill a shared plan from the manifests of its compiled dataset units.
+
+    ``dataset`` selects one unit; without it every compiled unit is loaded, in the plan's
+    dataset order. Files and counts come from the manifests, partitions are derived with
+    the chunk size frozen in them, and ``context.chunk_sizes`` records that size.
+    """
+    template = str((plan.execution.get("partitioning") or {}).get("manifest") or "")
+    if not template:
+        return
+    names = [str(name) for name in plan.context.get("dataset_names") or []]
+    manifests: dict[str, dict[str, Any]] = {}
+    for name in names:
+        path = Path(plan_dir) / template.format(dataset=name)
+        if path.is_file():
+            manifests[name] = read_manifest(path)
+    if dataset is not None:
+        if dataset not in manifests:
+            compiled = ", ".join(manifests) or "none"
+            raise ValueError(
+                f"No compiled unit for dataset {dataset!r}; compiled datasets: {compiled}."
+            )
+        manifests = {dataset: manifests[dataset]}
+
+    datasets = plan.context["datasets"]
+    sources = [node for node in plan.nodes if node.role == "source"]
+    partitions: list[ExecutionPartition] = []
+    chunk_sizes: dict[str, int | None] = {}
+    for name, manifest in manifests.items():
+        record = {
+            **dict(datasets.get(name) or {}),
+            "name": name,
+            "files": manifest["files"],
+            "nevents": manifest["nevents"],
+            "file_nevents": (
+                None
+                if not any(manifest["counted"])
+                else manifest["file_nevents"]
+            ),
+        }
+        datasets[name] = record
+        chunk_sizes[name] = manifest["chunk_size"]
+        for source in sources:
+            source_name = str(
+                source.meta.get("source_name") or source.id.removeprefix("read.")
+            )
+            partitions.extend(
+                derive_dataset_partitions(
+                    record,
+                    source_name=source_name,
+                    chunk_size=manifest["chunk_size"],
+                    local_numbers=True,
+                )
+            )
+    plan.context["chunk_sizes"] = chunk_sizes
+    plan.partitions = partitions

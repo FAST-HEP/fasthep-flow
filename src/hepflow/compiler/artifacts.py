@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from hepflow.compiler.inputs_manifest import (
     mapping_file_inputs,
     write_inputs_manifest,
 )
+from hepflow.compiler.per_dataset import per_dataset_enabled
 from hepflow.compiler.snapshot import clear_snapshot, write_snapshot
 from hepflow.model.plan import ExecutionPlan
 from hepflow.model.worker_environment import worker_environment_plan_from_execution
@@ -35,8 +37,13 @@ def write_plan_artifacts(
     normalized: dict[str, Any],
     chunk_size: int | None = None,
     snapshot: bool = False,
+    dataset: str | None = None,
+    invocation: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Save one compiled plan and its artifacts before running render hooks.
+
+    In per-dataset mode the shared files and one unit per dataset are written instead
+    (:mod:`hepflow.compiler.unit_artifacts`): the selected ``dataset``, or every dataset.
 
     Returns one record per compile hook that ran, in run order (``after_datasets``
     hooks first, then ``after_compile``), with artifact paths and sha256 hashes.
@@ -45,6 +52,22 @@ def write_plan_artifacts(
     ``snapshot=True`` also copies the recorded source files into ``compile/inputs`` (see
     :mod:`hepflow.compiler.snapshot`).
     """
+    if per_dataset_enabled(plan.execution):
+        from hepflow.compiler.unit_artifacts import (  # noqa: PLC0415
+            write_dataset_unit_artifacts,
+        )
+
+        names = [str(name) for name in plan.context.get("dataset_names") or []]
+        return write_dataset_unit_artifacts(
+            plan=plan,
+            graph=graph,
+            outdir=outdir,
+            normalized=normalized,
+            datasets=[dataset] if dataset is not None else names,
+            chunk_size=chunk_size,
+            snapshot=snapshot,
+            invocation=invocation,
+        )
     paths = BuildPaths.from_plan(plan, outdir=outdir)
     # A manifest left by an earlier compile must not survive a compile that fails before
     # the new one is written: it would describe another plan.
@@ -92,8 +115,12 @@ def write_bundle_manifest(
     records: list[dict[str, Any]],
     chunk_size: int | None,
     snapshot: bool = False,
+    directory: Path | None = None,
 ) -> Path:
     """Write ``inputs.manifest.yaml`` (version 2) into the plan's compile directory.
+
+    ``directory`` replaces that directory (a dataset unit); ``plan.yaml`` is still the
+    shared plan of the compile directory.
 
     ``invocation.yaml`` is read from the base compile directory, which a systematics
     compile shares between its variation directories; ``software.json`` is listed only
@@ -103,24 +130,25 @@ def write_bundle_manifest(
     provenance = dict(normalized.get("provenance") or {})
     collector = InputCollector.from_rows(provenance.get("inputs") or [])
     collector.extend(mapping_file_inputs(plan))
+    target = directory or build_paths.compile_dir()
     invocation = {
-        **read_invocation(compile_dir(build_paths.root)),
+        **read_invocation(directory or compile_dir(build_paths.root)),
         "chunk_size": chunk_size,
     }
     produced = {name for record in records for name in record["artifacts"]}
     root = provenance.get("root") or normalized.get("project_root")
     copied = (
-        write_snapshot(build_paths.compile_dir(), collector.rows(), root)
+        write_snapshot(target, collector.rows(), root)
         if snapshot
         else None
     )
     return write_inputs_manifest(
-        build_paths.compile_dir(),
+        target,
         root=root,
         inputs=collector.entries(),
         copied=copied,
         software=(
-            build_paths.compile_file("software.json")
+            target / "software.json"
             if "software" in produced
             else None
         ),
@@ -182,8 +210,11 @@ def write_compile_hook_artifacts(
     build_paths: BuildPaths,
     artifacts: dict[str, Any],
     when: str,
+    directory: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Run one phase of compile hooks, write their artifacts, return the records.
+
+    The artifacts go to ``directory``, by default the compile directory.
 
     Each record lists its artifacts as ``{name: {"path": ..., "sha256": ...}}``
     with the hash taken from the written file.
@@ -197,7 +228,7 @@ def write_compile_hook_artifacts(
         when=when,
         records=raw_records,
     )
-    compile_path = build_paths.compile_dir()
+    compile_path = directory or build_paths.compile_dir()
     hashes: dict[str, dict[str, str]] = {}
     for name, payload in hook_artifacts.items():
         path = compile_path / f"{name}.json"

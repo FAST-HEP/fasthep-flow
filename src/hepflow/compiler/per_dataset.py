@@ -15,8 +15,8 @@ from typing import Any
 from hepflow.compiler.output_claims import _sink_when
 from hepflow.model.plan import ExecutionPlan
 
-#: Keys a non-selected dataset keeps; everything else is file data.
-STUB_KEYS = ("name", "group", "eventtype", "meta")
+#: Keys a non-selected dataset keeps (metadata and partitioning config); the rest is file data.
+STUB_KEYS = ("name", "group", "eventtype", "meta", "chunk_size")
 
 
 def per_dataset_enabled(

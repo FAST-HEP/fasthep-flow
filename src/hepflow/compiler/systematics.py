@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -278,6 +279,7 @@ def make_systematic_plan_files(
     chunk_size: int | None = None,
     snapshot: bool = False,
     dataset: str | None = None,
+    invocation: Mapping[str, Any] | None = None,
 ) -> ExecutionPlan:
     expanded = expand_systematics(normalized)
     if not expanded:
@@ -313,6 +315,8 @@ def make_systematic_plan_files(
             normalized=item.workflow,
             chunk_size=chunk_size,
             snapshot=snapshot,
+            dataset=dataset,
+            invocation=invocation,
         )
 
         variation_summary = item.variation.to_dict()
