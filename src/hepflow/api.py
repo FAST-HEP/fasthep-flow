@@ -31,9 +31,7 @@ from hepflow.compiler.includes import load_workflow_with_includes
 from hepflow.compiler.inputs_manifest import InputCollector
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.partitioning import (
-    derive_dataset_partitions,
-    resolve_chunk_size,
-    uncounted_file_count,
+    list_dataset_partitions,
 )
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.compiler.plan_diff import (
@@ -145,37 +143,12 @@ def list_workflow_partitions(
     normalized = normalize_workflow(loaded.doc)
     execution = resolve_workflow_execution(loaded.doc, context=context)["execution"]
     datasets = list((normalized.get("data") or {}).get("datasets") or [])
-    names = [str(item.get("name")) for item in datasets]
-    if dataset is not None and dataset not in names:
-        available = ", ".join(names)
-        raise ValueError(
-            f"Unknown dataset {dataset!r}; available datasets: {available}."
-        )
-
-    result: list[dict[str, object]] = []
-    for item in datasets:
-        dataset_record = dict(item)
-        dataset_name = str(dataset_record.get("name"))
-        if dataset is not None and dataset_name != dataset:
-            continue
-        effective_chunk_size = resolve_chunk_size(
-            chunk_size, dataset_record, execution
-        )
-        partitions = derive_dataset_partitions(
-            dataset_record,
-            source_name="events",
-            chunk_size=effective_chunk_size,
-        )
-        result.append(
-            {
-                "dataset": dataset_name,
-                "chunk_size": effective_chunk_size,
-                "n_partitions": len(partitions),
-                "n_files": len(list(dataset_record.get("files") or [])),
-                "n_uncounted": uncounted_file_count(dataset_record),
-            }
-        )
-    return result
+    return list_dataset_partitions(
+        datasets,
+        execution=execution,
+        dataset=dataset,
+        chunk_size=chunk_size,
+    )
 
 
 def init_project(

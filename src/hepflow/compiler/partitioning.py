@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from hepflow.model.plan import ExecutionPartition
@@ -89,6 +89,48 @@ def derive_dataset_partitions(
 def uncounted_file_count(dataset: Mapping[str, Any]) -> int:
     files = list(dataset.get("files") or [])
     return len(files) if _file_event_counts(dataset, len(files)) is None else 0
+
+
+def list_dataset_partitions(
+    datasets: Iterable[Mapping[str, Any]],
+    *,
+    execution: Mapping[str, Any],
+    dataset: str | None = None,
+    chunk_size: int | None = None,
+) -> list[dict[str, object]]:
+    """Build partition summaries for normalized workflow datasets."""
+    dataset_records = list(datasets)
+    names = [str(item.get("name")) for item in dataset_records]
+    if dataset is not None and dataset not in names:
+        available = ", ".join(names)
+        raise ValueError(
+            f"Unknown dataset {dataset!r}; available datasets: {available}."
+        )
+
+    result: list[dict[str, object]] = []
+    for item in dataset_records:
+        dataset_record = dict(item)
+        dataset_name = str(dataset_record.get("name"))
+        if dataset is not None and dataset_name != dataset:
+            continue
+        effective_chunk_size = resolve_chunk_size(
+            chunk_size, dataset_record, execution
+        )
+        partitions = derive_dataset_partitions(
+            dataset_record,
+            source_name="events",
+            chunk_size=effective_chunk_size,
+        )
+        result.append(
+            {
+                "dataset": dataset_name,
+                "chunk_size": effective_chunk_size,
+                "n_partitions": len(partitions),
+                "n_files": len(list(dataset_record.get("files") or [])),
+                "n_uncounted": uncounted_file_count(dataset_record),
+            }
+        )
+    return result
 
 
 def _file_event_counts(
