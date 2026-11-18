@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import multiprocessing
 from pathlib import Path
 from typing import Any
 
@@ -161,3 +162,84 @@ def test_run_plan_checks_chunk_size_against_the_manifest(
         run_plan_file(
             out / "compile" / "plan.yaml", outdir=out, dataset="alpha", chunk_size=3
         )
+
+
+def test_compile_without_a_dataset_writes_a_unit_for_each_dataset(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "build"
+
+    compile_workflow_file(workflow, outdir=out, chunk_size=2)
+
+    for name in ("alpha", "beta"):
+        assert (out / "compile" / "datasets" / name / "manifest.yaml").is_file()
+    assert not (out / "compile" / "normalized.yaml").exists()
+
+
+def _compile_in_process(args: tuple[str, str, str, int | None]) -> str:
+    workflow, out, dataset, chunk_size = args
+    compile_workflow_file(
+        workflow, outdir=out, dataset=dataset, chunk_size=chunk_size
+    )
+    return dataset
+
+
+def test_concurrent_compiles_publish_identical_shared_files(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "build"
+    jobs = [(str(workflow), str(out), name, None) for name in ["alpha", "beta"] * 3]
+
+    with multiprocessing.get_context("fork").Pool(4) as pool:
+        done = pool.map(_compile_in_process, jobs)
+
+    assert sorted(done) == sorted(name for _, _, name, _ in jobs)
+    plan = load_plan_file(out / "compile" / "plan.yaml")
+    assert {p.dataset for p in plan.partitions} == {"alpha", "beta"}
+    assert not list((out / "compile").glob(".*"))
+
+
+def test_old_global_mode_still_writes_one_plan_with_all_partitions(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    workflow = _write_workflow(tmp_path, toy_workflow, per_dataset=False)
+    out = tmp_path / "build"
+
+    compile_workflow_file(workflow, outdir=out, chunk_size=2)
+
+    plan = read_yaml(out / "compile" / "plan.yaml")
+    assert len(plan["partitions"]) > 0
+    assert (out / "compile" / "normalized.yaml").is_file()
+    assert not (out / "compile" / "datasets").exists()
+
+
+def test_variations_get_their_own_shared_plan_and_units(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    toy_workflow["systematics"] = {
+        "include_nominal": True,
+        "variations": [
+            {
+                "name": "scale_up",
+                "group": "scale",
+                "direction": "up",
+                "applies_to": "mc",
+                "weight": {"multiply": "w_up"},
+            }
+        ],
+    }
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "build"
+
+    _compile(workflow, out, "alpha", chunk_size=2)
+    _compile(workflow, out, "beta")
+
+    for variation in ("nominal", "scale_up"):
+        root = out / "compile" / variation
+        assert read_yaml(root / "plan.yaml")["partitions"] == []
+        for name in ("alpha", "beta"):
+            assert (root / "datasets" / name / "manifest.yaml").is_file()
+    plan = load_plan_file(out / "compile" / "scale_up" / "plan.yaml", dataset="alpha")
+    assert [p.part for p in plan.partitions] == ["1", "2"]
