@@ -31,6 +31,8 @@ def normalize_global_execution(raw: Any) -> dict[str, Any]:
     if not isinstance(strategy, str):
         raise ValueError("execution.strategy must be a string")
 
+    partitioning = _normalize_execution_partitioning(raw.get("partitioning"))
+
     profiles_raw = raw.get("profiles", [])
     if not isinstance(profiles_raw, list):
         raise ValueError("execution.profiles must be a list of strings")
@@ -84,6 +86,7 @@ def normalize_global_execution(raw: Any) -> dict[str, Any]:
     return ExecutionConfig(
         backend=backend.strip() or "local",
         strategy=strategy.strip() or "default",
+        partitioning=partitioning,
         profiles=profiles,
         resources=resources,
         pools=pools,
@@ -119,6 +122,21 @@ def normalize_stage_execution(raw: Any) -> dict[str, Any] | None:
         timeout=timeout,
         modifiers=normalise_execution_modifiers(modifiers_raw),
     ).to_dict()
+
+
+def _normalize_execution_partitioning(raw: Any) -> dict[str, int]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("execution.partitioning must be a mapping")
+    chunk_size = raw.get("chunk_size")
+    if chunk_size is None:
+        return {}
+    if isinstance(chunk_size, bool) or not isinstance(chunk_size, int) or chunk_size <= 0:
+        raise ValueError(
+            "execution.partitioning.chunk_size must be a positive integer"
+        )
+    return {"chunk_size": chunk_size}
 
 
 def _normalize_worker_environment(raw: dict[str, Any]) -> dict[str, Any]:
@@ -250,6 +268,7 @@ def resolve_workflow_execution(
             "execution": {
                 "backend": "local",
                 "strategy": "default",
+                "partitioning": {},
                 "profiles": [],
                 "resources": {},
                 "pools": {},
@@ -349,6 +368,7 @@ def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:
     merged: dict[str, Any] = {
         "backend": "local",
         "strategy": "default",
+        "partitioning": {},
         "profiles": [],
         "resources": {},
         "pools": {},
@@ -358,6 +378,7 @@ def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:
     }
     for layer in layers:
         execution = normalize_global_execution(layer.get("execution"))
+        partitioning = dict(execution.pop("partitioning", {}) or {})
         config = dict(execution.pop("config", {}) or {})
         resources = dict(execution.pop("resources", {}) or {})
         pools = dict(execution.pop("pools", {}) or {})
@@ -368,6 +389,10 @@ def _merge_execution_layers(layers: list[dict[str, Any]]) -> dict[str, Any]:
             {key: value for key, value in execution.items() if value is not None}
         )
         merged["profiles"] = profiles
+        merged["partitioning"] = {
+            **dict(merged.get("partitioning") or {}),
+            **partitioning,
+        }
         merged["resources"] = {
             **dict(merged.get("resources") or {}),
             **resources,

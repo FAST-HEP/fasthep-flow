@@ -30,6 +30,9 @@ from hepflow.compiler.execution import (
 from hepflow.compiler.includes import load_workflow_with_includes
 from hepflow.compiler.inputs_manifest import InputCollector
 from hepflow.compiler.normalize import normalize_workflow
+from hepflow.compiler.partitioning import (
+    list_dataset_partitions,
+)
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.compiler.plan_diff import (
     AmbiguousPlans,
@@ -109,6 +112,7 @@ __all__ = [
     "compile_workflow_file",
     "diff_plan_files",
     "init_project",
+    "list_workflow_partitions",
     "load_plan_file",
     "load_workflow_yaml",
     "make_plan_file",
@@ -125,6 +129,26 @@ __all__ = [
 
 def load_workflow_yaml(path: str | Path) -> dict[str, Any]:
     return load_workflow_with_includes(str(path)).doc
+
+
+def list_workflow_partitions(
+    workflow_path: str | Path,
+    *,
+    dataset: str | None = None,
+    chunk_size: int | None = None,
+) -> list[dict[str, object]]:
+    """List dataset partition counts without compiling or running the workflow."""
+    context = CompileContext.for_workflow(workflow_path, root=None)
+    loaded = load_workflow_with_includes(str(context.workflow_path))
+    normalized = normalize_workflow(loaded.doc)
+    execution = resolve_workflow_execution(loaded.doc, context=context)["execution"]
+    datasets = list((normalized.get("data") or {}).get("datasets") or [])
+    return list_dataset_partitions(
+        datasets,
+        execution=execution,
+        dataset=dataset,
+        chunk_size=chunk_size,
+    )
 
 
 def init_project(

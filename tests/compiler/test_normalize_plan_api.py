@@ -43,6 +43,7 @@ def test_public_api_exports_stable_facade_symbols() -> None:
         "compile_workflow_file",
         "diff_plan_files",
         "init_project",
+        "list_workflow_partitions",
         "load_plan_file",
         "load_workflow_yaml",
         "make_plan_file",
@@ -64,6 +65,45 @@ def test_normalize_preserves_generic_toy_source(toy_workflow: dict[str, Any]) ->
 
     assert normalized["sources"]["events"]["kind"] == "toy.source"
     assert normalized["sources"]["events"]["stream_type"] == "event_stream"
+
+
+def test_normalize_preserves_typed_dataset_chunk_size_outside_meta(
+    toy_workflow: dict[str, Any],
+) -> None:
+    workflow = {
+        **toy_workflow,
+        "data": {
+            "datasets": [
+                {"name": "sample", "files": ["sample.root"], "chunk_size": 29}
+            ]
+        },
+    }
+
+    normalized = normalize_workflow(workflow)
+
+    assert normalized["data"]["datasets"][0]["chunk_size"] == 29
+    assert normalized["data"]["datasets"][0]["meta"] == {}
+
+
+@pytest.mark.parametrize("chunk_size", [True, 0, -1])
+def test_dataset_chunk_size_must_be_a_positive_integer(
+    toy_workflow: dict[str, Any], chunk_size: object
+) -> None:
+    workflow = {
+        **toy_workflow,
+        "data": {
+            "datasets": [
+                {
+                    "name": "sample",
+                    "files": ["sample.root"],
+                    "chunk_size": chunk_size,
+                }
+            ]
+        },
+    }
+
+    with pytest.raises(ValueError, match="chunk_size must be a positive integer"):
+        normalize_workflow(workflow)
 
 
 def test_explicit_empty_sources_are_preserved_for_product_workflows() -> None:

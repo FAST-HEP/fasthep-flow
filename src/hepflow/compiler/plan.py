@@ -24,6 +24,10 @@ from hepflow.compiler.file_access import resolve_file_access
 from hepflow.compiler.inline_variations import apply_inline_variation_branches_to_graph
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.output_claims import validate_output_claims
+from hepflow.compiler.partitioning import (
+    derive_dataset_partitions,
+    resolve_chunk_size,
+)
 from hepflow.model.graph import get_graph_node
 from hepflow.model.lifecycle import WHEN_ALIASES
 from hepflow.model.plan import (
@@ -269,6 +273,8 @@ def _context_dataset(
         "group": dataset.get("group"),
         "meta": dict(dataset.get("meta") or {}),
     }
+    if dataset.get("chunk_size") is not None:
+        record["chunk_size"] = dataset["chunk_size"]
     if files != declared:
         record["logical_files"] = declared
     return record
@@ -313,89 +319,19 @@ def build_execution_partitions(
             continue
 
         for dataset_name, dataset in datasets_by_name.items():
-            files = list((dataset or {}).get("files") or [])
-            if not files:
-                raise ValueError(
-                    f"Source {source_name!r} dataset {dataset_name!r} has no files"
+            dataset_record = {"name": dataset_name, **dict(dataset or {})}
+            effective_chunk_size = resolve_chunk_size(
+                chunk_size, dataset_record, plan.execution
+            )
+            partitions.extend(
+                derive_dataset_partitions(
+                    dataset_record,
+                    source_name=source_name,
+                    chunk_size=effective_chunk_size,
                 )
-
-            file_counts = _file_event_counts(dataset or {}, len(files))
-            if chunk_size is not None and file_counts is None:
-                _require_file_counts_for_chunking(dataset_name, dataset or {}, files)
-
-            for file_index, file_path in enumerate(files):
-                nevents = file_counts[file_index] if file_counts is not None else None
-                if chunk_size is not None and nevents is not None:
-                    for chunk_index, start in enumerate(range(0, nevents, chunk_size)):
-                        stop = min(start + chunk_size, nevents)
-                        partitions.append(
-                            ExecutionPartition(
-                                id=(
-                                    f"{source_name}__{dataset_name}__"
-                                    f"{file_index}_{chunk_index}"
-                                ),
-                                dataset=dataset_name,
-                                file=str(file_path),
-                                source=source_name,
-                                part=f"{file_index}_{chunk_index}",
-                                start=start,
-                                stop=stop,
-                            )
-                        )
-                    continue
-
-                partitions.append(
-                    ExecutionPartition(
-                        id=f"{source_name}__{dataset_name}__{file_index}",
-                        dataset=dataset_name,
-                        file=str(file_path),
-                        source=source_name,
-                        part=f"{file_index}_0",
-                        start=0 if nevents is not None else None,
-                        stop=nevents,
-                    )
-                )
+            )
 
     return partitions
-
-
-def _file_event_counts(
-    dataset: dict[str, Any], n_files: int
-) -> list[int | None] | None:
-    """Event count of each file, or ``None`` when the dataset does not say.
-
-    ``file_nevents`` lists one count per file. A single-file dataset may instead
-    use the dataset-level ``nevents``, which is then that file's count; for several
-    files the dataset-level total says nothing about any one file.
-    """
-    per_file = dataset.get("file_nevents")
-    if per_file is not None:
-        return [int(n) for n in per_file]
-    total = _coerce_nevents(dataset.get("nevents"))
-    if total is not None and n_files == 1:
-        return [total]
-    return None
-
-
-def _require_file_counts_for_chunking(
-    dataset_name: str, dataset: dict[str, Any], files: list[Any]
-) -> None:
-    if len(files) > 1 and _coerce_nevents(dataset.get("nevents")) is not None:
-        raise ValueError(
-            f"Dataset {dataset_name!r} has {len(files)} files and only a dataset-level "
-            "'nevents' total, which cannot be used to chunk individual files. "
-            "Add 'file_nevents' (one event count per file, in the order of 'files')."
-        )
-
-
-def _coerce_nevents(value: Any) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        value = value.strip()
-        if not value:
-            return None
-    return int(value)
 
 
 def _default_execution_policy(

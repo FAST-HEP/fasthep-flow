@@ -8,6 +8,7 @@ from typing import Any
 class ExecutionConfig:
     backend: str = "local"
     strategy: str = "default"
+    partitioning: dict[str, int] = field(default_factory=dict)
     profiles: list[str] = field(default_factory=list)
     resources: dict[str, dict[str, Any]] = field(default_factory=dict)
     pools: dict[str, dict[str, Any]] = field(default_factory=dict)

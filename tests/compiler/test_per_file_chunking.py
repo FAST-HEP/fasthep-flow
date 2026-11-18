@@ -88,3 +88,75 @@ def test_unchunked_partitions_use_the_files_own_event_count(
     _graph, plan = build_plan_from_normalized(normalize_workflow(workflow))
 
     assert _ranges(plan) == [("0_0", 0, 10), ("1_0", 0, 7)]
+
+
+def test_legacy_partition_dictionaries_stay_unchanged(
+    toy_registry: dict[str, Any],
+) -> None:
+    workflow = _workflow(
+        toy_registry,
+        {"files": ["a.root", "b.root"], "file_nevents": [6, 3]},
+    )
+
+    _graph, plan = build_plan_from_normalized(
+        normalize_workflow(workflow), chunk_size=5
+    )
+
+    assert [partition.to_dict() for partition in plan.partitions] == [
+        {
+            "id": "events__sample__0_0",
+            "dataset": "sample",
+            "file": "a.root",
+            "source": "events",
+            "part": "0_0",
+            "start": 0,
+            "stop": 5,
+        },
+        {
+            "id": "events__sample__0_1",
+            "dataset": "sample",
+            "file": "a.root",
+            "source": "events",
+            "part": "0_1",
+            "start": 5,
+            "stop": 6,
+        },
+        {
+            "id": "events__sample__1_0",
+            "dataset": "sample",
+            "file": "b.root",
+            "source": "events",
+            "part": "1_0",
+            "start": 0,
+            "stop": 3,
+        },
+    ]
+
+
+def test_dataset_chunk_size_drives_actual_plan_partitions(
+    toy_registry: dict[str, Any],
+) -> None:
+    workflow = _workflow(
+        toy_registry,
+        {"files": ["a.root"], "nevents": 12, "chunk_size": 5},
+    )
+
+    _graph, plan = build_plan_from_normalized(normalize_workflow(workflow))
+
+    assert _ranges(plan) == [("0_0", 0, 5), ("0_1", 5, 10), ("0_2", 10, 12)]
+
+
+def test_dataset_chunk_size_overrides_workflow_chunk_size_in_actual_plan(
+    toy_registry: dict[str, Any],
+) -> None:
+    workflow = {
+        **_workflow(
+            toy_registry,
+            {"files": ["a.root"], "nevents": 12, "chunk_size": 5},
+        ),
+        "execution": {"partitioning": {"chunk_size": 3}},
+    }
+
+    _graph, plan = build_plan_from_normalized(normalize_workflow(workflow))
+
+    assert _ranges(plan) == [("0_0", 0, 5), ("0_1", 5, 10), ("0_2", 10, 12)]

@@ -482,6 +482,7 @@ def normalize_datasets(
                 files=files,
                 nevents=ds.get("nevents"),
                 file_nevents=ds.get("file_nevents"),
+                chunk_size=ds.get("chunk_size"),
                 eventtype=str(
                     ds.get(
                         "eventtype",
