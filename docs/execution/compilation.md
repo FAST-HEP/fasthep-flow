@@ -383,6 +383,11 @@ compile/[<variation>/]
   nothing, and different content fails and names the file and both hashes.
   Compiling the same dataset again with the same manifest changes nothing; a
   different chunk size or file list fails and keeps the existing unit.
+- The shared plan depends on what the workflow is, not on where it was compiled from: it holds no
+  `workflow_path`, `project_root`, provenance root, input files or host paths, and carries
+  `context.workflow_hash`. The same workflow addressed by another path publishes the same files; a
+  changed workflow conflicts. Each unit records the location in `invocation.yaml`, and
+  `load_plan_file(plan, dataset=D)` puts it back into the context.
 - `plan.yaml` names the unit as `execution.partitioning.manifest:
   datasets/{dataset}/manifest.yaml`. The manifest freezes what partitioning needs,
   so listing, compile and run use the same partitions.

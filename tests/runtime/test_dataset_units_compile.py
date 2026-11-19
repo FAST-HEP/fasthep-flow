@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import multiprocessing
 from pathlib import Path
 from typing import Any
@@ -258,3 +259,76 @@ def test_run_plan_ignores_a_damaged_sibling_unit(
     result = run_plan_file(out / "compile" / "plan.yaml", outdir=out, dataset="alpha")
 
     assert result.success is True
+
+
+def test_shared_plan_names_no_location_of_the_workflow(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "build"
+    _compile(workflow, out, "alpha", chunk_size=2)
+
+    text = (out / "compile" / "plan.yaml").read_text(encoding="utf-8")
+    plan = read_yaml(out / "compile" / "plan.yaml")
+
+    assert str(tmp_path) not in text
+    assert str(Path.cwd()) not in text
+    assert "workflow_path" not in plan["context"]
+    assert "project_root" not in plan["context"]
+    assert "root" not in plan["provenance"]
+    assert "inputs" not in plan["provenance"]
+    assert len(plan["context"]["workflow_hash"]) == 64
+
+
+def test_compiles_from_another_path_form_publish_the_same_shared_files(
+    tmp_path: Path,
+    toy_workflow: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "build"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    _compile(workflow.resolve(), out, "alpha", chunk_size=2)
+    shared = {
+        path.name: path.read_bytes()
+        for path in (out / "compile").iterdir()
+        if path.is_file()
+    }
+    monkeypatch.chdir(elsewhere)
+    _compile(Path("..") / workflow.name, out, "beta")
+
+    for name, content in shared.items():
+        assert (out / "compile" / name).read_bytes() == content, name
+    unit = read_yaml(out / "compile" / "datasets" / "beta" / "invocation.yaml")
+    assert unit["workflow_path"].endswith("workflow.yaml")
+
+
+def test_a_changed_workflow_conflicts_in_the_same_root(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "build"
+    _compile(workflow, out, "alpha", chunk_size=2)
+    changed = copy.deepcopy(toy_workflow)
+    changed["analysis"]["stages"][0]["params"]["factor"] = 3
+    workflow = _write_workflow(tmp_path, changed)
+
+    with pytest.raises(PublishConflict):
+        _compile(workflow, out, "beta")
+
+
+def test_load_plan_restores_the_compile_location_from_the_unit(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "build"
+    _compile(workflow, out, "alpha", chunk_size=2)
+
+    one = load_plan_file(out / "compile" / "plan.yaml", dataset="alpha")
+    none = load_plan_file(out / "compile" / "plan.yaml")
+
+    assert one.context["workflow_path"] == str(workflow)
+    assert "project_root" in one.context
+    assert "workflow_path" not in none.context

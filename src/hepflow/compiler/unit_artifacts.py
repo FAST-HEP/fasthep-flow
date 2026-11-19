@@ -31,6 +31,7 @@ from hepflow.compiler.dataset_units import (
     read_manifest,
     shared_plan_dict,
     unit_dir,
+    workflow_content_hash,
     write_manifest,
 )
 from hepflow.compiler.graph_artifacts import (
@@ -101,7 +102,11 @@ def write_dataset_unit_artifacts(
         ),
     )
 
-    publish_if_absent(compile_path / "plan.yaml", _yaml_bytes(shared_plan_dict(plan)))
+    workflow_hash = workflow_content_hash(normalized)
+    publish_if_absent(
+        compile_path / "plan.yaml",
+        _yaml_bytes(shared_plan_dict(plan, workflow_hash=workflow_hash)),
+    )
     publish_if_absent(compile_path / "deps.yaml", _yaml_bytes(plan.data_flow))
     spec = worker_environment_plan_from_execution(plan.execution)
     if spec is not None:
@@ -148,7 +153,9 @@ def _write_unit(
     record = dict((plan.context.get("datasets") or {}).get(dataset) or {})
     record["name"] = dataset
     manifest = dataset_manifest(
-        record, chunk_size=resolve_chunk_size(chunk_size, record, plan.execution)
+        record,
+        chunk_size=resolve_chunk_size(chunk_size, record, plan.execution),
+        workflow_hash=workflow_content_hash(normalized),
     )
     directory = unit_dir(paths.compile_dir(), dataset)
     existing = directory / MANIFEST_NAME
