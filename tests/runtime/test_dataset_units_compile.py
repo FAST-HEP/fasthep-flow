@@ -243,3 +243,18 @@ def test_variations_get_their_own_shared_plan_and_units(
             assert (root / "datasets" / name / "manifest.yaml").is_file()
     plan = load_plan_file(out / "compile" / "scale_up" / "plan.yaml", dataset="alpha")
     assert [p.part for p in plan.partitions] == ["1", "2"]
+
+
+def test_run_plan_ignores_a_damaged_sibling_unit(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "build"
+    _compile(workflow, out, "alpha", chunk_size=2)
+    _compile(workflow, out, "beta")
+    beta = out / "compile" / "datasets" / "beta" / "manifest.yaml"
+    beta.write_text(beta.read_text().replace("file_nevents", "file_nevents_x"))
+
+    result = run_plan_file(out / "compile" / "plan.yaml", outdir=out, dataset="alpha")
+
+    assert result.success is True

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -115,3 +116,13 @@ def test_manifest_round_trips_and_is_published_once(tmp_path: Path) -> None:
     assert read_manifest(target) == manifest
     with pytest.raises(PublishConflict):
         write_manifest(target, dataset_manifest(record, chunk_size=3))
+
+
+def test_published_file_follows_the_umask_not_mkstemp_mode(tmp_path: Path) -> None:
+    old = os.umask(0o022)
+    try:
+        publish_if_absent(tmp_path / "plan.yaml", b"x")
+    finally:
+        os.umask(old)
+
+    assert (tmp_path / "plan.yaml").stat().st_mode & 0o777 == 0o644

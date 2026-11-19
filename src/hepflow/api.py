@@ -566,7 +566,7 @@ def run_plan_file(
     the plan was compiled with; it never re-chunks.
     """
     plan_file = resolve_plan_path(plan_path)
-    plan = load_plan_file(plan_file)
+    plan = load_plan_file(plan_file, dataset=dataset)
     requested_partition_numbers = (
         list(partition_numbers) if partition_numbers is not None else None
     )

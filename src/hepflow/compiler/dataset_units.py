@@ -33,6 +33,12 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _umask() -> int:
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
 def publish_if_absent(path: str | Path, data: bytes) -> bool:
     """Create ``path`` with ``data`` unless it exists; never replace it.
 
@@ -48,6 +54,9 @@ def publish_if_absent(path: str | Path, data: bytes) -> bool:
     temp = Path(temp_name)
     try:
         with os.fdopen(fd, "wb") as handle:
+            # mkstemp creates 0600 and the hard link keeps it; readers on other uids need
+            # what a plain write would give.
+            os.fchmod(handle.fileno(), 0o666 & ~_umask())
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
@@ -166,17 +175,17 @@ def assemble_unit_partitions(
         return
     names = [str(name) for name in plan.context.get("dataset_names") or []]
     manifests: dict[str, dict[str, Any]] = {}
-    for name in names:
-        path = Path(plan_dir) / template.format(dataset=name)
-        if path.is_file():
-            manifests[name] = read_manifest(path)
-    if dataset is not None:
-        if dataset not in manifests:
-            compiled = ", ".join(manifests) or "none"
-            raise ValueError(
-                f"No compiled unit for dataset {dataset!r}; compiled datasets: {compiled}."
-            )
-        manifests = {dataset: manifests[dataset]}
+    present = [
+        name for name in names if (Path(plan_dir) / template.format(dataset=name)).is_file()
+    ]
+    if dataset is not None and dataset not in present:
+        compiled = ", ".join(present) or "none"
+        raise ValueError(
+            f"No compiled unit for dataset {dataset!r}; compiled datasets: {compiled}."
+        )
+    # Only the requested unit is read: a damaged sibling must not block this dataset.
+    for name in [dataset] if dataset is not None else present:
+        manifests[name] = read_manifest(Path(plan_dir) / template.format(dataset=name))
 
     datasets = plan.context["datasets"]
     sources = [node for node in plan.nodes if node.role == "source"]
