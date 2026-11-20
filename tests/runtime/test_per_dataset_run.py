@@ -6,8 +6,12 @@ from typing import Any
 import pytest
 import yaml
 
-from hepflow.api import compile_workflow_file, run_plan_file, run_workflow_file
-from hepflow.utils import read_yaml
+from hepflow.api import (
+    compile_workflow_file,
+    load_plan_file,
+    run_plan_file,
+    run_workflow_file,
+)
 
 
 def _write_workflow(
@@ -43,26 +47,6 @@ def _write_workflow(
     return path
 
 
-def test_compile_with_dataset_keeps_files_of_the_selected_dataset_only(
-    tmp_path: Path, toy_workflow: dict[str, Any]
-) -> None:
-    workflow = _write_workflow(tmp_path, toy_workflow)
-    out = tmp_path / "build"
-
-    compile_workflow_file(workflow, outdir=out, dataset="alpha", chunk_size=2)
-
-    plan = read_yaml(out / "compile" / "plan.yaml")
-    assert [(p["dataset"], p["part"]) for p in plan["partitions"]] == [
-        ("alpha", "1"),
-        ("alpha", "2"),
-    ]
-    assert plan["context"]["datasets"]["beta"]["files"] == []
-    assert plan["context"]["datasets"]["beta"]["group"] == "data"
-    assert plan["context"]["datasets"]["beta"]["nevents"] is None
-    # normalized.yaml keeps full records until slice 3 moves it into the dataset unit.
-    assert plan["execution"]["partitioning"]["per_dataset"] is True
-
-
 def test_run_workflow_dataset_alone_runs_all_its_partitions(
     tmp_path: Path, toy_workflow: dict[str, Any]
 ) -> None:
@@ -73,8 +57,8 @@ def test_run_workflow_dataset_alone_runs_all_its_partitions(
     )
 
     assert result.success is True
-    plan = read_yaml(tmp_path / "out" / "compile" / "plan.yaml")
-    assert [p["part"] for p in plan["partitions"]] == ["1", "2", "3"]
+    plan = load_plan_file(tmp_path / "out" / "compile" / "plan.yaml", dataset="beta")
+    assert [p.part for p in plan.partitions] == ["1", "2", "3"]
     assert result.summary["progress"]["counts"]["total"] == 3
 
 

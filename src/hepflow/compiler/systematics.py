@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from hepflow.compiler.artifacts import write_plan_artifacts
+from hepflow.compiler.dataset_units import publish_if_absent
+from hepflow.compiler.per_dataset import per_dataset_enabled
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.model.plan import ExecutionPlan
 from hepflow.utils import write_yaml
@@ -278,6 +283,7 @@ def make_systematic_plan_files(
     chunk_size: int | None = None,
     snapshot: bool = False,
     dataset: str | None = None,
+    invocation: Mapping[str, Any] | None = None,
 ) -> ExecutionPlan:
     expanded = expand_systematics(normalized)
     if not expanded:
@@ -313,6 +319,8 @@ def make_systematic_plan_files(
             normalized=item.workflow,
             chunk_size=chunk_size,
             snapshot=snapshot,
+            dataset=dataset,
+            invocation=invocation,
         )
 
         variation_summary = item.variation.to_dict()
@@ -321,7 +329,14 @@ def make_systematic_plan_files(
         )
         variation_summaries.append(variation_summary)
 
-    write_yaml(summary, str(compile_path / "systematics.yaml"))
+    if per_dataset_enabled(normalized.get("execution")):
+        # Compiles of other datasets publish the same summary into this root.
+        publish_if_absent(
+            compile_path / "systematics.yaml",
+            yaml.safe_dump(summary, sort_keys=False).encode("utf-8"),
+        )
+    else:
+        write_yaml(summary, str(compile_path / "systematics.yaml"))
     if first_plan is None:
         raise ValueError("systematics expansion produced no plans")
     return first_plan

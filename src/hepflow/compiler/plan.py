@@ -91,6 +91,7 @@ def build_execution_plan(
                 impl=graph_node.impl,
                 outputs=graph_node.outputs,
                 chunk_size=chunk_size,
+                chunked=per_dataset_enabled(execution),
             )
         )
 
@@ -381,11 +382,17 @@ def _default_execution_policy(
     impl: str,
     outputs: dict[str, str],
     chunk_size: int | None,
+    chunked: bool = False,
 ) -> tuple[str, str, PartitionSpec, str]:
-    """Very first-pass policy."""
+    """Very first-pass policy.
+
+    ``chunked`` (per-dataset mode) treats the plan as chunked whatever the chunk size, so
+    its nodes do not depend on the chunk size of a single dataset.
+    """
     del impl
+    chunk_size_set = chunk_size is not None or chunked
     if role == "source":
-        if chunk_size is not None:
+        if chunk_size_set:
             return (
                 "global",
                 "partition",
@@ -405,7 +412,7 @@ def _default_execution_policy(
                 "partition",
                 "partition",
                 PartitionSpec(mode="dataset_chunks", chunk_size=chunk_size)
-                if chunk_size is not None
+                if chunk_size_set
                 else PartitionSpec(mode="dataset"),
                 "never",
             )
@@ -422,7 +429,7 @@ def _default_execution_policy(
             "partition",
             "partition",
             PartitionSpec(mode="dataset_chunks", chunk_size=chunk_size)
-            if chunk_size is not None
+            if chunk_size_set
             else PartitionSpec(mode="dataset"),
             "never",
         )

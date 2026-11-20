@@ -23,6 +23,7 @@ from hepflow.compiler.artifacts import write_plan_artifacts
 from hepflow.compiler.bundle import record_source_files, write_invocation
 from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.context import CompileContext
+from hepflow.compiler.dataset_units import assemble_unit_partitions
 from hepflow.compiler.execution import (
     normalize_global_execution,
     resolve_workflow_execution,
@@ -181,8 +182,12 @@ def normalise_workflow_file(
     invocation: Mapping[str, Any] | None = None,
     dataset: str | None = None,
     per_dataset: bool | None = None,
+    write: bool = True,
 ) -> dict[str, Any]:
     """Normalise a workflow YAML file and write ``compile/normalized.yaml``.
+
+    ``write=False`` only returns the normalized workflow; the per-dataset compile uses it
+    because the files then belong to a dataset unit that is written once, later.
 
     ``per_dataset`` overrides ``execution.partitioning.per_dataset`` in the normalized
     workflow; ``dataset`` is validated against it (per-dataset mode only).
@@ -246,6 +251,8 @@ def normalise_workflow_file(
     )
     normalized["provenance"]["inputs"] = collector.entries()
 
+    if not write:
+        return normalized
     compile_dir(out_path).mkdir(parents=True, exist_ok=True)
     write_invocation(
         compile_dir(out_path),
@@ -279,8 +286,28 @@ def make_plan_file(
     snapshot per variation directory for systematics compiles).
     """
     normalized_file = resolve_normalized_path(normalized_path)
-    out_path = Path(outdir)
     normalized = read_yaml(str(normalized_file)) or {}
+    return _make_plan(
+        normalized,
+        outdir=Path(outdir),
+        chunk_size=chunk_size,
+        snapshot=snapshot,
+        dataset=dataset,
+        per_dataset=per_dataset,
+    )
+
+
+def _make_plan(
+    normalized: dict[str, Any],
+    *,
+    outdir: Path,
+    chunk_size: int | None,
+    snapshot: bool,
+    dataset: str | None,
+    per_dataset: bool | None,
+    invocation: Mapping[str, Any] | None = None,
+) -> ExecutionPlan:
+    out_path = outdir
     if per_dataset is not None:
         normalized["execution"] = with_per_dataset(
             normalize_global_execution(normalized.get("execution")), per_dataset
@@ -293,6 +320,7 @@ def make_plan_file(
             chunk_size=chunk_size,
             snapshot=snapshot,
             dataset=dataset,
+            invocation=invocation,
         )
 
     graph, plan = build_plan_from_normalized(
@@ -305,6 +333,8 @@ def make_plan_file(
         normalized=normalized,
         chunk_size=chunk_size,
         snapshot=snapshot,
+        dataset=dataset,
+        invocation=invocation,
     )
     return plan
 
@@ -329,22 +359,73 @@ def compile_workflow_file(
     mirroring the root-relative tree, so that :func:`compile_from_bundle` (or a compile with
     ``root=<outdir>/compile/inputs``) can compile the bundle again.
     """
+    return _compile_workflow(
+        workflow_path,
+        outdir=outdir,
+        chunk_size=chunk_size,
+        root=root,
+        invocation=invocation,
+        snapshot=snapshot,
+        dataset=dataset,
+        per_dataset=per_dataset,
+    )[1]
+
+
+def _compile_workflow(
+    workflow_path: str | Path,
+    *,
+    outdir: str | Path,
+    chunk_size: int | None,
+    root: str | Path | None,
+    invocation: Mapping[str, Any] | None,
+    snapshot: bool,
+    dataset: str | None,
+    per_dataset: bool | None,
+) -> tuple[dict[str, Any], ExecutionPlan]:
+    """Compile a workflow; return its normalized document and the plan."""
     out_path = Path(outdir)
-    normalise_workflow_file(
+    normalized = normalise_workflow_file(
         workflow_path,
         outdir=out_path,
         root=root,
         invocation=invocation,
         dataset=dataset,
         per_dataset=per_dataset,
+        write=False,
     )
-    return make_plan_file(
+    if per_dataset_enabled(normalized["execution"]):
+        # Per-dataset compiles share one output root: nothing is written to the shared
+        # compile directory until the units are published, create-if-absent.
+        return normalized, _make_plan(
+            normalized,
+            outdir=out_path,
+            chunk_size=chunk_size,
+            snapshot=snapshot,
+            dataset=dataset,
+            per_dataset=None,
+            invocation={
+                "workflow_path": str(normalized["workflow_path"]),
+                "root": str(normalized["project_root"]),
+                "caller": dict(invocation or {}),
+            },
+        )
+    compile_dir(out_path).mkdir(parents=True, exist_ok=True)
+    write_invocation(
+        compile_dir(out_path),
+        workflow_path=str(normalized["workflow_path"]),
+        outdir=str(out_path),
+        root=str(normalized["project_root"]),
+        invocation=invocation,
+    )
+    write_yaml(normalized, str(normalized_path(out_path)))
+    plan = make_plan_file(
         normalized_path(out_path),
         outdir=out_path,
         chunk_size=chunk_size,
         snapshot=snapshot,
         dataset=dataset,
     )
+    return normalized, plan
 
 
 def compile_from_bundle(
@@ -384,8 +465,14 @@ def compile_from_bundle(
     return compare_bundle(bundle, outdir, checks)
 
 
-def load_plan_file(plan_path: str | Path) -> ExecutionPlan:
-    """Load an ``ExecutionPlan`` from a compiled ``plan.yaml`` file."""
+def load_plan_file(
+    plan_path: str | Path, dataset: str | None = None
+) -> ExecutionPlan:
+    """Load an ``ExecutionPlan`` from a compiled ``plan.yaml`` file.
+
+    A per-dataset plan is shared: its partitions come from the manifests of the compiled
+    dataset units next to it, those of ``dataset`` or of every compiled unit.
+    """
     doc = read_yaml(str(plan_path)) or {}
     plan = ExecutionPlan(
         context=dict(doc.get("context") or {}),
@@ -437,6 +524,7 @@ def load_plan_file(plan_path: str | Path) -> ExecutionPlan:
         )
         plan.add_node(node)
 
+    assemble_unit_partitions(plan, Path(plan_path).parent, dataset)
     return plan
 
 
@@ -478,7 +566,7 @@ def run_plan_file(
     the plan was compiled with; it never re-chunks.
     """
     plan_file = resolve_plan_path(plan_path)
-    plan = load_plan_file(plan_file)
+    plan = load_plan_file(plan_file, dataset=dataset)
     requested_partition_numbers = (
         list(partition_numbers) if partition_numbers is not None else None
     )
@@ -590,15 +678,16 @@ def run_workflow_file(
 ) -> BackendResult:
     """Compile and run a workflow YAML file in one call."""
     out_path = Path(outdir)
-    compile_workflow_file(
+    normalized, _plan = _compile_workflow(
         workflow_path,
         outdir=out_path,
         chunk_size=chunk_size,
         root=root,
+        invocation=None,
+        snapshot=False,
         dataset=dataset,
         per_dataset=per_dataset,
     )
-    normalized = read_yaml(str(normalized_path(out_path))) or {}
     if has_separate_plan_systematics(normalized):
         nominal_plan = out_path / "compile" / "nominal" / "plan.yaml"
         if not nominal_plan.exists():
