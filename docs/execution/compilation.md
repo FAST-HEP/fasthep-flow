@@ -383,6 +383,9 @@ compile/[<variation>/]
   nothing, and different content fails and names the file and both hashes.
   Compiling the same dataset again with the same manifest changes nothing; a
   different chunk size or file list fails and keeps the existing unit.
+  A unit is built in a staging directory beside its place and published by one rename, so a reader
+  never sees a partial unit; a unit directory without `manifest.yaml` (an interrupted compile) is
+  removed and redone, and only that unit.
 - The shared plan depends on what the workflow is, not on where it was compiled from: it holds no
   `workflow_path`, `project_root`, provenance root, input files or host paths, and carries
   `context.workflow_hash`. The same workflow addressed by another path publishes the same files; a

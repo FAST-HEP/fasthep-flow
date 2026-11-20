@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from hepflow.build_layout import BuildPaths
+from hepflow.compiler.dataset_units import unit_dir
+from hepflow.compiler.per_dataset import per_dataset_enabled
 from hepflow.model import ResolvedResource
 from hepflow.model.plan import ExecutionPlan
 from hepflow.runtime.provenance.model import (
@@ -246,7 +248,7 @@ def _execution_index(
     index = ProvenanceDocument(
         version=PROVENANCE_VERSION,
         run_id=run_id,
-        workflow=_workflow_references(paths),
+        workflow=_workflow_references(paths, plan),
         software=_software_versions(),
         execution=_execution_context(),
         partitions=_partition_index(plan, writer_records),
@@ -383,9 +385,18 @@ def _node_execution_index(records: list[dict[str, Any]]) -> list[dict[str, str]]
     return list(node_executions.values())
 
 
-def _workflow_references(paths: BuildPaths) -> dict[str, str]:
+def _workflow_references(paths: BuildPaths, plan: ExecutionPlan) -> dict[str, str]:
+    normalized = paths.compile_file("normalized.yaml")
+    if per_dataset_enabled(plan.execution):
+        # The normalized workflow lives in the unit of the dataset that ran.
+        names = sorted({str(p.dataset) for p in plan.partitions})
+        normalized = (
+            unit_dir(paths.compile_dir(), names[0]) / "normalized.yaml"
+            if len(names) == 1
+            else normalized
+        )
     return {
-        "normalized": _path_ref(paths, paths.compile_file("normalized.yaml")),
+        "normalized": _path_ref(paths, normalized),
         "graph": _path_ref(paths, paths.graph_file("graph.json")),
         "plan": _path_ref(paths, paths.compile_file("plan.yaml")),
     }

@@ -23,7 +23,7 @@ from hepflow.compiler.artifacts import write_plan_artifacts
 from hepflow.compiler.bundle import record_source_files, write_invocation
 from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.context import CompileContext
-from hepflow.compiler.dataset_units import assemble_unit_partitions
+from hepflow.compiler.dataset_units import assemble_unit_partitions, unit_dir
 from hepflow.compiler.execution import (
     normalize_global_execution,
     resolve_workflow_execution,
@@ -571,6 +571,12 @@ def run_plan_file(
         list(partition_numbers) if partition_numbers is not None else None
     )
     per_dataset = per_dataset_enabled(plan.execution)
+    if per_dataset and not plan.partitions:
+        template = (plan.execution.get("partitioning") or {}).get("manifest") or ""
+        raise ValueError(
+            f"No compiled dataset unit next to {plan_file} (expected {template}); "
+            "run `compile --dataset NAME` first."
+        )
     selectable_partitions = plan.partitions
     if per_dataset and dataset is not None:
         selectable_partitions = [p for p in plan.partitions if p.dataset == dataset]
@@ -630,7 +636,11 @@ def run_plan_file(
             selected_partitions=selected_partitions,
             numbers=requested_partition_numbers,
         )
-    recorded_bundle_id = _read_bundle_id(plan_file.parent)
+    recorded_bundle_id = _read_bundle_id(
+        unit_dir(plan_file.parent, dataset)
+        if per_dataset and dataset is not None
+        else plan_file.parent
+    )
     if recorded_bundle_id is not None:
         summary["bundle_id"] = recorded_bundle_id
     summary["summary_path"] = str(build_paths.run_summary())

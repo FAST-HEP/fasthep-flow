@@ -11,6 +11,7 @@ from hepflow.compiler.dataset_units import (
     manifest_hash,
     publish_if_absent,
     read_manifest,
+    workflow_content_hash,
     write_manifest,
 )
 
@@ -126,3 +127,43 @@ def test_published_file_follows_the_umask_not_mkstemp_mode(tmp_path: Path) -> No
         os.umask(old)
 
     assert (tmp_path / "plan.yaml").stat().st_mode & 0o777 == 0o644
+
+
+def _normalized() -> dict[str, object]:
+    return {
+        "workflow_path": "/a/workflow.yaml",
+        "project_root": "/a",
+        "provenance": {"root": "/a", "inputs": [{"declared": "/a/workflow.yaml"}]},
+        "data": {
+            "datasets": [
+                {"name": "x", "group": "mc", "files": ["f1"], "nevents": 5},
+                {"name": "y", "group": "mc", "files": ["f2"], "nevents": 7},
+            ]
+        },
+        "analysis": {"stages": [{"id": "s", "params": {"factor": 2}}]},
+    }
+
+
+def test_workflow_hash_ignores_location_and_file_data() -> None:
+    other = _normalized()
+    other["workflow_path"] = "../b/workflow.yaml"
+    other["project_root"] = "/b"
+    other["provenance"] = {"root": "/b", "inputs": []}
+    other["data"] = {
+        "datasets": [
+            {"name": "x", "group": "mc", "files": ["other"]},
+            {"name": "y", "group": "mc"},
+        ]
+    }
+
+    assert workflow_content_hash(other) == workflow_content_hash(_normalized())
+
+
+def test_workflow_hash_follows_the_workflow_content() -> None:
+    changed = _normalized()
+    changed["analysis"] = {"stages": [{"id": "s", "params": {"factor": 3}}]}
+    regrouped = _normalized()
+    regrouped["data"]["datasets"][0]["group"] = "data"  # type: ignore[index]
+
+    assert workflow_content_hash(changed) != workflow_content_hash(_normalized())
+    assert workflow_content_hash(regrouped) != workflow_content_hash(_normalized())

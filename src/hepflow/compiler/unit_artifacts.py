@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import secrets
+import shutil
 import tempfile
 from collections.abc import Mapping
 from dataclasses import replace
@@ -94,6 +96,8 @@ def write_dataset_unit_artifacts(
     """
     paths = BuildPaths.from_plan(plan, outdir=outdir)
     compile_path = paths.compile_dir()
+    for name in datasets:
+        unit_dir(compile_path, name)  # a bad name fails before anything is published
     ensure_build_layout(
         paths.root,
         variation=paths.variation,
@@ -160,11 +164,61 @@ def _write_unit(
     directory = unit_dir(paths.compile_dir(), dataset)
     existing = directory / MANIFEST_NAME
     if existing.is_file():
-        if manifest_bytes(read_manifest(existing)) != manifest_bytes(manifest):
-            write_manifest(existing, manifest)  # raises PublishConflict with the hashes
+        _check_same_unit(existing, manifest)
         return []
+    if directory.exists():
+        # An earlier compile was interrupted before its unit was complete; redo that unit only.
+        shutil.rmtree(directory)
 
-    directory.mkdir(parents=True, exist_ok=True)
+    # The unit is built beside its final place and published by one rename, so a reader
+    # never sees a partial unit and a second writer of the same dataset cannot truncate it.
+    staging = directory.parent / f".{directory.name}.tmp-{secrets.token_hex(4)}"
+    staging.mkdir(parents=True)
+    try:
+        records = _build_unit(
+            staging,
+            plan=plan,
+            graph=graph,
+            paths=paths,
+            normalized=normalized,
+            dataset=dataset,
+            record=record,
+            manifest=manifest,
+            chunk_size=chunk_size,
+            snapshot=snapshot,
+            invocation=invocation,
+        )
+        try:
+            staging.rename(directory)
+        except OSError:
+            if not existing.is_file():
+                raise
+            _check_same_unit(existing, manifest)  # another compile won the rename
+            return []
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return records
+
+
+def _check_same_unit(existing: Path, manifest: dict[str, Any]) -> None:
+    if manifest_bytes(read_manifest(existing)) != manifest_bytes(manifest):
+        write_manifest(existing, manifest)  # raises PublishConflict with both hashes
+
+
+def _build_unit(
+    directory: Path,
+    *,
+    plan: ExecutionPlan,
+    graph: nx.DiGraph,
+    paths: BuildPaths,
+    normalized: dict[str, Any],
+    dataset: str,
+    record: dict[str, Any],
+    manifest: dict[str, Any],
+    chunk_size: int | None,
+    snapshot: bool,
+    invocation: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
     if invocation is not None:
         write_invocation(
             directory,
@@ -217,7 +271,7 @@ def _write_unit(
         snapshot=snapshot,
         directory=directory,
     )
-    write_manifest(existing, manifest)
+    (directory / MANIFEST_NAME).write_bytes(manifest_bytes(manifest))  # last: unit complete
     return records
 
 
