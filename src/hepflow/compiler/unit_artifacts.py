@@ -69,6 +69,27 @@ def _metadata_only_graph(graph: nx.DiGraph) -> nx.DiGraph:
     return result
 
 
+def _version_hint(published: Path, candidate: dict[str, Any]) -> str:
+    """Say so when the plans differ in the Flow version that compiled them."""
+
+    def version(doc: Any) -> Any:
+        return ((doc or {}).get("provenance") or {}).get("compilation", {}).get(
+            "flow_version"
+        )
+
+    try:
+        existing = yaml.safe_load(published.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return ""
+    old, new = version(existing), version(candidate)
+    if old == new:
+        return ""
+    return (
+        f" (compiled by Flow {old} and {new}: a new Flow version needs a new out-dir"
+        " or a recompile of every dataset)"
+    )
+
+
 def _publish_tree(source: Path, target: Path) -> None:
     """Publish every file below ``source`` to the same relative path under ``target``."""
     for path in sorted(source.rglob("*")):
@@ -107,10 +128,13 @@ def write_dataset_unit_artifacts(
     )
 
     workflow_hash = workflow_content_hash(normalized)
-    publish_if_absent(
-        compile_path / "plan.yaml",
-        _yaml_bytes(shared_plan_dict(plan, workflow_hash=workflow_hash)),
-    )
+    shared_plan = shared_plan_dict(plan, workflow_hash=workflow_hash)
+    try:
+        publish_if_absent(compile_path / "plan.yaml", _yaml_bytes(shared_plan))
+    except PublishConflict as error:
+        raise PublishConflict(
+            f"{error}{_version_hint(compile_path / 'plan.yaml', shared_plan)}"
+        ) from None
     publish_if_absent(compile_path / "deps.yaml", _yaml_bytes(plan.data_flow))
     spec = worker_environment_plan_from_execution(plan.execution)
     if spec is not None:

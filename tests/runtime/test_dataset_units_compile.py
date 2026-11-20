@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from tests.runtime.test_per_dataset_run import _write_workflow
 
+import hepflow
 from hepflow.api import (
     compile_workflow_file,
     diff_plan_files,
@@ -464,3 +465,18 @@ def test_diff_of_two_shared_plans_still_works(
 
     assert same.equal is True
     assert different.equal is False
+
+
+def test_a_new_flow_version_conflicts_and_the_message_says_so(
+    tmp_path: Path,
+    toy_workflow: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "build"
+    monkeypatch.setattr(hepflow, "__version__", "1.0.0")
+    _compile(workflow, out, "alpha", chunk_size=2)
+    monkeypatch.setattr(hepflow, "__version__", "1.1.0")
+
+    with pytest.raises(PublishConflict, match=r"Flow 1\.0\.0 and 1\.1\.0.*new out-dir"):
+        _compile(workflow, out, "beta")
