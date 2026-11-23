@@ -19,11 +19,16 @@ class BuildPaths:
     example into a worker's job directory when a backend delivers the files
     itself. A relative ``files_root`` is resolved against the working directory
     of the process that writes. Everything else stays below ``root``.
+
+    ``run_dir`` is the record directory of one partition run in per-dataset mode
+    (:meth:`partition_run_dir`): provenance, writer manifests and the run summary go
+    there, so concurrent partition jobs of one out-dir never share a record file.
     """
 
     root: Path
     variation: str | None = None
     files_root: Path | None = None
+    run_dir: Path | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "root", build_root(self.root))
@@ -75,7 +80,31 @@ class BuildPaths:
         return self.artifact_dir(kind) / filename
 
     def provenance_dir(self) -> Path:
+        if self.run_dir is not None:
+            return self.run_dir / "provenance"
         return self.artifact_dir("provenance")
+
+    def writer_manifest_dir(self, name: str) -> Path:
+        if self.run_dir is not None:
+            return self.run_dir / "writers" / name
+        return self.artifact_dir("files") / name
+
+    def run_root(self, dataset: str) -> Path:
+        """``runs/[<variation>/]<dataset>``: binding and one directory per partition."""
+        _check_dataset_name(dataset)
+        path = self.root / "runs"
+        if self.variation:
+            path = path / self.variation
+        return path / dataset
+
+    def binding_file(self, dataset: str) -> Path:
+        return self.run_root(dataset) / "binding.json"
+
+    def partition_run_dir(self, dataset: str, number: int | str) -> Path:
+        return self.run_root(dataset) / str(number)
+
+    def attempts_dir(self, dataset: str, number: int | str) -> Path:
+        return self.partition_run_dir(dataset, number) / "attempts"
 
     def provenance_records_dir(self) -> Path:
         return self.provenance_dir() / "records"
@@ -161,9 +190,16 @@ class BuildPaths:
         return Path(path).relative_to(self.root)
 
     def run_summary(self) -> Path:
+        if self.run_dir is not None:
+            return self.run_dir / "run_summary.yaml"
         if self.variation:
             return self.report_dir() / "run_summary.yaml"
         return self.root / "run_summary.yaml"
+
+
+def _check_dataset_name(dataset: str) -> None:
+    if not dataset or dataset in {".", ".."} or "/" in dataset or "\\" in dataset:
+        raise ValueError(f"Dataset name {dataset!r} cannot name a run directory")
 
 
 def partition_output_roots(plan: Any) -> list[str]:

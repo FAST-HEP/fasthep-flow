@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from hepflow.build_layout import BuildPaths
 from hepflow.model.io import OutputResult
 from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.model.plan import (
@@ -388,6 +389,7 @@ def execute_plan_locally(
                 stores=[value_store],
                 outdir=str(base_ctx.get("outdir") or "."),
                 runtime_provenance=recorder,
+                paths=_record_paths(base_ctx),
             )
             hook_manager.run_end(plan=plan, ctx=base_ctx, summary={})
             if progress is not None:
@@ -521,6 +523,7 @@ def execute_plan_locally(
             stores=[merged_value_store],
             outdir=str(base_ctx.get("outdir") or "."),
             runtime_provenance=recorder,
+            paths=_record_paths(base_ctx),
         )
         hook_manager.run_end(plan=plan, ctx=base_ctx, summary={})
         if progress is not None:
@@ -533,6 +536,12 @@ def execute_plan_locally(
         if progress is not None:
             progress.run_failed(exc)
         raise
+
+
+def _record_paths(ctx: Mapping[str, Any]) -> BuildPaths | None:
+    """The paths of a per-partition run (records below its run directory), else None."""
+    paths = ctx.get("build_paths")
+    return paths if isinstance(paths, BuildPaths) and paths.run_dir is not None else None
 
 
 def _reset_final_product_manifests(outdir: str) -> None:

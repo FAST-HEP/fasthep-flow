@@ -141,6 +141,7 @@ def write_artifact_provenance_records(
     writer_records: list[dict[str, Any]],
     outdir: str | Path,
     runtime_provenance: Any | None = None,
+    paths: BuildPaths | None = None,
 ) -> dict[str, dict[str, str]]:
     """
     Write generic artifact provenance records and a provenance manifest.
@@ -152,7 +153,7 @@ def write_artifact_provenance_records(
     if not writer_records:
         return {}
 
-    paths = BuildPaths(root=Path(outdir))
+    paths = paths or BuildPaths(root=Path(outdir))
     manifest_path = paths.provenance_manifest()
     execution_path = paths.provenance_execution()
     records_dir = paths.provenance_records_dir()
