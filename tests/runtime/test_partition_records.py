@@ -198,3 +198,53 @@ def test_records_of_a_partition_are_written_below_its_run_directory(
     assert (run_dir / "provenance" / "manifest.json").is_file()
     assert not (out / "artifacts" / "files" / "part" / "manifest.json").exists()
     assert not [p for p in (out / "artifacts" / "provenance").rglob("*") if p.is_file()]
+
+
+def test_writer_roots_expand_over_the_loaded_dataset_only(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    from hepflow.api import load_plan_file  # noqa: PLC0415
+    from hepflow.compiler.output_claims import partition_writer_roots  # noqa: PLC0415
+
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    doc["analysis"]["stages"][0]["write"] = [
+        {"kind": "toy.write_manifest", "path": "{dataset}/{part}.toy"}
+    ]
+    workflow.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    out = tmp_path / "out"
+    compile_workflow_file(workflow, outdir=out)
+
+    one = load_plan_file(out / "compile" / "plan.yaml", dataset="beta")
+    both = load_plan_file(out / "compile" / "plan.yaml")
+
+    assert partition_writer_roots(one) == ["beta"]
+    assert partition_writer_roots(both) == ["alpha", "beta"]
+
+
+def test_a_variation_and_the_nominal_share_an_out_dir_without_colliding(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    toy_workflow["systematics"] = {
+        "include_nominal": True,
+        "variations": [
+            {
+                "name": "scale_up",
+                "group": "scale",
+                "direction": "up",
+                "applies_to": "mc",
+                "weight": {"multiply": "w_up"},
+            }
+        ],
+    }
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "out"
+    compile_workflow_file(workflow, outdir=out, dataset="beta")
+
+    for variation in ("nominal", "scale_up"):
+        run_plan_file(out / "compile" / variation / "plan.yaml", outdir=out, dataset="beta")
+
+    for variation in ("nominal", "scale_up"):
+        binding = (out / "runs" / variation / "beta" / "binding.json").read_text()
+        assert f'"variation": "{variation}"' in binding
+        assert (out / "runs" / variation / "beta" / "3" / "run_summary.yaml").is_file()

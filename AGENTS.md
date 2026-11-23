@@ -152,6 +152,11 @@ the layout. Workflow authors set only a `path`:
 - Explicit tokens `{dataset}`, `{part}`, `{partition_id}` and `{node_id}` in
   `path` replace the default and are used as written. An absolute `path` is kept
   as is, outside the build directory.
+- In per-dataset mode (`execution.partitioning.per_dataset`) `<part>` is the 1-based partition number
+  `<N>` inside the dataset (`artifacts/files/skims/x/<dataset>/<N>.<suffix>`), numbered across the
+  sources of the dataset, and each partition keeps its provenance, writer manifests and run summary
+  below `runs/[<variation>/]<dataset>/<N>/` (`docs/execution/compilation.md`, "Run roots, bindings and
+  partition records"). The writer writes `<N>.tmp-<attempt>.<suffix>` and Flow renames it on success.
 - Each writer gets `artifacts/files/<writer name>/manifest.json` listing every
   file per dataset (path, partition, attempt, entries, size, provenance record).
   `name` is the writer name or the path stem; when the stem is only a token
