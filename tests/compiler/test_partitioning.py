@@ -103,3 +103,21 @@ def test_zmumu_chunk_sizes_make_five_partitions(
     )
 
     assert len(partitions) == 5
+
+
+def test_sources_of_one_dataset_share_one_numbering() -> None:
+    dataset = {"name": "sample", "files": ["a.root", "b.root"], "file_nevents": [4, 4]}
+
+    first = derive_dataset_partitions(
+        dataset, source_name="s1", chunk_size=None, local_numbers=True
+    )
+    second = derive_dataset_partitions(
+        dataset,
+        source_name="s2",
+        chunk_size=None,
+        local_numbers=True,
+        first_number=len(first) + 1,
+    )
+
+    assert [p.part for p in [*first, *second]] == ["1", "2", "3", "4"]
+    assert len({p.id for p in [*first, *second]}) == 4
