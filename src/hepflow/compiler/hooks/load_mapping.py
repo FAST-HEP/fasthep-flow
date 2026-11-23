@@ -60,7 +60,14 @@ def load_mapping(
         )
     except FileNotFoundError as exc:
         raise FileNotFoundError(f"flow.load_mapping file not found: {source}") from exc
+    if resolved.origin == "uri":
+        raise ValueError(
+            f"flow.load_mapping reads local files; {source!r} is a URI "
+            "(fetch it first and give the local path)"
+        )
     path = Path(resolved.resolved)
+    if path.is_dir():
+        raise ValueError(f"flow.load_mapping expected a file, but {source!r} is a directory")
 
     suffix = path.suffix.lower().lstrip(".")
     formats = _declared_formats(options)

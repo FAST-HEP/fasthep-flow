@@ -98,6 +98,12 @@ that cannot be read at compile time, for example `/cvmfs/...` on a laptop, is re
 without a hash and the compiler warns: the machine that runs the plan may differ from the
 machine that compiled it.
 
+A relative file under the root that exists but cannot be read fails with a `PermissionError`
+that names the resource or parameter and the declared path. A FIFO, device or socket is never
+opened (reading a FIFO would block): it is recorded without a hash and with the note
+`not a regular file: fifo` (or `device`, `socket`). `flow.load_mapping` rejects a directory or a
+URI with a message that names the value; it reads local files only.
+
 ## The inputs manifest
 
 Every compile writes `compile/inputs.manifest.yaml`, the manifest of the compile bundle
