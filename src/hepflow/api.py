@@ -309,6 +309,7 @@ def make_plan_file(
     """
     normalized_file = resolve_normalized_path(normalized_path)
     normalized = read_yaml(str(normalized_file)) or {}
+    _check_normalized(normalized, normalized_file)
     return _make_plan(
         normalized,
         outdir=Path(outdir),
@@ -317,6 +318,20 @@ def make_plan_file(
         dataset=dataset,
         per_dataset=per_dataset,
     )
+
+
+def _check_normalized(normalized: Any, path: Path) -> None:
+    """Reject a file that is not a normalized workflow of this Flow version."""
+    missing = (
+        [key for key in ("analysis", "registry") if key not in normalized]
+        if isinstance(normalized, dict)
+        else ["analysis", "registry"]
+    )
+    if missing:
+        raise ValueError(
+            f"{path} is not a normalized workflow (missing {', '.join(missing)}); a file written "
+            "by an older Flow cannot be lowered, so normalise the workflow again"
+        )
 
 
 def _make_plan(

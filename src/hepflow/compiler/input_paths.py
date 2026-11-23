@@ -7,6 +7,10 @@ Rules (see fasthep-flow#86):
 * Absolute paths are kept and hashed when readable; an unreadable one is recorded
   with ``sha256 = None`` and a warning, because the compile host may differ from the site
   that runs the plan (for example ``/cvmfs`` on a laptop).
+* A FIFO, device or socket is never opened (reading a FIFO would block): it is recorded
+  without a hash and with a note.
+* A file under the root that cannot be read raises ``PermissionError`` naming the role and the
+  declared path.
 * Relative paths resolve against the project root and must exist. For one release a path
   that is missing under the root falls back to the entry file's directory with a
   ``FutureWarning``.
@@ -16,6 +20,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -140,20 +145,53 @@ def _describe(
         return ResolvedInput(
             role, declared, str(resolved), origin, None, None, "directory"
         )
+    special = _special_file_kind(resolved)
+    if special is not None:
+        return ResolvedInput(
+            role, declared, str(resolved), origin, None, None, f"not a regular file: {special}"
+        )
     try:
         digest, size = file_fingerprint(resolved)
+    except PermissionError as exc:
+        if strict:
+            raise PermissionError(
+                exc.errno,
+                f"{role}: input {declared!r} is not readable ({resolved}): {exc.strerror}",
+            ) from exc
+        return _unavailable(role, declared, resolved, origin, exc)
     except OSError as exc:
         if strict:
             raise
-        reason = exc.strerror or type(exc).__name__
-        warnings.warn(
-            f"{role}: input {declared!r} is unavailable at compile time ({reason}); "
-            "it is recorded without a hash",
-            UserWarning,
-            stacklevel=3,
-        )
-        return ResolvedInput(
-            role, declared, str(resolved), origin, None, None, f"unavailable: {reason}"
-        )
+        return _unavailable(role, declared, resolved, origin, exc)
     return ResolvedInput(role, declared, str(resolved), origin, digest, size, None)
+
+
+def _unavailable(
+    role: str, declared: str, resolved: Path, origin: str, exc: OSError
+) -> ResolvedInput:
+    reason = exc.strerror or type(exc).__name__
+    warnings.warn(
+        f"{role}: input {declared!r} is unavailable at compile time ({reason}); "
+        "it is recorded without a hash",
+        UserWarning,
+        stacklevel=4,
+    )
+    return ResolvedInput(
+        role, declared, str(resolved), origin, None, None, f"unavailable: {reason}"
+    )
+
+
+def _special_file_kind(path: Path) -> str | None:
+    """``fifo``, ``device`` or ``socket`` for an existing special file, else None."""
+    try:
+        mode = path.stat().st_mode
+    except OSError:
+        return None
+    if stat.S_ISFIFO(mode):
+        return "fifo"
+    if stat.S_ISCHR(mode) or stat.S_ISBLK(mode):
+        return "device"
+    if stat.S_ISSOCK(mode):
+        return "socket"
+    return None
 
