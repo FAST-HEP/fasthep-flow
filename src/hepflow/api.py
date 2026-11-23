@@ -30,8 +30,6 @@ from hepflow.compiler.dataset_units import (
 )
 from hepflow.compiler.execution import (
     normalize_global_execution,
-    resolve_workflow_execution,
-    resolve_workflow_execution_hooks,
 )
 from hepflow.compiler.includes import load_workflow_with_includes
 from hepflow.compiler.inputs_manifest import InputCollector
@@ -69,14 +67,12 @@ from hepflow.compiler.recompile import (
     load_bundle,
     verify_bundle,
 )
-from hepflow.compiler.registry_resolution import (
-    resolve_workflow_registry,
-)
 from hepflow.compiler.resource_paths import resolve_resource_paths
 from hepflow.compiler.systematics import (
     has_separate_plan_systematics,
     make_systematic_plan_files,
 )
+from hepflow.compiler.workflow_config import resolve_workflow_config
 from hepflow.model.plan import (
     ExecutionNode,
     ExecutionPartition,
@@ -164,7 +160,7 @@ def list_workflow_partitions(
     context = CompileContext.for_workflow(workflow_path, root=None)
     loaded = load_workflow_with_includes(str(context.workflow_path))
     normalized = normalize_workflow(loaded.doc)
-    execution = resolve_workflow_execution(loaded.doc, context=context)["execution"]
+    execution = resolve_workflow_config(loaded.doc, context=context).execution["execution"]
     datasets = list((normalized.get("data") or {}).get("datasets") or [])
     return list_dataset_partitions(
         datasets,
@@ -225,9 +221,10 @@ def normalise_workflow_file(
     workflow = loaded.doc
     normalized = normalize_workflow(workflow)
 
-    registry_result = resolve_workflow_registry(workflow, context=context)
-    execution_result = resolve_workflow_execution(workflow, context=context)
-    hooks_result = resolve_workflow_execution_hooks(workflow, context=context)
+    config = resolve_workflow_config(workflow, context=context)
+    registry_result = config.registry
+    execution_result = config.execution
+    hooks_result = config.execution_hooks
 
     normalized["registry"] = registry_result.registry
     normalized["execution"] = execution_result["execution"]

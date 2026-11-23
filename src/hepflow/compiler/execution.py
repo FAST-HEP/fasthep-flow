@@ -4,11 +4,7 @@ from typing import Any
 
 from hepflow.compiler.context import CompileContext
 from hepflow.compiler.file_access import normalize_file_access
-from hepflow.compiler.profiles import (
-    expand_profile_names,
-    load_profile_config_with_provenance,
-    normalize_profile_names,
-)
+from hepflow.compiler.profiles import ProfileExpansion, ProfileLoader
 from hepflow.model.execution import (
     ExecutionConfig,
     ExecutionModifier,
@@ -256,22 +252,14 @@ def validate_stage_execution_resource_references(
                 )
 
 
-def resolve_workflow_execution(
+def merge_workflow_execution(
     workflow: dict[str, Any],
     *,
     context: CompileContext,
+    loader: ProfileLoader,
+    expansion: ProfileExpansion,
 ) -> dict[str, Any]:
-    project_root = context.project_root
-    entry_dir = context.entry_dir
-    use_block = workflow.get("use") or {}
-    if not isinstance(use_block, dict):
-        raise ValueError("use must be a mapping")
-
-    profile_names = expand_profile_names(
-        normalize_profile_names(use_block.get("profiles")),
-        project_root=project_root,
-        entry_dir=entry_dir,
-    )
+    """Merge builtin, profile and workflow ``execution`` (the profiles are already expanded)."""
     layers: list[dict[str, Any]] = [
         {
             "name": "builtin",
@@ -289,12 +277,8 @@ def resolve_workflow_execution(
             },
         }
     ]
-    for name in profile_names:
-        config, provenance = load_profile_config_with_provenance(
-            name,
-            project_root=project_root,
-            entry_dir=entry_dir,
-        )
+    for name in expansion.names:
+        config, provenance = loader.load(name)
         layers.append(
             {
                 "name": name,
@@ -321,22 +305,14 @@ def resolve_workflow_execution(
     }
 
 
-def resolve_workflow_execution_hooks(
+def merge_workflow_execution_hooks(
     workflow: dict[str, Any],
     *,
     context: CompileContext,
+    loader: ProfileLoader,
+    expansion: ProfileExpansion,
 ) -> dict[str, Any]:
-    project_root = context.project_root
-    entry_dir = context.entry_dir
-    use_block = workflow.get("use") or {}
-    if not isinstance(use_block, dict):
-        raise ValueError("use must be a mapping")
-
-    profile_names = expand_profile_names(
-        normalize_profile_names(use_block.get("profiles")),
-        project_root=project_root,
-        entry_dir=entry_dir,
-    )
+    """Merge builtin, profile and workflow ``execution_hooks`` (profiles already expanded)."""
     layers: list[dict[str, Any]] = [
         {
             "name": "builtin",
@@ -344,12 +320,8 @@ def resolve_workflow_execution_hooks(
             "execution_hooks": [],
         }
     ]
-    for name in profile_names:
-        config, provenance = load_profile_config_with_provenance(
-            name,
-            project_root=project_root,
-            entry_dir=entry_dir,
-        )
+    for name in expansion.names:
+        config, provenance = loader.load(name)
         layers.append(
             {
                 "name": name,

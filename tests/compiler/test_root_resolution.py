@@ -8,11 +8,7 @@ import yaml
 
 from hepflow.api import compile_workflow_file, normalise_workflow_file
 from hepflow.compiler.context import CompileContext
-from hepflow.compiler.execution import (
-    resolve_workflow_execution,
-    resolve_workflow_execution_hooks,
-)
-from hepflow.compiler.registry_resolution import resolve_workflow_registry
+from hepflow.compiler.workflow_config import resolve_workflow_config
 
 
 def _write_profile(path: Path, marker: str) -> None:
@@ -135,14 +131,13 @@ def test_resolvers_use_the_given_project_root(tmp_path: Path) -> None:
     context = CompileContext(project / "entry" / "wf.yaml", project)
     workflow = {"use": {"profiles": ["profiles/x.yaml"]}}
 
-    registry = resolve_workflow_registry(workflow, context=context)
-    execution = resolve_workflow_execution(workflow, context=context)
-    hooks = resolve_workflow_execution_hooks(workflow, context=context)
+    config = resolve_workflow_config(workflow, context=context)
+    execution = config.execution
 
     for layers in (
-        registry.provenance["registry_layers"],
+        config.registry.provenance["registry_layers"],
         execution["provenance"]["execution_layers"],
-        hooks["provenance"]["execution_hook_layers"],
+        config.execution_hooks["provenance"]["execution_hook_layers"],
     ):
         assert any(
             layer["kind"] == "profile" and layer["path"] == str(profile)
@@ -155,7 +150,7 @@ def test_resolve_workflow_execution_with_a_plain_workflow_path_context() -> None
     context = CompileContext.from_workflow_path(Path("wf.yaml"))
     workflow = {"use": {"profiles": []}, "execution": {"config": {"a": 1}}}
 
-    result = resolve_workflow_execution(workflow, context=context)
+    result = resolve_workflow_config(workflow, context=context).execution
 
     assert result["execution"]["config"]["a"] == 1
     layers = result["provenance"]["execution_layers"]

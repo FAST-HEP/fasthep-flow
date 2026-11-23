@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import resources
 from importlib.resources.abc import Traversable
@@ -66,6 +67,42 @@ def normalize_profile_names(raw: Any) -> list[str]:
     return names
 
 
+class ProfileLoader:
+    """Loads and expands the profiles of one compile; each profile file is read once.
+
+    The cache lives as long as the loader, so a compile that asks for the same profile from
+    several places (the expansion and each section) reads it once and warns about a deprecated
+    entry-directory fallback once.
+    """
+
+    def __init__(self, *, project_root: Path, entry_dir: Path | None = None) -> None:
+        self.project_root = project_root
+        self.entry_dir = entry_dir
+        self._loaded: dict[str, tuple[dict[str, Any], dict[str, str]]] = {}
+
+    def load(self, name: str) -> tuple[dict[str, Any], dict[str, str]]:
+        """The YAML mapping of a profile and its provenance (``{"path": ...}``)."""
+        if name not in self._loaded:
+            self._loaded[name] = _load_profile_with_provenance(
+                name, project_root=self.project_root, entry_dir=self.entry_dir
+            )
+        return self._loaded[name]
+
+    def expand(self, names: list[str]) -> ProfileExpansion:
+        """Expand profile includes and report optional includes skipped as missing."""
+        expanded: list[str] = []
+        skipped_optional: list[dict[str, str]] = []
+        for name in names:
+            _expand_profile_name(
+                name,
+                load=self.load,
+                stack=[],
+                expanded=expanded,
+                skipped_optional=skipped_optional,
+            )
+        return ProfileExpansion(names=expanded, skipped_optional=skipped_optional)
+
+
 def expand_profile_names(
     names: list[str],
     *,
@@ -73,32 +110,7 @@ def expand_profile_names(
     entry_dir: Path | None = None,
 ) -> list[str]:
     """Expand profile includes while preserving explicit profile order."""
-    return expand_profile_names_with_provenance(
-        names,
-        project_root=project_root,
-        entry_dir=entry_dir,
-    ).names
-
-
-def expand_profile_names_with_provenance(
-    names: list[str],
-    *,
-    project_root: Path,
-    entry_dir: Path | None = None,
-) -> ProfileExpansion:
-    """Expand profile includes and report optional includes skipped as missing."""
-    expanded: list[str] = []
-    skipped_optional: list[dict[str, str]] = []
-    for name in names:
-        _expand_profile_name(
-            name,
-            project_root=project_root,
-        entry_dir=entry_dir,
-            stack=[],
-            expanded=expanded,
-            skipped_optional=skipped_optional,
-        )
-    return ProfileExpansion(names=expanded, skipped_optional=skipped_optional)
+    return ProfileLoader(project_root=project_root, entry_dir=entry_dir).expand(names).names
 
 
 def load_profile_config(
@@ -124,15 +136,6 @@ def load_profile_registry_layer(
         registry=dict(config.get("registry") or {}),
         path=provenance["path"],
     )
-
-
-def load_profile_config_with_provenance(
-    name: str,
-    *,
-    project_root: Path,
-    entry_dir: Path | None = None,
-) -> tuple[dict[str, Any], dict[str, str]]:
-    return _load_profile_with_provenance(name, project_root=project_root, entry_dir=entry_dir)
 
 
 def resolve_profile_source(
@@ -285,8 +288,7 @@ def _looks_like_path(name: str) -> bool:
 def _expand_profile_name(
     name: str,
     *,
-    project_root: Path,
-    entry_dir: Path | None = None,
+    load: Callable[[str], tuple[dict[str, Any], dict[str, str]]],
     stack: list[str],
     expanded: list[str],
     skipped_optional: list[dict[str, str]],
@@ -295,11 +297,7 @@ def _expand_profile_name(
         cycle = " -> ".join([*stack, name])
         raise ValueError(f"profile include cycle detected: {cycle}")
 
-    config, _provenance = _load_profile_with_provenance(
-        name,
-        project_root=project_root,
-        entry_dir=entry_dir,
-    )
+    config, _provenance = load(name)
     includes = _profile_includes(config, name)
     if not includes:
         expanded.append(name)
@@ -309,8 +307,7 @@ def _expand_profile_name(
         try:
             _expand_profile_name(
                 include.name,
-                project_root=project_root,
-        entry_dir=entry_dir,
+                load=load,
                 stack=[*stack, name],
                 expanded=expanded,
                 skipped_optional=skipped_optional,

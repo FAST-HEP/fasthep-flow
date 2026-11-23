@@ -36,7 +36,9 @@ It does not own domain implementations:
 - `src/hepflow/compiler/` turns author workflow input into explicit,
   backend-independent artifacts and plans. Key areas include normalisation,
   includes, graph lowering, dependency analysis, output claims, systematics,
-  compile hooks, registry resolution and plan generation.
+  compile hooks, registry resolution and plan generation. `compiler/workflow_config.py`
+  (`resolve_workflow_config`) resolves registry, execution and execution hooks in one pass over the
+  `use.profiles` expansion, with each profile file read once per compile.
 - `src/hepflow/runtime/` consumes compiled plans and orchestrates execution,
   materialisation, partitions, hooks, provenance records and writer manifests.
 - `src/hepflow/backends/model.py` defines backend contracts; keep concrete
