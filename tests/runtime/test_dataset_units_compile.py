@@ -17,6 +17,7 @@ from hepflow.api import (
     run_plan_file,
 )
 from hepflow.build_layout import BuildPaths
+from hepflow.compiler import unit_artifacts
 from hepflow.compiler.dataset_units import PublishConflict, unit_dir
 from hepflow.runtime.provenance.store import _workflow_references
 from hepflow.utils import read_yaml
@@ -347,7 +348,7 @@ def _unit(out: Path, name: str) -> Path:
     return out / "compile" / "datasets" / name
 
 
-def test_unit_is_published_by_rename_and_names_no_staging_path(
+def test_unit_is_published_without_staging_leftovers(
     tmp_path: Path, toy_workflow: dict[str, Any]
 ) -> None:
     workflow = _write_workflow(tmp_path, toy_workflow)
@@ -358,6 +359,52 @@ def test_unit_is_published_by_rename_and_names_no_staging_path(
     for path in _unit(out, "alpha").rglob("*"):
         if path.is_file():
             assert ".tmp-" not in path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _claim_unit_while_building(
+    monkeypatch: pytest.MonkeyPatch, out: Path, with_manifest_of: str | None
+) -> None:
+    """Another compile claims the unit directory after this one has built its staging copy."""
+    real = unit_artifacts._build_unit
+
+    def build(directory: Path, **kwargs: Any) -> Any:
+        records = real(directory, **kwargs)
+        rival = _unit(out, "alpha")
+        rival.mkdir()
+        if with_manifest_of is not None:
+            shutil.copy(_unit(out, with_manifest_of) / "manifest.yaml", rival / "manifest.yaml")
+        return records
+
+    monkeypatch.setattr(unit_artifacts, "_build_unit", build)
+
+
+def test_a_rival_claiming_the_unit_never_gets_overwritten(
+    tmp_path: Path, toy_workflow: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Directory rename onto a non-empty directory succeeds on EOS FUSE, so the claim is mkdir.
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "build"
+    _compile(workflow, out, "beta")
+    _claim_unit_while_building(monkeypatch, out, with_manifest_of="beta")
+
+    with pytest.raises(PublishConflict):
+        _compile(workflow, out, "alpha", chunk_size=2)
+
+    assert sorted(p.name for p in _unit(out, "alpha").iterdir()) == ["manifest.yaml"]
+    assert not [p for p in (out / "compile" / "datasets").iterdir() if ".tmp-" in p.name]
+
+
+def test_a_rival_still_writing_the_unit_is_reported_not_overwritten(
+    tmp_path: Path, toy_workflow: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "build"
+    _claim_unit_while_building(monkeypatch, out, with_manifest_of=None)
+
+    with pytest.raises(PublishConflict, match="being written by another compile"):
+        _compile(workflow, out, "alpha", chunk_size=2)
+
+    assert list(_unit(out, "alpha").iterdir()) == []
 
 
 def test_an_interrupted_unit_is_redone_without_touching_other_units(

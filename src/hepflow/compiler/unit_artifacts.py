@@ -194,8 +194,10 @@ def _write_unit(
         # An earlier compile was interrupted before its unit was complete; redo that unit only.
         shutil.rmtree(directory)
 
-    # The unit is built beside its final place and published by one rename, so a reader
-    # never sees a partial unit and a second writer of the same dataset cannot truncate it.
+    # The unit is built beside its final place. Directory rename onto an existing directory is
+    # not refused on every filesystem (EOS FUSE replaces it), so the claim is an exclusive
+    # `mkdir`, which is. The files then move in with the manifest last: a unit without a
+    # manifest is incomplete, and a second writer of the same dataset never touches it.
     staging = directory.parent / f".{directory.name}.tmp-{secrets.token_hex(4)}"
     staging.mkdir(parents=True)
     try:
@@ -213,12 +215,17 @@ def _write_unit(
             invocation=invocation,
         )
         try:
-            staging.rename(directory)
-        except OSError:
+            directory.mkdir()
+        except FileExistsError:
             if not existing.is_file():
-                raise
-            _check_same_unit(existing, manifest)  # another compile won the rename
+                raise PublishConflict(
+                    f"Dataset unit {directory} is being written by another compile or was "
+                    "left incomplete by one; retry, or remove the directory if no compile runs."
+                ) from None
+            _check_same_unit(existing, manifest)  # another compile won the claim
             return []
+        for entry in sorted(staging.iterdir(), key=lambda p: p.name == MANIFEST_NAME):
+            entry.rename(directory / entry.name)  # manifest sorts last
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return records
