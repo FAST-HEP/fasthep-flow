@@ -34,12 +34,19 @@ def derive_dataset_partitions(
     chunk_size: int | None,
     local_numbers: bool = False,
     first_number: int = 1,
+    require_counts: bool = True,
+    count_hint: str = "",
 ) -> list[ExecutionPartition]:
     """Derive one dataset's partitions in file order, then chunk order.
 
     With ``local_numbers`` (per-dataset mode) ``part`` is the 1-based position inside the
     dataset, counted from ``first_number`` so that several sources of one dataset continue
     each other's numbering; otherwise it is ``<file_index>_<chunk_index>``.
+
+    A chunk size needs per-file event counts. Without them ``require_counts`` decides: True
+    (the default) raises when only a dataset-level total exists and warns that whole files
+    are used otherwise, appending ``count_hint``; False says nothing, for a caller that
+    checks again once another step (a compile hook) has had its chance to provide counts.
     """
     dataset_name = str(dataset.get("name") or "")
     files = list(dataset.get("files") or [])
@@ -49,14 +56,23 @@ def derive_dataset_partitions(
         )
 
     file_counts = _file_event_counts(dataset, len(files))
-    if chunk_size is not None and file_counts is None:
-        _require_file_counts_for_chunking(dataset_name, dataset, files)
-        warnings.warn(
-            f"Dataset {dataset_name!r} has no per-file event counts; "
-            "using one whole-file partition per file.",
-            UserWarning,
-            stacklevel=2,
-        )
+    if chunk_size is not None and require_counts:
+        if file_counts is None or not any(count is not None for count in file_counts):
+            _require_file_counts_for_chunking(dataset_name, dataset, files, count_hint)
+            warnings.warn(
+                f"Dataset {dataset_name!r} has no per-file event counts; "
+                f"using one whole-file partition per file.{count_hint}",
+                UserWarning,
+                stacklevel=2,
+            )
+        elif any(count is None for count in file_counts):
+            missing = sum(count is None for count in file_counts)
+            warnings.warn(
+                f"Dataset {dataset_name!r}: {missing} of {len(files)} files have no event "
+                f"count and stay whole-file partitions.{count_hint}",
+                UserWarning,
+                stacklevel=2,
+            )
 
     partitions: list[ExecutionPartition] = []
     for file_index, file_path in enumerate(files):
@@ -105,7 +121,8 @@ def derive_dataset_partitions(
 
 def uncounted_file_count(dataset: Mapping[str, Any]) -> int:
     files = list(dataset.get("files") or [])
-    return len(files) if _file_event_counts(dataset, len(files)) is None else 0
+    counts = _file_event_counts(dataset, len(files))
+    return len(files) if counts is None else sum(count is None for count in counts)
 
 
 def list_dataset_partitions(
@@ -114,6 +131,7 @@ def list_dataset_partitions(
     execution: Mapping[str, Any],
     dataset: str | None = None,
     chunk_size: int | None = None,
+    count_hint: str = "",
 ) -> list[dict[str, object]]:
     """Build partition summaries for normalized workflow datasets."""
     dataset_records = list(datasets)
@@ -137,6 +155,7 @@ def list_dataset_partitions(
             dataset_record,
             source_name="events",
             chunk_size=effective_chunk_size,
+            count_hint=count_hint,
         )
         result.append(
             {
@@ -155,7 +174,7 @@ def _file_event_counts(
 ) -> list[int | None] | None:
     per_file = dataset.get("file_nevents")
     if per_file is not None:
-        return [int(n) for n in per_file]
+        return [None if n is None else int(n) for n in per_file]
     total = _coerce_nevents(dataset.get("nevents"))
     if total is not None and n_files == 1:
         return [total]
@@ -163,13 +182,14 @@ def _file_event_counts(
 
 
 def _require_file_counts_for_chunking(
-    dataset_name: str, dataset: Mapping[str, Any], files: list[Any]
+    dataset_name: str, dataset: Mapping[str, Any], files: list[Any], count_hint: str = ""
 ) -> None:
     if len(files) > 1 and _coerce_nevents(dataset.get("nevents")) is not None:
         raise ValueError(
             f"Dataset {dataset_name!r} has {len(files)} files and only a dataset-level "
             "'nevents' total, which cannot be used to chunk individual files. "
             "Add 'file_nevents' (one event count per file, in the order of 'files')."
+            f"{count_hint}"
         )
 
 

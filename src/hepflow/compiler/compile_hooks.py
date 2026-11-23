@@ -13,6 +13,7 @@ from hepflow.compiler.data_flow import (
     input_stream_fields_by_context,
 )
 from hepflow.compiler.hooks.model import CompileHookContext
+from hepflow.compiler.hooks.registry import HookScope, phase_compile_hook_entries
 from hepflow.compiler.hooks.runner import (
     run_parameter_hook_chains_for_node,
     run_phase_hooks,
@@ -34,10 +35,12 @@ def run_compile_hooks(
     when: str,
     artifacts: dict[str, Any] | None = None,
     records: list[dict[str, Any]] | None = None,
+    scope: HookScope | None = None,
 ) -> dict[str, Any]:
     """Run registry-provided compile hooks for one compile phase.
 
-    When ``records`` is given, one record per hook that ran is appended to it.
+    When ``records`` is given, one record per hook that ran is appended to it. ``scope``
+    limits the run to the hooks of that scope (see :func:`hook_scope`).
     """
     artifact_map = dict(artifacts or {})
     ctx = CompileHookContext(
@@ -47,8 +50,27 @@ def run_compile_hooks(
         artifacts=artifact_map,
     )
     return run_phase_hooks(
-        registry=plan.registry, context=ctx, when=when, records=records
+        registry=plan.registry, context=ctx, when=when, records=records, scope=scope
     )
+
+
+#: The artifact a compile hook produces when it counts the events of the files of a dataset.
+DATASET_METADATA_ARTIFACT = "dataset_metadata"
+
+
+def counting_hook_names(registry: dict[str, Any] | None) -> list[str]:
+    """Names of the enabled ``after_datasets`` hooks that produce ``dataset_metadata``.
+
+    Their result can fill event counts the dataset record lacks (per-dataset write-back), so
+    a compile that needs counts waits for them.
+    """
+    return [
+        name
+        for name, _entry, spec in phase_compile_hook_entries(
+            registry, when="after_datasets", scope="dataset"
+        )
+        if DATASET_METADATA_ARTIFACT in list((spec.result or {}).get("artifacts") or [])
+    ]
 
 
 def run_param_compile_hooks(

@@ -161,6 +161,12 @@ def list_workflow_partitions(
         execution=execution,
         dataset=dataset,
         chunk_size=chunk_size,
+        count_hint=(
+            " A compile hook that returns per-file counts supplies them at compile time, "
+            "so the partitions of such a dataset are known only after `compile`."
+            if per_dataset_enabled(execution)
+            else ""
+        ),
     )
 
 

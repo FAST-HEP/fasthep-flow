@@ -13,7 +13,8 @@ import hashlib
 import json
 import os
 import tempfile
-from collections.abc import Mapping
+import warnings
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,7 @@ import yaml
 from hepflow.compiler.partitioning import derive_dataset_partitions
 from hepflow.model.plan import ExecutionPartition, ExecutionPlan
 
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 MANIFEST_NAME = "manifest.yaml"
 
 
@@ -88,10 +89,21 @@ def dataset_manifest(
     *,
     chunk_size: int | None,
     workflow_hash: str | None = None,
+    count_origin: Sequence[str | None] | None = None,
 ) -> dict[str, Any]:
-    """Freeze what partitioning a dataset needs: files, event counts and chunk size."""
+    """Freeze what partitioning a dataset needs: files, event counts and chunk size.
+
+    ``count_origin`` says where each file's count came from (``declared`` in the dataset
+    record, ``hook`` from a compile hook, or None for an uncounted file); by default every
+    count present is taken as declared.
+    """
     files = [str(item) for item in record.get("files") or []]
     counts = list(record.get("file_nevents") or [None] * len(files))
+    origin = (
+        list(count_origin)
+        if count_origin is not None
+        else ["declared" if count is not None else None for count in counts]
+    )
     manifest: dict[str, Any] = {
         "version": MANIFEST_VERSION,
         "dataset": str(record["name"]),
@@ -99,12 +111,110 @@ def dataset_manifest(
         "nevents": record.get("nevents"),
         "file_nevents": counts,
         "counted": [count is not None for count in counts],
+        "count_origin": origin,
         "chunk_size": chunk_size,
     }
     if workflow_hash is not None:
         manifest["workflow_hash"] = workflow_hash
     manifest["record_hash"] = manifest_hash(manifest)
     return manifest
+
+
+def declared_view(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """The manifest as it would be without the counts a compile hook filled in.
+
+    A recompile builds its manifest from declared data only and compares it with this view
+    of the existing unit, so an identical recompile does not open the files again; a changed
+    file list, declared count or chunk size still differs.
+    """
+    origin = list(manifest.get("count_origin") or [])
+    counts = list(manifest.get("file_nevents") or [])
+    view = dict(manifest)
+    view["file_nevents"] = [
+        None if kind == "hook" else count
+        for count, kind in zip(counts, origin, strict=True)
+    ]
+    view["counted"] = [count is not None for count in view["file_nevents"]]
+    view["count_origin"] = [None if kind == "hook" else kind for kind in origin]
+    view["record_hash"] = manifest_hash(view)
+    return view
+
+
+def with_hook_counts(
+    record: Mapping[str, Any], metadata: Mapping[str, Any]
+) -> tuple[dict[str, Any], list[str | None]]:
+    """Fill the per-file counts a dataset record lacks from a ``dataset_metadata`` result.
+
+    Matching is by file path. A declared count stays; a hook count that differs from it
+    warns. Files the hook gave no count for stay uncounted. Returns the record with its
+    ``file_nevents`` and the origin of each count (``declared``, ``hook`` or None).
+    """
+    files = [str(item) for item in record.get("files") or []]
+    declared = list(record.get("file_nevents") or [None] * len(files))
+    datasets = metadata.get("datasets") if isinstance(metadata, Mapping) else None
+    entry = datasets.get(str(record["name"])) if isinstance(datasets, Mapping) else None
+    hook_files = entry.get("files") if isinstance(entry, Mapping) else None
+    from_hook: dict[str, int] = {}
+    for path, item in (hook_files.items() if isinstance(hook_files, Mapping) else []):
+        entries = item.get("entries") if isinstance(item, Mapping) else None
+        if isinstance(entries, int) and not isinstance(entries, bool) and entries >= 0:
+            from_hook[str(path)] = entries
+
+    counts: list[int | None] = []
+    origin: list[str | None] = []
+    for path, known in zip(files, declared, strict=True):
+        found = from_hook.get(path)
+        if known is not None:
+            if found is not None and found != known:
+                warnings.warn(
+                    f"dataset {record['name']!r}: file {path!r} is declared with {known} "
+                    f"events but the compile hook counted {found}; the declared count is kept",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            counts.append(known)
+            origin.append("declared")
+        elif found is not None:
+            counts.append(found)
+            origin.append("hook")
+        else:
+            counts.append(None)
+            origin.append(None)
+    filled = {**record, "file_nevents": counts if any(c is not None for c in counts) else None}
+    return filled, origin
+
+
+def source_names(plan: ExecutionPlan) -> list[str]:
+    return [
+        str(node.meta.get("source_name") or node.id.removeprefix("read."))
+        for node in plan.nodes
+        if node.role == "source"
+    ]
+
+
+def derive_unit_partitions(
+    plan: ExecutionPlan,
+    record: Mapping[str, Any],
+    *,
+    chunk_size: int | None,
+    require_counts: bool = True,
+    count_hint: str = "",
+) -> list[ExecutionPartition]:
+    """A dataset's partitions over all sources, numbered 1..K across them (per-dataset mode)."""
+    partitions: list[ExecutionPartition] = []
+    for source_name in source_names(plan):
+        partitions.extend(
+            derive_dataset_partitions(
+                record,
+                source_name=source_name,
+                chunk_size=chunk_size,
+                local_numbers=True,
+                first_number=len(partitions) + 1,
+                require_counts=require_counts,
+                count_hint=count_hint,
+            )
+        )
+    return partitions
 
 
 def manifest_bytes(manifest: Mapping[str, Any]) -> bytes:
@@ -233,6 +343,47 @@ def _restore_location(plan: ExecutionPlan, manifest_path: Path) -> None:
         plan.context["project_root"] = str(record["root"])
 
 
+def apply_unit_manifests(
+    plan: ExecutionPlan,
+    manifests: Mapping[str, Mapping[str, Any]],
+    *,
+    require_counts: bool = True,
+) -> None:
+    """Make ``plan`` hold what ``manifests`` freeze: dataset files and counts, partitions, chunk sizes.
+
+    This is what a job gets from ``load_plan_file``; a compile applies it to the plan it returns,
+    so the caller sees the partitions the published units give (after any hook counts), not the
+    ones the plan build derived before the hooks ran.
+    """
+    datasets = plan.context["datasets"]
+    partitions: list[ExecutionPartition] = []
+    chunk_sizes: dict[str, int | None] = {}
+    for name, manifest in manifests.items():
+        record = {
+            **dict(datasets.get(name) or {}),
+            "name": name,
+            "files": manifest["files"],
+            "nevents": manifest["nevents"],
+            "file_nevents": (
+                None
+                if not any(manifest["counted"])
+                else manifest["file_nevents"]
+            ),
+        }
+        datasets[name] = record
+        chunk_sizes[name] = manifest["chunk_size"]
+        partitions.extend(
+            derive_unit_partitions(
+                plan,
+                record,
+                chunk_size=manifest["chunk_size"],
+                require_counts=require_counts,
+            )
+        )
+    plan.context["chunk_sizes"] = chunk_sizes
+    plan.partitions = partitions
+
+
 def assemble_unit_partitions(
     plan: ExecutionPlan, plan_dir: str | Path, dataset: str | None = None
 ) -> None:
@@ -263,37 +414,4 @@ def assemble_unit_partitions(
 
     if dataset is not None:
         _restore_location(plan, Path(plan_dir) / template.format(dataset=dataset))
-    datasets = plan.context["datasets"]
-    sources = [node for node in plan.nodes if node.role == "source"]
-    partitions: list[ExecutionPartition] = []
-    chunk_sizes: dict[str, int | None] = {}
-    for name, manifest in manifests.items():
-        record = {
-            **dict(datasets.get(name) or {}),
-            "name": name,
-            "files": manifest["files"],
-            "nevents": manifest["nevents"],
-            "file_nevents": (
-                None
-                if not any(manifest["counted"])
-                else manifest["file_nevents"]
-            ),
-        }
-        datasets[name] = record
-        chunk_sizes[name] = manifest["chunk_size"]
-        number = 1  # one numbering across the sources of a dataset: N names a run directory
-        for source in sources:
-            source_name = str(
-                source.meta.get("source_name") or source.id.removeprefix("read.")
-            )
-            derived = derive_dataset_partitions(
-                record,
-                source_name=source_name,
-                chunk_size=manifest["chunk_size"],
-                local_numbers=True,
-                first_number=number,
-            )
-            number += len(derived)
-            partitions.extend(derived)
-    plan.context["chunk_sizes"] = chunk_sizes
-    plan.partitions = partitions
+    apply_unit_manifests(plan, manifests)

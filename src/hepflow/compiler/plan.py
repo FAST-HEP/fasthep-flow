@@ -9,7 +9,7 @@ from hepflow.backends.loaders import (
     validate_backend_execution,
 )
 from hepflow.build_layout import validate_build_relative_path
-from hepflow.compiler.compile_hooks import run_param_compile_hooks
+from hepflow.compiler.compile_hooks import counting_hook_names, run_param_compile_hooks
 from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.context import CompileContext
 from hepflow.compiler.data_flow import (
@@ -353,6 +353,9 @@ def build_execution_partitions(
             continue
 
         local_numbers = per_dataset_enabled(plan.execution)
+        # A compile hook may still provide the per-file counts; the unit writer checks again
+        # with them (`derive_unit_partitions`), so the plan build does not stop or warn here.
+        require_counts = not (local_numbers and counting_hook_names(plan.registry))
         for dataset_name, dataset_context in datasets_by_name.items():
             if dataset is not None and dataset_name != dataset:
                 continue
@@ -370,6 +373,7 @@ def build_execution_partitions(
                     source_name=source_name,
                     chunk_size=effective_chunk_size,
                     local_numbers=local_numbers,
+                    require_counts=require_counts,
                 )
             )
 

@@ -8,9 +8,11 @@ import pytest
 from hepflow.compiler.dataset_units import (
     PublishConflict,
     dataset_manifest,
+    declared_view,
     manifest_hash,
     publish_if_absent,
     read_manifest,
+    with_hook_counts,
     workflow_content_hash,
     write_manifest,
 )
@@ -76,11 +78,12 @@ def test_manifest_records_frozen_partition_inputs() -> None:
 
     manifest = dataset_manifest(record, chunk_size=5)
 
-    assert manifest["version"] == 1
+    assert manifest["version"] == 2
     assert manifest["dataset"] == "alpha"
     assert manifest["files"] == ["a0.root", "a1.root"]
     assert manifest["file_nevents"] == [10, 7]
     assert manifest["counted"] == [True, True]
+    assert manifest["count_origin"] == ["declared", "declared"]
     assert manifest["chunk_size"] == 5
     assert manifest["record_hash"] == manifest_hash(manifest)
 
@@ -167,3 +170,52 @@ def test_workflow_hash_follows_the_workflow_content() -> None:
 
     assert workflow_content_hash(changed) != workflow_content_hash(_normalized())
     assert workflow_content_hash(regrouped) != workflow_content_hash(_normalized())
+
+
+def _hook_result(**files: int) -> dict:
+    return {"datasets": {"alpha": {"files": {k: {"entries": v} for k, v in files.items()}}}}
+
+
+def test_hook_counts_fill_only_the_files_without_a_declared_count() -> None:
+    record = {"name": "alpha", "files": ["a0", "a1", "a2"], "file_nevents": [5, None, None]}
+
+    filled, origin = with_hook_counts(record, _hook_result(a0=5, a1=7))
+
+    assert filled["file_nevents"] == [5, 7, None]
+    assert origin == ["declared", "hook", None]
+
+
+def test_a_declared_count_wins_and_a_different_hook_count_warns() -> None:
+    record = {"name": "alpha", "files": ["a0"], "file_nevents": [5]}
+
+    with pytest.warns(UserWarning, match="declared count is kept"):
+        filled, origin = with_hook_counts(record, _hook_result(a0=6))
+
+    assert (filled["file_nevents"], origin) == ([5], ["declared"])
+
+
+def test_without_per_file_hook_entries_nothing_is_filled() -> None:
+    record = {"name": "alpha", "files": ["a0"], "nevents": 5}
+
+    filled, origin = with_hook_counts(record, {"datasets": {"alpha": {"files": {}}}})
+
+    assert filled["file_nevents"] is None
+    assert origin == [None]
+    assert with_hook_counts(record, {"datasets": ["alpha"]})[1] == [None]  # another shape
+
+
+def test_declared_view_drops_hook_counts_so_a_recompile_matches() -> None:
+    record = {"name": "alpha", "files": ["a0", "a1"], "file_nevents": [5, None]}
+    declared_only = dataset_manifest(record, chunk_size=5)
+    filled, origin = with_hook_counts(record, _hook_result(a1=7))
+    final = dataset_manifest(filled, chunk_size=5, count_origin=origin)
+
+    assert final["file_nevents"] == [5, 7]
+    assert declared_view(final) == declared_only
+
+
+def test_declared_view_keeps_a_changed_declared_count_different() -> None:
+    old = dataset_manifest({"name": "alpha", "files": ["a0"], "file_nevents": [5]}, chunk_size=5)
+    new = dataset_manifest({"name": "alpha", "files": ["a0"], "file_nevents": [6]}, chunk_size=5)
+
+    assert declared_view(old) != new
