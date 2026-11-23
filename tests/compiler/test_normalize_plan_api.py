@@ -39,6 +39,7 @@ def test_public_api_exports_stable_facade_symbols() -> None:
         "PlanDiffReport",
         "PlanDiffScope",
         "PlanDiffWarning",
+        "PublishConflict",
         "compile_from_bundle",
         "compile_workflow_file",
         "diff_plan_files",
