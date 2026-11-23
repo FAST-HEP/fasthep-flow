@@ -133,3 +133,68 @@ def test_a_partition_run_does_not_delete_the_product_manifests_of_other_jobs(
     run_plan_file(plan, outdir=out, dataset="beta", partition_numbers=[1])
 
     assert other.is_file()
+
+
+def _compile_with_writer(tmp_path: Path, toy_workflow: dict[str, Any]) -> tuple[Path, Path]:
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    doc["analysis"]["stages"][0]["write"] = [
+        {"kind": "toy.write_manifest", "path": "skims/part.toy"}
+    ]
+    workflow.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    out = tmp_path / "out"
+    compile_workflow_file(workflow, outdir=out, dataset="beta")
+    return out, out / "compile" / "plan.yaml"
+
+
+def test_partition_files_are_named_by_n_and_leave_no_temporary_files(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    out, plan = _compile_with_writer(tmp_path, toy_workflow)
+
+    run_plan_file(plan, outdir=out, dataset="beta")
+
+    files = out / "artifacts" / "files" / "skims" / "part" / "beta"
+    assert sorted(p.name for p in files.iterdir()) == ["1.toy", "2.toy", "3.toy"]
+    assert not [p for p in out.rglob("*") if ".tmp-" in p.name and "attempts" not in p.parts]
+
+
+def test_a_failed_writer_leaves_no_partial_file_and_a_rerun_replaces_the_file(
+    tmp_path: Path, toy_workflow: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.toy_components import sinks  # noqa: PLC0415
+
+    out, plan = _compile_with_writer(tmp_path, toy_workflow)
+    real = sinks.run_toy_write_manifest
+
+    def failing(**kwargs: Any) -> Any:
+        real(**kwargs)
+        raise RuntimeError("writer died after writing")
+
+    monkeypatch.setattr(sinks, "run_toy_write_manifest", failing)
+    with pytest.raises(RuntimeError, match="writer died"):
+        run_plan_file(plan, outdir=out, dataset="beta", partition_numbers=[1])
+    files = out / "artifacts" / "files" / "skims" / "part" / "beta"
+    assert not files.exists() or list(files.iterdir()) == []
+
+    monkeypatch.setattr(sinks, "run_toy_write_manifest", real)
+    run_plan_file(plan, outdir=out, dataset="beta", partition_numbers=[1])
+    run_plan_file(plan, outdir=out, dataset="beta", partition_numbers=[1])
+    assert [p.name for p in files.iterdir()] == ["1.toy"]
+
+
+def test_records_of_a_partition_are_written_below_its_run_directory(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> None:
+    out, plan = _compile_with_writer(tmp_path, toy_workflow)
+
+    run_plan_file(plan, outdir=out, dataset="beta", partition_numbers=[2])
+
+    run_dir = out / "runs" / "beta" / "2"
+    manifest = yaml.safe_load((run_dir / "writers" / "part" / "manifest.json").read_text())
+    assert [entry["path"] for entry in manifest["datasets"]["beta"]["files"]] == [
+        "artifacts/files/skims/part/beta/2.toy"
+    ]
+    assert (run_dir / "provenance" / "manifest.json").is_file()
+    assert not (out / "artifacts" / "files" / "part" / "manifest.json").exists()
+    assert not [p for p in (out / "artifacts" / "provenance").rglob("*") if p.is_file()]
