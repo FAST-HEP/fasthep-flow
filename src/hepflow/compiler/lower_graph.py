@@ -6,6 +6,7 @@ from typing import Any
 import networkx as nx
 
 from hepflow.compiler.execution import normalize_stage_execution
+from hepflow.compiler.spec_resolver import SpecResolver
 from hepflow.compiler.styles import (
     collect_styles,
     deep_merge,
@@ -14,7 +15,6 @@ from hepflow.compiler.styles import (
 )
 from hepflow.model.graph import GraphNode, add_graph_edge, add_graph_node, new_graph
 from hepflow.model.lifecycle import normalize_lifecycle_event
-from hepflow.registry.loaders import load_object
 
 
 def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
@@ -35,13 +35,9 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
       - attached inspect/write/render target the node they are attached to
     """
     graph = new_graph()
-    graph.graph["analysis_globals"] = dict(
-        (workflow.get("analysis") or {}).get("globals") or {}
-    )
 
     data_block = dict(workflow.get("data", {}))
     datasets = list(data_block.get("datasets", []))
-    graph.graph["datasets"] = [dict(dataset) for dataset in datasets]
     defaults = dict(data_block.get("defaults", {}))
 
     style_defs = collect_styles(workflow)
@@ -149,8 +145,9 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
 
     stage_nodes: dict[str, str] = {}
     registry = dict(workflow.get("registry") or {})
-    transform_specs = dict(registry.get("transforms") or {})
-    sink_specs = dict(registry.get("sinks") or {})
+    specs = SpecResolver(
+        transforms=registry.get("transforms"), sinks=registry.get("sinks")
+    )
 
     pending_needs_edges: list[tuple[str, str, str, str]] = []
 
@@ -191,9 +188,9 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
             continue
 
         if role == "sink":
-            stage_node = _make_sink_stage_node(stage, registry=sink_specs)
+            stage_node = _make_sink_stage_node(stage, specs=specs)
         else:
-            stage_node = _make_stage_node(stage, registry=transform_specs)
+            stage_node = _make_stage_node(stage, specs=specs)
         add_graph_node(graph, stage_node)
         stage_nodes[stage_id] = stage_node.id
 
@@ -324,7 +321,7 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                 write_cfg=write_cfg,
                 output_defs=output_defs,
             )
-            write_node = _make_sink_stage_node(write_stage, registry=sink_specs)
+            write_node = _make_sink_stage_node(write_stage, specs=specs)
             if "applies_to" not in write_stage:
                 _inherit_applicability(write_node, stage_node)
             add_graph_node(graph, write_node)
@@ -438,7 +435,7 @@ def _make_source_node(
     )
 
 
-def _make_stage_node(stage: dict[str, Any], *, registry: dict[str, Any]) -> GraphNode:
+def _make_stage_node(stage: dict[str, Any], *, specs: SpecResolver) -> GraphNode:
     stage = deepcopy(stage)
 
     stage_id = stage["id"]
@@ -462,12 +459,12 @@ def _make_stage_node(stage: dict[str, Any], *, registry: dict[str, Any]) -> Grap
         role="transform",
         impl=op,
         params=params,
-        outputs=_stage_outputs(op, registry=registry),
+        outputs=specs.stage_outputs(op),
         meta=meta,
     )
 
 
-def _make_sink_stage_node(stage: dict[str, Any], *, registry: dict[str, Any]) -> GraphNode:
+def _make_sink_stage_node(stage: dict[str, Any], *, specs: SpecResolver) -> GraphNode:
     stage = deepcopy(stage)
 
     stage_id = str(stage["id"])
@@ -497,7 +494,7 @@ def _make_sink_stage_node(stage: dict[str, Any], *, registry: dict[str, Any]) ->
         role="sink",
         impl=op,
         params=params,
-        outputs=_sink_outputs(op, registry=registry),
+        outputs=specs.sink_outputs(op),
         meta=meta,
     )
 
@@ -1094,65 +1091,6 @@ def _default_product_output(outputs: dict[str, str]) -> str:
     if "cutflow" in outputs:
         return "cutflow"
     return _default_attachment_output(outputs)
-
-
-def _stage_outputs(op: str, *, registry: dict[str, Any]) -> dict[str, str]:
-    spec = _registered_spec(op, registry=registry)
-    if spec is not None:
-        outputs = _outputs_from_spec(spec)
-        if outputs:
-            return outputs
-    return {"stream": "event_stream"}
-
-
-def _sink_outputs(op: str, *, registry: dict[str, Any]) -> dict[str, str]:
-    spec = _registered_spec(op, registry=registry)
-    if spec is not None:
-        outputs = _outputs_from_spec(spec)
-        if outputs:
-            return outputs
-    return {"artifact": "artifact"}
-
-
-def _registered_spec(op: str, *, registry: dict[str, Any]) -> dict[str, Any] | None:
-    entry = registry.get(op)
-    if not isinstance(entry, dict) or not isinstance(entry.get("spec"), str):
-        return None
-    spec = load_object(str(entry["spec"]))
-    if not isinstance(spec, dict):
-        raise TypeError(f"Registered component spec for {op!r} must be a mapping")
-    return spec
-
-
-def _outputs_from_spec(spec: dict[str, Any]) -> dict[str, str]:
-    result = spec.get("result")
-    if not isinstance(result, dict):
-        return {}
-
-    if isinstance(result.get("kind"), str):
-        kind = str(result["kind"])
-        port = result.get("port")
-        if isinstance(port, str) and port:
-            return {port: kind}
-        if kind == "event_stream":
-            return {"stream": kind}
-        if kind == "artifact":
-            return {"artifact": kind}
-        raise ValueError(
-            f"Registered component spec for {spec.get('name', '<unknown>')!r} "
-            f"declares single result kind {kind!r} without an output port"
-        )
-
-    outputs: dict[str, str] = {}
-    for name, value in result.items():
-        if isinstance(value, str):
-            outputs[str(name)] = value
-            continue
-        if isinstance(value, dict):
-            output_kind = value.get("kind")
-            if isinstance(output_kind, str) and output_kind:
-                outputs[str(name)] = output_kind
-    return outputs
 
 
 def _as_list(value: Any) -> list[Any]:

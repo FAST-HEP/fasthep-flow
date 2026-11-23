@@ -130,6 +130,13 @@ This exposes several aspects of the operation that matter during compilation:
 | `requires.symbols` | configured expressions and fields introduce dependencies |
 | `provides.symbols` | configured variable names introduce new fields |
 
+A registered op's `result` is validated when the stage is lowered (once per op): it must be a
+non-empty mapping of output ports to a kind string or to a mapping with a `kind`, or a single
+`kind` with a `port` (`event_stream` and `artifact` need none). A spec without a `result` gives
+the role default (a transform produces a `stream`, a sink an `artifact`), and an op with no
+registry entry keeps that default too. Anything else, including a registry entry without a string
+`spec`, fails the compile with the op, the spec path and the reason; there is no fallback.
+
 Importantly, the spec also describes **where Flow should look inside operation-specific parameters** for planner-visible information.
 
 Consider:

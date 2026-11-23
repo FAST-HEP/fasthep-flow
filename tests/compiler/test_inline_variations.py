@@ -971,6 +971,8 @@ def test_inline_variation_thousand_node_compile_benchmark(
         provenance=dict(normalized.get("provenance") or {}),
         execution=plan_module.normalize_global_execution(normalized.get("execution")),
         execution_hooks=list(normalized.get("execution_hooks") or []),
+        datasets=list((normalized.get("data") or {}).get("datasets") or []),
+        analysis_globals=dict((normalized.get("analysis") or {}).get("globals") or {}),
     )
     build_execution_plan_total = time.perf_counter() - plan_start
     timings["build_execution_plan"] = max(
