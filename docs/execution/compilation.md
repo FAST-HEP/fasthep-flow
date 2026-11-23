@@ -372,7 +372,7 @@ compile/[<variation>/]
 ├── plan.yaml                  shared: metadata-only datasets, partitions: []
 ├── deps.yaml, graph, render specs, worker_environment.json   shared
 └── datasets/<name>/           unit: complete once manifest.yaml exists
-    ├── manifest.yaml          files, event counts, counted flags, chunk size, record hash
+    ├── manifest.yaml          files, event counts, counted flags, count origins, chunk size, record hash
     ├── normalized.yaml        this dataset's files only
     └── analysis.ir.yaml, dataset_entries.json, report.compile.yaml,
         invocation.yaml, inputs.manifest.yaml, hook artifacts, inputs/
@@ -431,8 +431,29 @@ artifacts/files/<stem>/<dataset>/<N>.<ext>   data files, as before
   replaces `run_summary.yaml` and the data file (the last complete attempt wins); a failed partition
   leaves no summary. A partition writer fills `<N>.tmp-<attempt>.<ext>` and Flow renames it once the
   node succeeded, so no attempt leaves a torn file.
-- Concurrent compiles of the same dataset are safe (see above). Not covered yet: a unit's
-  compile-hook output written by another dataset.
+- Concurrent compiles of the same dataset are safe (see above).
+
+#### Compile hooks and event counts in a unit
+
+- A phase compile hook runs once per unit, with a context whose `datasets` holds only the
+  selected dataset (the others are stubs without files, which a counting hook would record as
+  empty). Its artifacts are written into the unit as `datasets/<name>/<artifact>.json`, so two
+  datasets never share a path. `hook_scope` (`compiler/hooks/registry.py`) says where a hook
+  runs: a parameter hook is plan scope (metadata only), a phase hook dataset scope.
+- A hook that produces the `dataset_metadata` artifact can supply the per-file event counts a
+  dataset lacks. The unit writer maps its per-file entries (`files: {<path>: {entries: N}}`, the
+  curator hook needs `add_per_file: true`) onto `file_nevents` by file path: a file without a
+  declared count takes the hook's count, a declared count stays (a different hook count warns),
+  and a file the hook did not count stays uncounted. `manifest.yaml` records where each count
+  came from in `count_origin` (`declared`, `hook` or null).
+- With such a hook configured, the chunk-count check (and the whole-file warning) moves from the
+  plan build to the unit writer, after the hook ran, and its message names the hook and the
+  `add_per_file` option. Without one nothing changes.
+- A recompile builds its manifest from declared data only and compares it with the existing one
+  without the counts a hook added, so an identical recompile does not open the files again. A
+  changed file list, declared count or chunk size conflicts as before. Manifest `version` is now
+  2 (a unit compiled by an earlier version is refused: recompile into a new out-dir).
+- Not covered yet: a unit's compile-hook output written by another dataset.
 
 For the small exoplanet dataset, the plan contains a single partition:
 

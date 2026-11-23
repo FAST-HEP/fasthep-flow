@@ -34,12 +34,19 @@ def derive_dataset_partitions(
     chunk_size: int | None,
     local_numbers: bool = False,
     first_number: int = 1,
+    require_counts: bool = True,
+    count_hint: str = "",
 ) -> list[ExecutionPartition]:
     """Derive one dataset's partitions in file order, then chunk order.
 
     With ``local_numbers`` (per-dataset mode) ``part`` is the 1-based position inside the
     dataset, counted from ``first_number`` so that several sources of one dataset continue
     each other's numbering; otherwise it is ``<file_index>_<chunk_index>``.
+
+    A chunk size needs per-file event counts. Without them ``require_counts`` decides: True
+    (the default) raises when only a dataset-level total exists and warns that whole files
+    are used otherwise, appending ``count_hint``; False says nothing, for a caller that
+    checks again once another step (a compile hook) has had its chance to provide counts.
     """
     dataset_name = str(dataset.get("name") or "")
     files = list(dataset.get("files") or [])
@@ -49,11 +56,11 @@ def derive_dataset_partitions(
         )
 
     file_counts = _file_event_counts(dataset, len(files))
-    if chunk_size is not None and file_counts is None:
-        _require_file_counts_for_chunking(dataset_name, dataset, files)
+    if chunk_size is not None and file_counts is None and require_counts:
+        _require_file_counts_for_chunking(dataset_name, dataset, files, count_hint)
         warnings.warn(
             f"Dataset {dataset_name!r} has no per-file event counts; "
-            "using one whole-file partition per file.",
+            f"using one whole-file partition per file.{count_hint}",
             UserWarning,
             stacklevel=2,
         )
@@ -163,13 +170,14 @@ def _file_event_counts(
 
 
 def _require_file_counts_for_chunking(
-    dataset_name: str, dataset: Mapping[str, Any], files: list[Any]
+    dataset_name: str, dataset: Mapping[str, Any], files: list[Any], count_hint: str = ""
 ) -> None:
     if len(files) > 1 and _coerce_nevents(dataset.get("nevents")) is not None:
         raise ValueError(
             f"Dataset {dataset_name!r} has {len(files)} files and only a dataset-level "
             "'nevents' total, which cannot be used to chunk individual files. "
             "Add 'file_nevents' (one event count per file, in the order of 'files')."
+            f"{count_hint}"
         )
 
 

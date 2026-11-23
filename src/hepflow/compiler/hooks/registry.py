@@ -1,10 +1,24 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from hepflow.model.component_spec import RuntimeComponentSpec
 from hepflow.registry.loaders import load_object
+
+HookScope = Literal["plan", "dataset"]
+
+
+def hook_scope(entry: Mapping[str, Any]) -> HookScope:
+    """Where a compile hook runs in per-dataset mode: once for the plan, or per dataset.
+
+    A parameter hook sees metadata only (plan scope). A phase hook may read the files of a
+    dataset, so it runs for each dataset unit; one that declares nothing is dataset scope.
+    This is the one place a declared ``required`` list (for example ``dataset.files``) can
+    later decide the scope.
+    """
+    return "plan" if entry.get("kind") == "parameter" else "dataset"
 
 
 @dataclass(slots=True, frozen=True)
@@ -47,6 +61,7 @@ def phase_compile_hook_entries(
     registry: dict[str, Any] | None,
     *,
     when: str,
+    scope: HookScope | None = None,
 ) -> list[tuple[str, dict[str, Any], RuntimeComponentSpec]]:
     hooks = dict((registry or {}).get("compile_hooks") or {})
     selected: list[tuple[str, dict[str, Any], RuntimeComponentSpec]] = []
@@ -56,6 +71,8 @@ def phase_compile_hook_entries(
         if not _compile_hook_enabled(str(name), entry):
             continue
         if entry.get("kind") == "parameter":
+            continue
+        if scope is not None and hook_scope(entry) != scope:
             continue
         resolved = resolve_compile_hook(registry, str(name), kind="phase")
         spec_ref = entry.get("spec")

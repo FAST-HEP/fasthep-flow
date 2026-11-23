@@ -16,6 +16,7 @@ from hepflow.compiler.graph_artifacts import (
     _lowered_graph_to_json,
     write_graph_artifacts,
 )
+from hepflow.compiler.hooks.registry import HookScope
 from hepflow.compiler.inputs_manifest import (
     MANIFEST_NAME,
     InputCollector,
@@ -211,10 +212,12 @@ def write_compile_hook_artifacts(
     artifacts: dict[str, Any],
     when: str,
     directory: Path | None = None,
+    scope: HookScope | None = None,
 ) -> list[dict[str, Any]]:
     """Run one phase of compile hooks, write their artifacts, return the records.
 
-    The artifacts go to ``directory``, by default the compile directory.
+    The artifacts go to ``directory``, by default the compile directory. ``scope`` limits the
+    run to the hooks of that scope.
 
     Each record lists its artifacts as ``{name: {"path": ..., "sha256": ...}}``
     with the hash taken from the written file.
@@ -227,6 +230,7 @@ def write_compile_hook_artifacts(
         artifacts=artifacts,
         when=when,
         records=raw_records,
+        scope=scope,
     )
     compile_path = directory or build_paths.compile_dir()
     hashes: dict[str, dict[str, str]] = {}

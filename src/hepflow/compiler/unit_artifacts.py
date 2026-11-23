@@ -24,16 +24,20 @@ from hepflow.compiler.artifacts import (
     write_render_artifacts,
 )
 from hepflow.compiler.bundle import write_invocation
+from hepflow.compiler.compile_hooks import counting_hook_names
 from hepflow.compiler.dataset_units import (
     MANIFEST_NAME,
     SHARED_DATASET_KEYS,
     PublishConflict,
     dataset_manifest,
+    declared_view,
+    derive_unit_partitions,
     manifest_bytes,
     publish_if_absent,
     read_manifest,
     shared_plan_dict,
     unit_dir,
+    with_hook_counts,
     workflow_content_hash,
     write_manifest,
 )
@@ -184,10 +188,12 @@ def _write_unit(
 ) -> list[dict[str, Any]]:
     record = dict((plan.context.get("datasets") or {}).get(dataset) or {})
     record["name"] = dataset
+    effective_chunk = resolve_chunk_size(chunk_size, record, plan.execution)
+    workflow_hash = workflow_content_hash(normalized)
+    # What a recompile would build from declared data only; counts a compile hook adds later
+    # are compared through `declared_view`, so an identical recompile does not reopen files.
     manifest = dataset_manifest(
-        record,
-        chunk_size=resolve_chunk_size(chunk_size, record, plan.execution),
-        workflow_hash=workflow_content_hash(normalized),
+        record, chunk_size=effective_chunk, workflow_hash=workflow_hash
     )
     directory = unit_dir(paths.compile_dir(), dataset)
     existing = directory / MANIFEST_NAME
@@ -213,7 +219,8 @@ def _write_unit(
             normalized=normalized,
             dataset=dataset,
             record=record,
-            manifest=manifest,
+            effective_chunk=effective_chunk,
+            workflow_hash=workflow_hash,
             chunk_size=chunk_size,
             snapshot=snapshot,
             invocation=invocation,
@@ -246,7 +253,8 @@ def _wait_for_manifest(manifest_file: Path) -> bool:
 
 
 def _check_same_unit(existing: Path, manifest: dict[str, Any]) -> None:
-    if manifest_bytes(read_manifest(existing)) != manifest_bytes(manifest):
+    published = declared_view(read_manifest(existing))
+    if manifest_bytes(published) != manifest_bytes(manifest):
         write_manifest(existing, manifest)  # raises PublishConflict with both hashes
 
 
@@ -259,7 +267,8 @@ def _build_unit(
     normalized: dict[str, Any],
     dataset: str,
     record: dict[str, Any],
-    manifest: dict[str, Any],
+    effective_chunk: int | None,
+    workflow_hash: str,
     chunk_size: int | None,
     snapshot: bool,
     invocation: Mapping[str, Any] | None,
@@ -279,23 +288,39 @@ def _build_unit(
     (directory / "dataset_entries.json").write_text(
         json.dumps(entries, indent=2, sort_keys=True), encoding="utf-8"
     )
-    write_yaml(
-        {
-            "nodes": len(plan.nodes),
-            "partitions": sum(1 for p in plan.partitions if p.dataset == dataset),
-            "datasets": [dataset],
-            "registry_sections": sorted(plan.registry.keys()),
-        },
-        str(directory / "report.compile.yaml"),
+    # Hooks see the selected dataset only: the others are stubs without files, which a hook
+    # that counts events would record as empty datasets.
+    hook_plan = replace(
+        plan, context={**plan.context, "datasets": {dataset: record}}
     )
     shared = {"plan": str(paths.compile_file("plan.yaml"))}
     records = write_compile_hook_artifacts(
-        plan=plan,
+        plan=hook_plan,
         normalized=unit_normalized,
         build_paths=paths,
         artifacts={"dataset_entries": entries},
         when="after_datasets",
         directory=directory,
+        scope="dataset",
+    )
+    final_record, count_origin = with_hook_counts(record, _read_dataset_metadata(directory))
+    counting = counting_hook_names(plan.registry)
+    partitions = derive_unit_partitions(
+        plan,
+        final_record,
+        chunk_size=effective_chunk,
+        # The plan build deferred its check to here when a hook may have provided counts.
+        require_counts=bool(counting),
+        count_hint=_count_hint(counting),
+    )
+    write_yaml(
+        {
+            "nodes": len(plan.nodes),
+            "partitions": len(partitions),
+            "datasets": [dataset],
+            "registry_sections": sorted(plan.registry.keys()),
+        },
+        str(directory / "report.compile.yaml"),
     )
     records.extend(
         write_compile_hook_artifacts(
@@ -305,6 +330,7 @@ def _build_unit(
             artifacts=shared,
             when="after_compile",
             directory=directory,
+            scope="dataset",
         )
     )
     write_bundle_manifest(
@@ -316,8 +342,32 @@ def _build_unit(
         snapshot=snapshot,
         directory=directory,
     )
+    manifest = dataset_manifest(
+        final_record,
+        chunk_size=effective_chunk,
+        workflow_hash=workflow_hash,
+        count_origin=count_origin,
+    )
     (directory / MANIFEST_NAME).write_bytes(manifest_bytes(manifest))  # last: unit complete
     return records
+
+
+def _read_dataset_metadata(directory: Path) -> dict[str, Any]:
+    """The ``dataset_metadata`` artifact a compile hook wrote into the unit, if any."""
+    path = directory / "dataset_metadata.json"
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else {}
+
+
+def _count_hint(hooks: list[str]) -> str:
+    if not hooks:
+        return ""
+    return (
+        f" Compile hook {hooks[0]!r} can count the events of each file: "
+        "set its per-file option (add_per_file: true)."
+    )
 
 
 __all__ = ["PublishConflict", "write_dataset_unit_artifacts"]

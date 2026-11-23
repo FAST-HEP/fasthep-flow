@@ -103,6 +103,11 @@ execution plan
 
 The `dataset_metadata.root_tree` hook from `fasthep-curator` follows this pattern.
 
+In per-dataset mode a hook that returns `dataset_metadata` with per-file entries
+(`datasets: {<name>: {files: {<path>: {entries: N}}}}`) also supplies the event counts of files that
+have no declared count; the hook sees only the dataset being compiled. See "Compile hooks and event
+counts in a unit" in the compilation guide.
+
 This allows information discovered from external data to become part of planning without teaching Flow how to inspect ROOT files.
 
 ```{note}

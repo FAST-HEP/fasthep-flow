@@ -9,6 +9,7 @@ from hepflow.compiler.hooks.model import (
     ParamCompileHookContext,
 )
 from hepflow.compiler.hooks.registry import (
+    HookScope,
     phase_compile_hook_entries,
     resolve_compile_hook,
 )
@@ -22,9 +23,12 @@ def run_phase_hooks(
     context: CompileHookContext,
     when: str,
     records: list[dict[str, Any]] | None = None,
+    scope: HookScope | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {}
-    for name, entry, _spec in phase_compile_hook_entries(registry, when=when):
+    for name, entry, _spec in phase_compile_hook_entries(
+        registry, when=when, scope=scope
+    ):
         impl_ref = str(entry["impl"])
         try:
             hook = resolve_compile_hook(registry, name, kind="phase")

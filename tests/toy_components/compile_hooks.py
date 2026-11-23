@@ -100,3 +100,46 @@ def outdir_artifact_hook(ctx: Any, **params: Any) -> dict[str, Any]:
     """An artifact that names a file below the output directory (like a rendered graph)."""
     del params
     return {"outdir_artifact": {"svg": str(ctx.build_paths.graph_file("graph.svg"))}}
+
+
+FILE_COUNTS_HOOK_SPEC = {
+    "name": "toy.file_counts",
+    "kind": "compile_hook",
+    "version": "1.0",
+    "lifecycle": {"when": "after_datasets"},
+    "input": {"artifacts": ["datasets"]},
+    "result": {"artifacts": ["dataset_metadata"]},
+}
+
+
+def file_counts_hook(
+    ctx: Any, *, counts: dict[str, int] | None = None, add_per_file: bool = False, **params: Any
+) -> dict[str, Any]:
+    """Like the curator hook: per-file entries only with ``add_per_file``.
+
+    Records every dataset of the context it sees, so a test can tell which datasets a hook
+    is given. ``counts`` maps file path to entries.
+    """
+    del params
+    datasets = dict(ctx.plan_context.get("datasets") or {})
+    return {
+        "dataset_metadata": {
+            "datasets": {
+                name: {
+                    "files": (
+                        {
+                            path: {"entries": (counts or {})[path]}
+                            for path in record.get("files") or []
+                            if path in (counts or {})
+                        }
+                        if add_per_file
+                        else {}
+                    ),
+                    "total_entries": sum(
+                        (counts or {}).get(path, 0) for path in record.get("files") or []
+                    ),
+                }
+                for name, record in datasets.items()
+            }
+        }
+    }
