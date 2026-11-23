@@ -247,6 +247,8 @@ def assemble_unit_partitions(
         return
     names = [str(name) for name in plan.context.get("dataset_names") or []]
     manifests: dict[str, dict[str, Any]] = {}
+    for name in [*names, *([dataset] if dataset is not None else [])]:
+        unit_dir(plan_dir, name)  # a name that cannot be a unit directory is never read
     present = [
         name for name in names if (Path(plan_dir) / template.format(dataset=name)).is_file()
     ]

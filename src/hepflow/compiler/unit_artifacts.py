@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import secrets
+import shutil
 import tempfile
+import time
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -44,6 +47,9 @@ from hepflow.model.plan import ExecutionPlan
 from hepflow.model.worker_environment import worker_environment_plan_from_execution
 from hepflow.utils import write_json, write_yaml
 
+# How long a compile waits for another compile that holds a unit before it treats it as stale.
+UNIT_WAIT_SECONDS = 10.0
+
 
 def _yaml_bytes(doc: dict[str, Any]) -> bytes:
     return yaml.safe_dump(doc, sort_keys=False).encode("utf-8")
@@ -65,6 +71,27 @@ def _metadata_only_graph(graph: nx.DiGraph) -> nx.DiGraph:
             payload, params={**payload.params, "datasets": stubs}
         )
     return result
+
+
+def _version_hint(published: Path, candidate: dict[str, Any]) -> str:
+    """Say so when the plans differ in the Flow version that compiled them."""
+
+    def version(doc: Any) -> Any:
+        return ((doc or {}).get("provenance") or {}).get("compilation", {}).get(
+            "flow_version"
+        )
+
+    try:
+        existing = yaml.safe_load(published.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return ""
+    old, new = version(existing), version(candidate)
+    if old == new:
+        return ""
+    return (
+        f" (compiled by Flow {old} and {new}: a new Flow version needs a new out-dir"
+        " or a recompile of every dataset)"
+    )
 
 
 def _publish_tree(source: Path, target: Path) -> None:
@@ -94,6 +121,8 @@ def write_dataset_unit_artifacts(
     """
     paths = BuildPaths.from_plan(plan, outdir=outdir)
     compile_path = paths.compile_dir()
+    for name in datasets:
+        unit_dir(compile_path, name)  # a bad name fails before anything is published
     ensure_build_layout(
         paths.root,
         variation=paths.variation,
@@ -103,10 +132,13 @@ def write_dataset_unit_artifacts(
     )
 
     workflow_hash = workflow_content_hash(normalized)
-    publish_if_absent(
-        compile_path / "plan.yaml",
-        _yaml_bytes(shared_plan_dict(plan, workflow_hash=workflow_hash)),
-    )
+    shared_plan = shared_plan_dict(plan, workflow_hash=workflow_hash)
+    try:
+        publish_if_absent(compile_path / "plan.yaml", _yaml_bytes(shared_plan))
+    except PublishConflict as error:
+        raise PublishConflict(
+            f"{error}{_version_hint(compile_path / 'plan.yaml', shared_plan)}"
+        ) from None
     publish_if_absent(compile_path / "deps.yaml", _yaml_bytes(plan.data_flow))
     spec = worker_environment_plan_from_execution(plan.execution)
     if spec is not None:
@@ -159,12 +191,79 @@ def _write_unit(
     )
     directory = unit_dir(paths.compile_dir(), dataset)
     existing = directory / MANIFEST_NAME
-    if existing.is_file():
-        if manifest_bytes(read_manifest(existing)) != manifest_bytes(manifest):
-            write_manifest(existing, manifest)  # raises PublishConflict with the hashes
+    if directory.exists() and _wait_for_manifest(existing):
+        _check_same_unit(existing, manifest)
         return []
+    if directory.exists():
+        # An earlier compile was interrupted before its unit was complete; redo that unit only.
+        shutil.rmtree(directory)
 
-    directory.mkdir(parents=True, exist_ok=True)
+    # The unit is built beside its final place. Directory rename onto an existing directory is
+    # not refused on every filesystem (EOS FUSE replaces it), so the claim is an exclusive
+    # `mkdir`, which is. The files then move in with the manifest last: a unit without a
+    # manifest is incomplete, and a second writer of the same dataset never touches it.
+    staging = directory.parent / f".{directory.name}.tmp-{secrets.token_hex(4)}"
+    staging.mkdir(parents=True)
+    try:
+        records = _build_unit(
+            staging,
+            plan=plan,
+            graph=graph,
+            paths=paths,
+            normalized=normalized,
+            dataset=dataset,
+            record=record,
+            manifest=manifest,
+            chunk_size=chunk_size,
+            snapshot=snapshot,
+            invocation=invocation,
+        )
+        try:
+            directory.mkdir()
+        except FileExistsError:
+            if not _wait_for_manifest(existing):
+                raise PublishConflict(
+                    f"Dataset unit {directory} is being written by another compile or was "
+                    "left incomplete by one; retry, or remove the directory if no compile runs."
+                ) from None
+            _check_same_unit(existing, manifest)  # another compile won the claim
+            return []
+        for entry in sorted(staging.iterdir(), key=lambda p: p.name == MANIFEST_NAME):
+            entry.rename(directory / entry.name)  # manifest sorts last
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return records
+
+
+def _wait_for_manifest(manifest_file: Path) -> bool:
+    """Wait briefly for a compile that is filling the unit; False when no manifest appears."""
+    deadline = time.monotonic() + UNIT_WAIT_SECONDS
+    while not manifest_file.is_file():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
+def _check_same_unit(existing: Path, manifest: dict[str, Any]) -> None:
+    if manifest_bytes(read_manifest(existing)) != manifest_bytes(manifest):
+        write_manifest(existing, manifest)  # raises PublishConflict with both hashes
+
+
+def _build_unit(
+    directory: Path,
+    *,
+    plan: ExecutionPlan,
+    graph: nx.DiGraph,
+    paths: BuildPaths,
+    normalized: dict[str, Any],
+    dataset: str,
+    record: dict[str, Any],
+    manifest: dict[str, Any],
+    chunk_size: int | None,
+    snapshot: bool,
+    invocation: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
     if invocation is not None:
         write_invocation(
             directory,
@@ -217,7 +316,7 @@ def _write_unit(
         snapshot=snapshot,
         directory=directory,
     )
-    write_manifest(existing, manifest)
+    (directory / MANIFEST_NAME).write_bytes(manifest_bytes(manifest))  # last: unit complete
     return records
 
 

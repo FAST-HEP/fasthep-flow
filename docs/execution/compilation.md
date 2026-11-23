@@ -383,6 +383,11 @@ compile/[<variation>/]
   nothing, and different content fails and names the file and both hashes.
   Compiling the same dataset again with the same manifest changes nothing; a
   different chunk size or file list fails and keeps the existing unit.
+  A unit is built in a staging directory beside its place, claimed by an exclusive `mkdir` (a
+  directory rename onto an existing one is not refused on EOS) and filled with `manifest.yaml`
+  moved in last, so a reader never sees a complete-looking partial unit. A unit directory without
+  `manifest.yaml` is waited for briefly (a compile of the same dataset may be filling it) and
+  then, if it never appears, removed and redone, and only that unit.
 - The shared plan depends on what the workflow is, not on where it was compiled from: it holds no
   `workflow_path`, `project_root`, provenance root, input files or host paths, and carries
   `context.workflow_hash`. The same workflow addressed by another path publishes the same files; a
