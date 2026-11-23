@@ -26,6 +26,7 @@ from fasthep_toolbench.package.environment import (
 )
 
 from hepflow.compiler.hooks.model import CompileHookContext
+from hepflow.compiler.normalized_view import NormalizedView
 
 SOFTWARE_HOOK_SPEC = {
     "name": "flow.software",
@@ -205,7 +206,7 @@ def _layer_distributions(
     by name (``_`` read as ``-`` or ``.``), then to the editable checkout that contains it.
     When nothing matches, the import name is recorded with a note (second value).
     """
-    provenance = dict(normalized.get("provenance") or {})
+    provenance = dict(NormalizedView.from_mapping(normalized).provenance or {})
     packages: set[str] = set()
     for layer in provenance.get("registry_layers") or []:
         path = layer.get("path") if isinstance(layer, dict) else None

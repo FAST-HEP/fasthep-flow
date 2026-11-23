@@ -11,6 +11,7 @@ import yaml
 
 from hepflow.compiler.artifacts import write_plan_artifacts
 from hepflow.compiler.dataset_units import publish_if_absent
+from hepflow.compiler.normalized_view import NormalizedView
 from hepflow.compiler.per_dataset import per_dataset_enabled
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.model.plan import ExecutionPlan
@@ -46,11 +47,12 @@ class ExpandedWorkflow:
 
 def expand_systematics(normalized: dict[str, Any]) -> list[ExpandedWorkflow]:
     """Expand a normalized workflow into variation-tagged copies."""
-    systematics = normalized.get("systematics")
+    view = NormalizedView.from_mapping(normalized)
+    if view.systematics_malformed:
+        raise ValueError("systematics must be a mapping")
+    systematics = view.systematics
     if systematics is None:
         return [_expanded_nominal(normalized)]
-    if not isinstance(systematics, dict):
-        raise ValueError("systematics must be a mapping")
 
     expanded: list[ExpandedWorkflow] = []
     if systematics.get("include_nominal") is True:
@@ -77,8 +79,8 @@ def expand_systematics(normalized: dict[str, Any]) -> list[ExpandedWorkflow]:
 
 
 def has_separate_plan_systematics(normalized: dict[str, Any]) -> bool:
-    systematics = normalized.get("systematics")
-    if not isinstance(systematics, dict):
+    systematics = NormalizedView.from_mapping(normalized).systematics
+    if systematics is None:
         return False
     variations = systematics.get("variations") or []
     return any(
@@ -294,7 +296,9 @@ def make_systematic_plan_files(
     variation_summaries: list[dict[str, Any]] = []
     summary: dict[str, Any] = {
         "include_nominal": bool(
-            (normalized.get("systematics") or {}).get("include_nominal", False)
+            (NormalizedView.from_mapping(normalized).systematics or {}).get(
+                "include_nominal", False
+            )
         ),
         "variations": variation_summaries,
     }
@@ -329,7 +333,7 @@ def make_systematic_plan_files(
         )
         variation_summaries.append(variation_summary)
 
-    if per_dataset_enabled(normalized.get("execution")):
+    if per_dataset_enabled(NormalizedView.from_mapping(normalized).execution):
         # Compiles of other datasets publish the same summary into this root.
         publish_if_absent(
             compile_path / "systematics.yaml",
