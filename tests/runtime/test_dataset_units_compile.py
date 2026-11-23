@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import multiprocessing
 import shutil
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -394,9 +395,34 @@ def test_a_rival_claiming_the_unit_never_gets_overwritten(
     assert not [p for p in (out / "compile" / "datasets").iterdir() if ".tmp-" in p.name]
 
 
+def test_a_compile_waits_for_a_rival_that_is_filling_the_same_unit(
+    tmp_path: Path, toy_workflow: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow = _write_workflow(tmp_path, toy_workflow)
+    out = tmp_path / "build"
+    _compile(workflow, out, "alpha", chunk_size=2)
+    manifest = (_unit(out, "alpha") / "manifest.yaml").read_bytes()
+    shutil.rmtree(_unit(out, "alpha"))
+    real = unit_artifacts._build_unit
+
+    def build(directory: Path, **kwargs: Any) -> Any:
+        records = real(directory, **kwargs)
+        rival = _unit(out, "alpha")
+        rival.mkdir()
+        threading.Timer(0.2, lambda: (rival / "manifest.yaml").write_bytes(manifest)).start()
+        return records
+
+    monkeypatch.setattr(unit_artifacts, "_build_unit", build)
+
+    _compile(workflow, out, "alpha", chunk_size=2)  # same manifest: no conflict, nothing to do
+
+    assert (_unit(out, "alpha") / "manifest.yaml").read_bytes() == manifest
+
+
 def test_a_rival_still_writing_the_unit_is_reported_not_overwritten(
     tmp_path: Path, toy_workflow: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(unit_artifacts, "UNIT_WAIT_SECONDS", 0.0)
     workflow = _write_workflow(tmp_path, toy_workflow)
     out = tmp_path / "build"
     _claim_unit_while_building(monkeypatch, out, with_manifest_of=None)
@@ -408,8 +434,9 @@ def test_a_rival_still_writing_the_unit_is_reported_not_overwritten(
 
 
 def test_an_interrupted_unit_is_redone_without_touching_other_units(
-    tmp_path: Path, toy_workflow: dict[str, Any]
+    tmp_path: Path, toy_workflow: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(unit_artifacts, "UNIT_WAIT_SECONDS", 0.0)
     workflow = _write_workflow(tmp_path, toy_workflow)
     out = tmp_path / "build"
     _compile(workflow, out, "alpha", chunk_size=2)

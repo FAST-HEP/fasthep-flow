@@ -6,6 +6,7 @@ import json
 import secrets
 import shutil
 import tempfile
+import time
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -45,6 +46,9 @@ from hepflow.compiler.per_dataset import stub_unselected_datasets
 from hepflow.model.plan import ExecutionPlan
 from hepflow.model.worker_environment import worker_environment_plan_from_execution
 from hepflow.utils import write_json, write_yaml
+
+# How long a compile waits for another compile that holds a unit before it treats it as stale.
+UNIT_WAIT_SECONDS = 10.0
 
 
 def _yaml_bytes(doc: dict[str, Any]) -> bytes:
@@ -187,7 +191,7 @@ def _write_unit(
     )
     directory = unit_dir(paths.compile_dir(), dataset)
     existing = directory / MANIFEST_NAME
-    if existing.is_file():
+    if directory.exists() and _wait_for_manifest(existing):
         _check_same_unit(existing, manifest)
         return []
     if directory.exists():
@@ -217,7 +221,7 @@ def _write_unit(
         try:
             directory.mkdir()
         except FileExistsError:
-            if not existing.is_file():
+            if not _wait_for_manifest(existing):
                 raise PublishConflict(
                     f"Dataset unit {directory} is being written by another compile or was "
                     "left incomplete by one; retry, or remove the directory if no compile runs."
@@ -229,6 +233,16 @@ def _write_unit(
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return records
+
+
+def _wait_for_manifest(manifest_file: Path) -> bool:
+    """Wait briefly for a compile that is filling the unit; False when no manifest appears."""
+    deadline = time.monotonic() + UNIT_WAIT_SECONDS
+    while not manifest_file.is_file():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+    return True
 
 
 def _check_same_unit(existing: Path, manifest: dict[str, Any]) -> None:
