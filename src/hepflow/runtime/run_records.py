@@ -127,6 +127,25 @@ def partition_summary(
     }
 
 
+def partition_outputs(run_dir: str | Path) -> list[dict[str, Any]]:
+    """The data files a partition wrote, from its writer manifests (path, size and adler32).
+
+    Nothing is opened but the manifests. A partition that wrote no file has no entry.
+    """
+    outputs: list[dict[str, Any]] = []
+    for manifest_file in sorted((Path(run_dir) / "writers").glob("*/manifest.json")):
+        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        for dataset in (manifest.get("datasets") or {}).values():
+            for item in dataset.get("files") or []:
+                entry = {
+                    key: item[key]
+                    for key in ("path", "path_type", "size_bytes", "adler32")
+                    if key in item
+                }
+                outputs.append(entry)
+    return sorted(outputs, key=lambda entry: str(entry["path"]))
+
+
 def write_partition_summary(paths: BuildPaths, summary: Mapping[str, Any]) -> Path:
     """Write ``run_summary.yaml`` of a partition run last and atomically.
 

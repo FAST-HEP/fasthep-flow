@@ -424,13 +424,26 @@ artifacts/files/<stem>/<dataset>/<N>.<ext>   data files, as before
   unit's manifest. A changed plan, manifest or chunk size fails with the names of the fields that
   differ; recompile into a new out-dir. A replacement variation has its own unit and run root.
 - **Partition summary:** `variation`, `dataset`, `partition` (N), `partitions` (K of the dataset),
-  `chunk_size`, `plan_hash`, `manifest_hash` and the `attempt` id, next to the usual run summary.
+  `chunk_size`, `plan_hash`, `manifest_hash`, the `attempt` id and `outputs` (path, size and adler32 of
+  each data file, copied from the writer manifests; empty when the partition wrote no file), next to the
+  usual run summary.
   An invocation that selects several partitions (`--dataset D`, or `--partition 1,3`) still writes one
   summary per partition, because the partitions run one after the other, each through the backend.
 - **Attempts:** each run of a partition claims a new attempt directory. A rerun with the same binding
   replaces `run_summary.yaml` and the data file (the last complete attempt wins); a failed partition
   leaves no summary. A partition writer fills `<N>.tmp-<attempt>.<ext>` and Flow renames it once the
   node succeeded, so no attempt leaves a torn file.
+- **Merge accounting:** `hepflow.api.read_partition_runs(run_root)` is what a merge step calls before it
+  combines the outputs of a dataset. It checks `binding.json`, that every summary carries that binding
+  and the same K, that the numbers are exactly `1..K` (a missing or extra number, a failed partition or
+  a mixed binding is an error listing every problem), and that each output file exists with the recorded
+  size (`verify="adler32"` also compares the checksum, which writers record when a backend delivers the
+  files; `verify="none"` skips the files). A data file left by another attempt than the summary, or a
+  leftover `<N>.tmp-*` file, is reported. `attempts/` is not read. `allow_partial=True` returns the valid
+  partitions and the `missing` numbers, for a run still in progress; other problems still raise
+  `PartitionAccountingError`.
+- **Consumers (chip):** list the partitions with `--list-partitions`, queue dataset/partition pairs,
+  and merge only after `read_partition_runs` passes; no partition arithmetic of its own is needed.
 - Concurrent compiles of the same dataset are safe (see above).
 
 #### Compile hooks and event counts in a unit

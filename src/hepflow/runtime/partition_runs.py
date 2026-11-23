@@ -23,6 +23,7 @@ from hepflow.runtime.run_records import (
     Binding,
     build_binding,
     claim_attempt_dir,
+    partition_outputs,
     partition_summary,
     publish_binding,
     write_partition_summary,
@@ -118,6 +119,7 @@ def _run_one(
                 "strategy": result.strategy,
                 "success": result.success,
                 **result.summary,
+                "outputs": partition_outputs(run_dir),
             },
         ),
     )
