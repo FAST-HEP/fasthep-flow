@@ -143,3 +143,32 @@ def file_counts_hook(
             }
         }
     }
+
+
+PLAIN_COUNTS_HOOK_SPEC = {
+    "name": "toy.plain_counts",
+    "kind": "compile_hook",
+    "version": "1.0",
+    "lifecycle": {"when": "after_datasets"},
+    "result": {"artifacts": ["dataset_metadata"]},
+}
+
+
+def plain_counts_hook(ctx: Any, **params: Any) -> dict[str, Any]:
+    """A hook that produces ``dataset_metadata`` but has no per-file option."""
+    del params
+    return {"dataset_metadata": {"datasets": {name: {} for name in ctx.plan_context["datasets"]}}}
+
+
+SEEN_DATASETS_HOOK_SPEC = {
+    "name": "toy.seen_datasets",
+    "kind": "compile_hook",
+    "version": "1.0",
+    "lifecycle": {"when": "after_compile"},
+    "result": {"artifacts": ["seen_datasets"]},
+}
+
+
+def seen_datasets_hook(ctx: Any, **params: Any) -> dict[str, Any]:
+    del params
+    return {"seen_datasets": sorted(ctx.plan_context["datasets"])}

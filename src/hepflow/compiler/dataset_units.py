@@ -343,6 +343,47 @@ def _restore_location(plan: ExecutionPlan, manifest_path: Path) -> None:
         plan.context["project_root"] = str(record["root"])
 
 
+def apply_unit_manifests(
+    plan: ExecutionPlan,
+    manifests: Mapping[str, Mapping[str, Any]],
+    *,
+    require_counts: bool = True,
+) -> None:
+    """Make ``plan`` hold what ``manifests`` freeze: dataset files and counts, partitions, chunk sizes.
+
+    This is what a job gets from ``load_plan_file``; a compile applies it to the plan it returns,
+    so the caller sees the partitions the published units give (after any hook counts), not the
+    ones the plan build derived before the hooks ran.
+    """
+    datasets = plan.context["datasets"]
+    partitions: list[ExecutionPartition] = []
+    chunk_sizes: dict[str, int | None] = {}
+    for name, manifest in manifests.items():
+        record = {
+            **dict(datasets.get(name) or {}),
+            "name": name,
+            "files": manifest["files"],
+            "nevents": manifest["nevents"],
+            "file_nevents": (
+                None
+                if not any(manifest["counted"])
+                else manifest["file_nevents"]
+            ),
+        }
+        datasets[name] = record
+        chunk_sizes[name] = manifest["chunk_size"]
+        partitions.extend(
+            derive_unit_partitions(
+                plan,
+                record,
+                chunk_size=manifest["chunk_size"],
+                require_counts=require_counts,
+            )
+        )
+    plan.context["chunk_sizes"] = chunk_sizes
+    plan.partitions = partitions
+
+
 def assemble_unit_partitions(
     plan: ExecutionPlan, plan_dir: str | Path, dataset: str | None = None
 ) -> None:
@@ -373,25 +414,4 @@ def assemble_unit_partitions(
 
     if dataset is not None:
         _restore_location(plan, Path(plan_dir) / template.format(dataset=dataset))
-    datasets = plan.context["datasets"]
-    partitions: list[ExecutionPartition] = []
-    chunk_sizes: dict[str, int | None] = {}
-    for name, manifest in manifests.items():
-        record = {
-            **dict(datasets.get(name) or {}),
-            "name": name,
-            "files": manifest["files"],
-            "nevents": manifest["nevents"],
-            "file_nevents": (
-                None
-                if not any(manifest["counted"])
-                else manifest["file_nevents"]
-            ),
-        }
-        datasets[name] = record
-        chunk_sizes[name] = manifest["chunk_size"]
-        partitions.extend(
-            derive_unit_partitions(plan, record, chunk_size=manifest["chunk_size"])
-        )
-    plan.context["chunk_sizes"] = chunk_sizes
-    plan.partitions = partitions
+    apply_unit_manifests(plan, manifests)

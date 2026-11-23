@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import secrets
 import shutil
@@ -29,6 +30,7 @@ from hepflow.compiler.dataset_units import (
     MANIFEST_NAME,
     SHARED_DATASET_KEYS,
     PublishConflict,
+    apply_unit_manifests,
     dataset_manifest,
     declared_view,
     derive_unit_partitions,
@@ -45,6 +47,7 @@ from hepflow.compiler.graph_artifacts import (
     _lowered_graph_to_json,
     write_graph_artifacts,
 )
+from hepflow.compiler.hooks.registry import resolve_compile_hook
 from hepflow.compiler.partitioning import resolve_chunk_size
 from hepflow.compiler.per_dataset import stub_unselected_datasets
 from hepflow.model.plan import ExecutionPlan
@@ -172,6 +175,16 @@ def write_dataset_unit_artifacts(
                 invocation=invocation,
             )
         )
+    # The plan the caller gets holds what the published units freeze (hook counts included),
+    # as `load_plan_file` will give a job, not the partitions derived before the hooks ran.
+    apply_unit_manifests(
+        plan,
+        {
+            name: read_manifest(unit_dir(compile_path, name) / MANIFEST_NAME)
+            for name in datasets
+        },
+        require_counts=False,  # the unit writer has already said what is uncounted
+    )
     return records
 
 
@@ -311,7 +324,7 @@ def _build_unit(
         chunk_size=effective_chunk,
         # The plan build deferred its check to here when a hook may have provided counts.
         require_counts=bool(counting),
-        count_hint=_count_hint(counting),
+        count_hint=_count_hint(plan.registry, counting),
     )
     write_yaml(
         {
@@ -324,7 +337,7 @@ def _build_unit(
     )
     records.extend(
         write_compile_hook_artifacts(
-            plan=plan,
+            plan=hook_plan,
             normalized=unit_normalized,
             build_paths=paths,
             artifacts=shared,
@@ -361,13 +374,29 @@ def _read_dataset_metadata(directory: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _count_hint(hooks: list[str]) -> str:
-    if not hooks:
-        return ""
-    return (
-        f" Compile hook {hooks[0]!r} can count the events of each file: "
-        "set its per-file option (add_per_file: true)."
-    )
+def _count_hint(registry: dict[str, Any], hooks: list[str]) -> str:
+    """What to tell the user when files have no count and a hook could have provided them.
+
+    The ``add_per_file`` option is named only for a hook whose implementation takes it.
+    """
+    for name in hooks:
+        try:
+            impl = resolve_compile_hook(registry, name, kind="phase").impl
+            options = set(inspect.signature(impl).parameters)
+        except (KeyError, TypeError, ValueError):
+            options = set()
+        if "add_per_file" in options:
+            return (
+                f" Compile hook {name!r} can count the events of each file: "
+                "set its per-file option (add_per_file: true)."
+            )
+    if hooks:
+        return (
+            f" Compile hook {hooks[0]!r} produces dataset_metadata but returned no per-file "
+            "counts for these files (files: {<path>: {entries: N}})."
+        )
+    return ""
+
 
 
 __all__ = ["PublishConflict", "write_dataset_unit_artifacts"]

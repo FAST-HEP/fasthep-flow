@@ -444,8 +444,13 @@ artifacts/files/<stem>/<dataset>/<N>.<ext>   data files, as before
   dataset lacks. The unit writer maps its per-file entries (`files: {<path>: {entries: N}}`, the
   curator hook needs `add_per_file: true`) onto `file_nevents` by file path: a file without a
   declared count takes the hook's count, a declared count stays (a different hook count warns),
-  and a file the hook did not count stays uncounted. `manifest.yaml` records where each count
+  and a file the hook did not count stays uncounted (it becomes a whole-file partition and a warning
+  says how many). `manifest.yaml` records where each count
   came from in `count_origin` (`declared`, `hook` or null).
+- The plan `compile_workflow_file` returns is the one a job loads: its partitions come from the published
+  manifests, hook counts included. `list_workflow_partitions` never opens files, so a dataset whose counts
+  come from a hook is listed only after `compile`; the error says so. Phase hooks of both phases
+  (`after_datasets`, `after_compile`) see the selected dataset only.
 - With such a hook configured, the chunk-count check (and the whole-file warning) moves from the
   plan build to the unit writer, after the hook ran, and its message names the hook and the
   `add_per_file` option. Without one nothing changes.
