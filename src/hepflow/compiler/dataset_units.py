@@ -281,17 +281,19 @@ def assemble_unit_partitions(
         }
         datasets[name] = record
         chunk_sizes[name] = manifest["chunk_size"]
+        number = 1  # one numbering across the sources of a dataset: N names a run directory
         for source in sources:
             source_name = str(
                 source.meta.get("source_name") or source.id.removeprefix("read.")
             )
-            partitions.extend(
-                derive_dataset_partitions(
-                    record,
-                    source_name=source_name,
-                    chunk_size=manifest["chunk_size"],
-                    local_numbers=True,
-                )
+            derived = derive_dataset_partitions(
+                record,
+                source_name=source_name,
+                chunk_size=manifest["chunk_size"],
+                local_numbers=True,
+                first_number=number,
             )
+            number += len(derived)
+            partitions.extend(derived)
     plan.context["chunk_sizes"] = chunk_sizes
     plan.partitions = partitions

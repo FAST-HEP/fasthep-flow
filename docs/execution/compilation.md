@@ -401,9 +401,38 @@ compile/[<variation>/]
   this, and its `--chunk-size` check compares with the manifest.
 - A compile without `--dataset` in this mode writes a unit for each dataset.
   `normalized.yaml` of the compile root is not written.
-- Not yet covered: concurrent compiles of the same dataset (the unit files are
-  written without a lock), a unit's compile-hook output written by another
-  dataset, and the run bindings and per-partition summaries of the next change.
+
+#### Run roots, bindings and partition records
+
+A per-dataset run does not write one set of records for the whole out-dir. Each partition keeps its
+own below a run root, so concurrent jobs of one out-dir share no record file:
+
+```text
+runs/[<variation>/]<dataset>/
+├── binding.json                  variation, plan_hash, manifest_hash, chunk_size
+└── <N>/
+    ├── run_summary.yaml          written last and atomically: present means the partition completed
+    ├── provenance/               manifest.json, execution.json, records/
+    ├── writers/<writer>/manifest.json
+    └── attempts/<UTC second>-<4 hex>/attempt.json
+artifacts/files/<stem>/<dataset>/<N>.<ext>   data files, as before
+```
+
+- **Binding:** the first job creates `binding.json` (create-if-absent) and every later job checks its
+  own plan and manifest against it before it writes anything. `plan_hash` is the whole-plan hash of
+  `compiler.bundle.plan_hash` (the shared plan holds no root), `manifest_hash` the `record_hash` of the
+  unit's manifest. A changed plan, manifest or chunk size fails with the names of the fields that
+  differ; recompile into a new out-dir. A replacement variation has its own unit and run root.
+- **Partition summary:** `variation`, `dataset`, `partition` (N), `partitions` (K of the dataset),
+  `chunk_size`, `plan_hash`, `manifest_hash` and the `attempt` id, next to the usual run summary.
+  An invocation that selects several partitions (`--dataset D`, or `--partition 1,3`) still writes one
+  summary per partition, because the partitions run one after the other, each through the backend.
+- **Attempts:** each run of a partition claims a new attempt directory. A rerun with the same binding
+  replaces `run_summary.yaml` and the data file (the last complete attempt wins); a failed partition
+  leaves no summary. A partition writer fills `<N>.tmp-<attempt>.<ext>` and Flow renames it once the
+  node succeeded, so no attempt leaves a torn file.
+- Concurrent compiles of the same dataset are safe (see above). Not covered yet: a unit's
+  compile-hook output written by another dataset.
 
 For the small exoplanet dataset, the plan contains a single partition:
 

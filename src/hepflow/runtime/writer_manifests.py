@@ -22,6 +22,7 @@ def write_writer_manifests(
     partitions: list[ExecutionPartition] | None = None,
     outdir: str | Path,
     runtime_provenance: ProvenanceRecorder | None = None,
+    paths: BuildPaths | None = None,
 ) -> None:
     """Aggregate successful partition-writer results into one manifest per writer."""
     records_by_node: dict[str, list[dict[str, Any]]] = {}
@@ -63,6 +64,7 @@ def write_writer_manifests(
         writer_records=[record for _, record in result_records],
         outdir=outdir,
         runtime_provenance=runtime_provenance,
+        paths=paths,
     )
     for output, record in result_records:
         provenance = provenance_links.get(_record_id(record))
@@ -80,8 +82,8 @@ def write_writer_manifests(
         if not records:
             continue
         manifest = _build_manifest(records)
-        manifest_dir = BuildPaths(root=Path(outdir)).artifact_dir("files") / str(
-            manifest["name"]
+        manifest_dir = (paths or BuildPaths(root=Path(outdir))).writer_manifest_dir(
+            str(manifest["name"])
         )
         manifest_dir.mkdir(parents=True, exist_ok=True)
         _write_json_atomic(manifest_dir / "manifest.json", manifest)

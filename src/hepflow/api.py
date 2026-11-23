@@ -88,6 +88,7 @@ from hepflow.runtime.config import (
     _runtime_execution_with_overrides,
     default_run_outdir_for_plan,
 )
+from hepflow.runtime.partition_runs import run_partition_records
 from hepflow.runtime.partitions import (
     describe_partition_selection,
     select_dataset_partitions,
@@ -619,9 +620,20 @@ def run_plan_file(
         "per_dataset": per_dataset,
     }
     reporter = progress
-    if reporter is None and progress_sinks:
+    if reporter is None and progress_sinks and not per_dataset:
         reporter = ProgressReporter(selected_partitions, sinks=progress_sinks)
-    result = backend_impl.run(execution_plan, ctx=run_ctx, progress=reporter)
+    if per_dataset:
+        result = run_partition_records(
+            plan_file,
+            execution_plan,
+            all_partitions=plan.partitions,
+            backend=backend_impl,
+            build_paths=build_paths,
+            run_ctx=run_ctx,
+            progress_sinks=progress_sinks,
+        )
+    else:
+        result = backend_impl.run(execution_plan, ctx=run_ctx, progress=reporter)
 
     summary = {
         "backend": result.backend,

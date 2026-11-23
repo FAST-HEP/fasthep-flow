@@ -33,11 +33,13 @@ def derive_dataset_partitions(
     source_name: str,
     chunk_size: int | None,
     local_numbers: bool = False,
+    first_number: int = 1,
 ) -> list[ExecutionPartition]:
     """Derive one dataset's partitions in file order, then chunk order.
 
     With ``local_numbers`` (per-dataset mode) ``part`` is the 1-based position inside the
-    dataset; otherwise it is ``<file_index>_<chunk_index>``.
+    dataset, counted from ``first_number`` so that several sources of one dataset continue
+    each other's numbering; otherwise it is ``<file_index>_<chunk_index>``.
     """
     dataset_name = str(dataset.get("name") or "")
     files = list(dataset.get("files") or [])
@@ -96,7 +98,7 @@ def derive_dataset_partitions(
                 id=f"{source_name}__{dataset_name}__{number}",
                 part=str(number),
             )
-            for number, partition in enumerate(partitions, start=1)
+            for number, partition in enumerate(partitions, start=first_number)
         ]
     return partitions
 

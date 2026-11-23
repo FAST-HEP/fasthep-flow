@@ -92,7 +92,7 @@ def run_toy_write_manifest(
     node_id = str((meta or {}).get("node_id") or "")
     manifest = {
         "kind": "toy_file",
-        "name": Path(path).stem,
+        "name": str((meta or {}).get("writer_name") or Path(path).stem),
         "node_id": node_id,
         "input_node": "",
         "tree": "Events",

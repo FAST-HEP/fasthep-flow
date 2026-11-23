@@ -100,8 +100,57 @@ def _run_writer_like_sink(
     if "meta" in signature.parameters or accepts_kwargs:
         impl_params["meta"] = dict(meta or {})
 
-    result = impl(target=target, **impl_params)
+    final_path = _attempt_path(impl_params, when=when, ctx=component_ctx)
+    if final_path is not None:
+        impl_params["path"] = str(final_path[0])
+    try:
+        result = impl(target=target, **impl_params)
+        if final_path is not None:
+            result = _publish_attempt_file(result, *final_path)
+    except BaseException:
+        if final_path is not None:
+            final_path[0].unlink(missing_ok=True)
+        raise
     return _localise_writer_manifest(result, component_ctx)
+
+
+def _attempt_path(
+    params: dict[str, Any],
+    *,
+    when: str,
+    ctx: dict[str, Any] | ComponentContext,
+) -> tuple[Path, Path] | None:
+    """``(temporary, final)`` path of a partition writer in a per-dataset run, else None.
+
+    The writer fills ``<N>.tmp-<attempt>.<ext>`` and Flow renames it to ``<N>.<ext>`` once the
+    node succeeded, so two attempts at one partition never leave a torn file. The suffix stays
+    last because writers may pick their format from it.
+    """
+    attempt = ctx.get("attempt_id")
+    if not (ctx.get("per_dataset") and attempt and when == "partition_end" and "path" in params):
+        return None
+    final = Path(str(params["path"]))
+    return final.with_name(f"{final.stem}.tmp-{attempt}{final.suffix}"), final
+
+
+def _publish_attempt_file(result: Any, temporary: Path, final: Path) -> Any:
+    temporary.replace(final)  # the last complete attempt wins
+    metadata = getattr(result, "metadata", None)
+    if isinstance(metadata, dict):
+        _rename_in(metadata, temporary.name, final.name)
+    uri = getattr(result, "path", None)
+    if isinstance(uri, str) and temporary.name in uri:
+        result.path = uri.replace(temporary.name, final.name)
+    return result
+
+
+def _rename_in(value: Any, old: str, new: str) -> None:
+    items = value.items() if isinstance(value, dict) else enumerate(value)
+    for key, item in list(items):
+        if isinstance(item, str):
+            value[key] = item.replace(old, new)
+        elif isinstance(item, dict | list):
+            _rename_in(item, old, new)
 
 
 def _localise_writer_manifest(
