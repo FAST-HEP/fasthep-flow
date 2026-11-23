@@ -103,6 +103,12 @@ from hepflow.runtime.provenance import (
     format_provenance_summary,
 )
 from hepflow.runtime.reports import run_workflow_reports
+from hepflow.runtime.run_accounting import (
+    PartitionAccountingError,
+    PartitionRecord,
+    PartitionRuns,
+    read_partition_runs,
+)
 from hepflow.utils import read_yaml, write_yaml
 
 __all__ = [
@@ -115,6 +121,9 @@ __all__ = [
     "InputNotFound",
     "InvalidPlan",
     "NoPlanFound",
+    "PartitionAccountingError",
+    "PartitionRecord",
+    "PartitionRuns",
     "PlanDiffEntry",
     "PlanDiffError",
     "PlanDiffReport",
@@ -134,6 +143,7 @@ __all__ = [
     "provenance_artifact_text",
     "provenance_graph_text",
     "provenance_summary_text",
+    "read_partition_runs",
     "resolve_plan_input",
     "run_plan_file",
     "run_workflow_file",

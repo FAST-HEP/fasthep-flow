@@ -157,6 +157,8 @@ the layout. Workflow authors set only a `path`:
   sources of the dataset, and each partition keeps its provenance, writer manifests and run summary
   below `runs/[<variation>/]<dataset>/<N>/` (`docs/execution/compilation.md`, "Run roots, bindings and
   partition records"). The writer writes `<N>.tmp-<attempt>.<suffix>` and Flow renames it on success.
+  Each summary lists its `outputs`; `hepflow.api.read_partition_runs` validates a run root (one binding,
+  exactly `1..K`, files against summaries) for merge steps.
 - Each writer gets `artifacts/files/<writer name>/manifest.json` listing every
   file per dataset (path, partition, attempt, entries, size, provenance record).
   `name` is the writer name or the path stem; when the stem is only a token
