@@ -38,7 +38,8 @@ It does not own domain implementations:
   includes, graph lowering, dependency analysis, output claims, systematics,
   compile hooks, registry resolution and plan generation. `compiler/workflow_config.py`
   (`resolve_workflow_config`) resolves registry, execution and execution hooks in one pass over the
-  `use.profiles` expansion, with each profile file read once per compile.
+  `use.profiles` expansion, with each profile file read once per compile. `compiler/spec_resolver.py` (`SpecResolver`) gives
+  `lower_graph` the validated `{port: kind}` outputs of registered ops, loading each spec once.
 - `src/hepflow/runtime/` consumes compiled plans and orchestrates execution,
   materialisation, partitions, hooks, provenance records and writer manifests.
 - `src/hepflow/backends/model.py` defines backend contracts; keep concrete

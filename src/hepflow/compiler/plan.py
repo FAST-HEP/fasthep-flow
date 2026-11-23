@@ -59,7 +59,11 @@ def build_execution_plan(
     execution: dict[str, Any] | None = None,
     execution_hooks: list[dict[str, Any]] | None = None,
     compile_context: CompileContext | None = None,
+    datasets: list[dict[str, Any]] | None = None,
+    analysis_globals: dict[str, Any] | None = None,
 ) -> ExecutionPlan:
+    """Build the plan from the lowered ``graph``; ``datasets`` and ``analysis_globals`` come from
+    the normalized workflow (the graph no longer carries them)."""
     plan = ExecutionPlan()
     plan.registry = dict(registry or {})
     plan.provenance = dict(provenance or {})
@@ -68,7 +72,7 @@ def build_execution_plan(
     file_access = list(plan.execution.get("file_access") or [])
     context_datasets_by_name: dict[str, dict[str, Any]] = {
         str(dataset["name"]): _context_dataset(dataset, file_access)
-        for dataset in list(graph.graph.get("datasets") or [])
+        for dataset in list(datasets or [])
         if isinstance(dataset, dict) and dataset.get("name") is not None
     }
 
@@ -129,7 +133,7 @@ def build_execution_plan(
     plan.context = build_plan_context(
         plan,
         datasets_by_name=context_datasets_by_name,
-        globals_block=dict(graph.graph.get("analysis_globals") or {}),
+        globals_block=dict(analysis_globals or {}),
         compile_context=compile_context,
     )
     validate_plan_applicability(plan)
@@ -208,6 +212,8 @@ def build_plan_from_normalized(
         execution=execution,
         execution_hooks=list(normalized.get("execution_hooks") or []),
         compile_context=CompileContext.from_normalized(normalized),
+        datasets=[dict(d) for d in list((normalized.get("data") or {}).get("datasets") or [])],
+        analysis_globals=dict((normalized.get("analysis") or {}).get("globals") or {}),
     )
     variation = normalized.get("variation")
     if isinstance(variation, dict):
