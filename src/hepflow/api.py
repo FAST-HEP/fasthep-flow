@@ -23,7 +23,11 @@ from hepflow.compiler.artifacts import write_plan_artifacts
 from hepflow.compiler.bundle import record_source_files, write_invocation
 from hepflow.compiler.component_defaults import apply_component_param_defaults
 from hepflow.compiler.context import CompileContext
-from hepflow.compiler.dataset_units import assemble_unit_partitions, unit_dir
+from hepflow.compiler.dataset_units import (
+    PublishConflict,
+    assemble_unit_partitions,
+    unit_dir,
+)
 from hepflow.compiler.execution import (
     normalize_global_execution,
     resolve_workflow_execution,
@@ -116,6 +120,7 @@ __all__ = [
     "PlanDiffReport",
     "PlanDiffScope",
     "PlanDiffWarning",
+    "PublishConflict",
     "compile_from_bundle",
     "compile_workflow_file",
     "diff_plan_files",
