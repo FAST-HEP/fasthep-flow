@@ -94,7 +94,7 @@ def build_execution_plan(
             _default_execution_policy(
                 role=graph_node.role,
                 impl=graph_node.impl,
-                outputs=graph_node.outputs,
+                scope=graph_node.execution_scope,
                 chunk_size=chunk_size,
                 chunked=per_dataset_enabled(execution),
             )
@@ -385,16 +385,18 @@ def _default_execution_policy(
     *,
     role: str,
     impl: str,
-    outputs: dict[str, str],
+    scope: str | None,
     chunk_size: int | None,
     chunked: bool = False,
 ) -> tuple[str, str, PartitionSpec, str]:
     """Very first-pass policy.
 
+    A transform's ``scope`` comes from its op spec (``execution.scope``, implied for transforms
+    that produce an event stream); lowering sets it, so it is never guessed from output kinds.
+
     ``chunked`` (per-dataset mode) treats the plan as chunked whatever the chunk size, so
     its nodes do not depend on the chunk size of a single dataset.
     """
-    del impl
     chunk_size_set = chunk_size is not None or chunked
     if role == "source":
         if chunk_size_set:
@@ -412,7 +414,9 @@ def _default_execution_policy(
         )
 
     if role == "transform":
-        if _produces_partition_products(outputs):
+        if scope == "global":
+            return ("global", "global", PartitionSpec(mode="none"), "never")
+        if scope == "partition":
             return (
                 "partition",
                 "partition",
@@ -421,23 +425,7 @@ def _default_execution_policy(
                 else PartitionSpec(mode="dataset"),
                 "never",
             )
-
-        if "stream" not in outputs and "event_stream" not in set(outputs.values()):
-            return (
-                "global",
-                "global",
-                PartitionSpec(mode="none"),
-                "never",
-            )
-
-        return (
-            "partition",
-            "partition",
-            PartitionSpec(mode="dataset_chunks", chunk_size=chunk_size)
-            if chunk_size_set
-            else PartitionSpec(mode="dataset"),
-            "never",
-        )
+        raise ValueError(f"Transform {impl!r} has no execution scope")
 
     if role == "observer":
         return ("global", "global", PartitionSpec(mode="none"), "always")
@@ -446,8 +434,3 @@ def _default_execution_policy(
         return ("global", "global", PartitionSpec(mode="none"), "always")
 
     raise ValueError(f"Unknown execution role: {role!r}")
-
-
-def _produces_partition_products(outputs: dict[str, str]) -> bool:
-    product_kinds = set(outputs.values()) - {"event_stream"}
-    return bool(product_kinds & {"histogram", "cutflow"})

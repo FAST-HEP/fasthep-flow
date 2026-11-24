@@ -137,6 +137,22 @@ the role default (a transform produces a `stream`, a sink an `artifact`), and an
 registry entry keeps that default too. Anything else, including a registry entry without a string
 `spec`, fails the compile with the op, the spec path and the reason; there is no fallback.
 
+### Execution scope of a transform
+
+A transform runs either once per partition (`partition`) or once for the whole run (`global`).
+The spec decides; Flow does not guess it from the output kinds.
+
+- A transform that produces an `event_stream` is partition scoped. It needs no declaration, and
+  `execution: {scope: global}` on it is an error.
+- A transform without an event stream output (a histogram, a schema snapshot, any other product)
+  must declare `"execution": {"scope": "partition"}` or `"execution": {"scope": "global"}`.
+  `hep.hist` declares `partition`: it fills a histogram per partition and the partial results are
+  merged. `curator.root_tree_schema` declares `global`.
+- A missing or invalid declaration fails the compile with the op, the spec path and the reason.
+
+This is a break for third-party specs of transforms without a stream output: add the declaration.
+Persisted plans keep their shape; `input_scope` and `output_scope` are unchanged.
+
 Importantly, the spec also describes **where Flow should look inside operation-specific parameters** for planner-visible information.
 
 Consider:

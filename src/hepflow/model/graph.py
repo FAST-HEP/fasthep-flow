@@ -6,6 +6,7 @@ from typing import Any, Literal
 import networkx as nx
 
 Role = Literal["source", "transform", "observer", "sink"]
+ExecutionScope = Literal["partition", "global"]
 
 @dataclass(slots=True)
 class GraphNode:
@@ -18,6 +19,7 @@ class GraphNode:
     impl: str
     params: dict[str, Any] = field(default_factory=dict)
     outputs: dict[str, str] = field(default_factory=dict)
+    execution_scope: ExecutionScope | None = None
     meta: dict[str, Any] = field(default_factory=dict)
 
 

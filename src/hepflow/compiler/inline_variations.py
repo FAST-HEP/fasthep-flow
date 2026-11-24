@@ -222,6 +222,7 @@ def _insert_variation_collection_boundaries_in_graph(
                         "include_existing": False,
                     },
                     outputs={"stream": "event_stream"},
+                    execution_scope="partition",
                     meta={
                         "inserted_by": "inline_variations",
                         "variation": deepcopy(result.variation),
@@ -256,6 +257,7 @@ def _insert_variation_collection_boundaries_in_graph(
                 impl="hep.merge_fields",
                 params={"on_conflict": "error"},
                 outputs={"stream": "event_stream"},
+                execution_scope="partition",
                 meta={
                     "inserted_by": "inline_variations",
                     "collection_for": boundary.id,
@@ -430,6 +432,7 @@ def _clone_graph_node(
         impl=node.impl,
         params=params,
         outputs=deepcopy(node.outputs),
+        execution_scope=node.execution_scope,
         meta=meta,
     )
 
