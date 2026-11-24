@@ -12,6 +12,11 @@ an event stream runs per partition, which a spec need not say. A transform witho
 output must declare ``execution: {scope: partition | global}`` in its spec; a missing
 declaration is an error naming the op, and so is ``global`` on a stream-producing transform.
 
+A transform also either needs an event stream as input or does not: ``input: None`` in the spec
+means it reads none (curator's schema operations); an absent or any other ``input`` means it does,
+and so does an op without a registry entry. Lowering uses that to accept workflows without sources
+and to name the first stage that needs a stream when there is none.
+
 Specs are resolved on first use, not when the registry is loaded: a registry lists every op of
 every package, and importing all of them would load code a workflow never uses.
 """
@@ -46,6 +51,7 @@ class SpecResolver:
         }
         self._cache: dict[tuple[str, str], dict[str, str]] = {}
         self._scopes: dict[str, ExecutionScope] = {}
+        self._needs_stream: dict[str, bool] = {}
 
     def stage_outputs(self, op: str) -> dict[str, str]:
         return dict(self._outputs("transforms", op, STAGE_DEFAULT))
@@ -54,6 +60,11 @@ class SpecResolver:
         """Execution scope of a transform; resolves the op's spec on first use."""
         self._outputs("transforms", op, STAGE_DEFAULT)
         return self._scopes.get(op, "partition")
+
+    def stage_needs_stream(self, op: str) -> bool:
+        """Whether a transform reads an event stream; resolves the op's spec on first use."""
+        self._outputs("transforms", op, STAGE_DEFAULT)
+        return self._needs_stream.get(op, True)
 
     def sink_outputs(self, op: str) -> dict[str, str]:
         return dict(self._outputs("sinks", op, SINK_DEFAULT))
@@ -83,6 +94,7 @@ class SpecResolver:
             )
             if category == "transforms":
                 self._scopes[op] = _scope_of(spec, outputs)
+                self._needs_stream[op] = spec.get("input", True) is not None
         except InvalidRegisteredSpec as error:
             raise InvalidRegisteredSpec(f"{where}: spec {spec_ref!r}: {error}") from None
         return outputs

@@ -39,7 +39,7 @@ It does not own domain implementations:
   compile hooks, registry resolution and plan generation. `compiler/workflow_config.py`
   (`resolve_workflow_config`) resolves registry, execution and execution hooks in one pass over the
   `use.profiles` expansion, with each profile file read once per compile. `compiler/spec_resolver.py` (`SpecResolver`) gives
-  `lower_graph` the validated `{port: kind}` outputs of registered ops, loading each spec once. `compiler/normalized_view.py` (`NormalizedView`) is the typed read view of a
+  `lower_graph` the validated `{port: kind}` outputs of registered ops, loading each spec once and saying whether a transform reads an event stream (`input: None` means it does not), which lets a workflow omit sources. `compiler/normalized_view.py` (`NormalizedView`) is the typed read view of a
   normalized workflow for steps that only read it; `normalized.yaml` and the dict stay the persisted form.
 - `src/hepflow/runtime/` consumes compiled plans and orchestrates execution,
   materialisation, partitions, hooks, provenance records and writer manifests. `runtime/products.py` (`ProductBinding`) is the typed

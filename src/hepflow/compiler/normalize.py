@@ -54,7 +54,11 @@ def normalize_workflow(doc: dict[str, Any]) -> dict[str, Any]:
     sources = normalize_sources(sources_raw)
 
     if not sources and sources_raw is None:
-        sources["events"] = inject_default_events_source(data.defaults).to_dict()
+        # Implicit: lowering drops it when no stage needs an event stream (source-less workflows).
+        sources["events"] = {
+            **inject_default_events_source(data.defaults).to_dict(),
+            "implicit": True,
+        }
 
     joins = normalize_joins(doc.get("joins"))
     fields = normalize_fields(doc.get("fields"))
