@@ -41,6 +41,7 @@ from hepflow.runtime.boundary import (
 from hepflow.runtime.handlers import run_observer, run_sink, run_source, run_transform
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
 from hepflow.runtime.materialize import materialize_final_products
+from hepflow.runtime.products import product_bindings, register_product_bindings
 from hepflow.runtime.provenance import (
     ProvenanceRecorder,
     ensure_runtime_provenance,
@@ -375,7 +376,7 @@ def execute_plan_locally(
                 outdir=str(base_ctx.get("outdir") or "."),
                 registry_cfg=registry_cfg,
             )
-            _register_product_bindings(base_ctx, product_items)
+            register_product_bindings(base_ctx, product_items, plan=plan)
             execute_final_nodes(
                 plan,
                 value_store=value_store,
@@ -509,7 +510,7 @@ def execute_plan_locally(
             outdir=str(base_ctx.get("outdir") or "."),
             registry_cfg=registry_cfg,
         )
-        _register_product_bindings(base_ctx, product_items)
+        register_product_bindings(base_ctx, product_items, plan=plan)
         execute_final_nodes(
             plan,
             value_store=merged_value_store,
@@ -1127,7 +1128,7 @@ def _collect_input_products(
     plan: ExecutionPlan | None,
     ctx: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    bindings = dict(ctx.get("product_bindings") or {})
+    bindings = product_bindings(ctx)
     products: dict[str, dict[str, Any]] = {}
     input_refs = node.inputs
     omit_inactive_inputs = (
@@ -1167,8 +1168,8 @@ def _collect_input_products(
                 # In that case, no producer/product metadata is available.
                 continue
         binding = bindings.get((active_ref.node_id, active_ref.output_name))
-        if isinstance(binding, dict):
-            products[ref.input_name] = dict(binding)
+        if binding is not None:
+            products[ref.input_name] = binding.to_input_product()
     return products
 
 
@@ -1200,28 +1201,6 @@ def _input_products_context(
             ctx.pop("input_products", None)
         else:
             ctx["input_products"] = previous
-
-
-def _register_product_bindings(
-    ctx: dict[str, Any],
-    items: list[dict[str, Any]],
-) -> None:
-    bindings = ctx.setdefault("product_bindings", {})
-    if not isinstance(bindings, dict):
-        raise TypeError("Runtime context product_bindings must be a mapping")
-    for item in items:
-        node_id = item.get("node_id")
-        output_name = item.get("output_name")
-        if not isinstance(node_id, str) or not isinstance(output_name, str):
-            continue
-        bindings[(node_id, output_name)] = {
-            "node_id": node_id,
-            "port": output_name,
-            "kind": str(item.get("product_kind") or ""),
-            "path": str(item.get("path") or ""),
-            "id": str(item.get("id") or ""),
-            "producer": str(item.get("producer") or node_id),
-        }
 
 
 def _sink_when(node: ExecutionNode) -> str:

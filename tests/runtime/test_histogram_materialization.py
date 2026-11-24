@@ -25,6 +25,7 @@ from hepflow.runtime.engine import (
     merge_partition_value_stores_for_dataset,
 )
 from hepflow.runtime.materialize import materialize_final_products
+from hepflow.runtime.products import register_product_bindings
 from hepflow.runtime.provenance import (
     format_provenance_artifact,
     format_provenance_graph,
@@ -203,17 +204,8 @@ def test_materialized_product_bindings_are_context_not_value_mutation(
     ctx: dict[str, Any] = {"outdir": str(tmp_path)}
 
     items = materialize_final_products(plan, value_store=value_store, outdir=tmp_path)
-    ctx["product_bindings"] = {
-        (item["node_id"], item["output_name"]): {
-            "node_id": item["node_id"],
-            "port": item["output_name"],
-            "kind": item["product_kind"],
-            "path": item["path"],
-            "id": item["id"],
-            "producer": item["producer"],
-        }
-        for item in items
-    }
+    # ctx["product_bindings"] holds typed ProductBinding objects (flow#143), not raw dicts.
+    register_product_bindings(ctx, items, plan=plan)
     execute_final_nodes(plan, value_store=value_store, ctx=ctx)
 
     assert value == {"payload": "unchanged"}
