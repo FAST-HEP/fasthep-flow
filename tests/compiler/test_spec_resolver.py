@@ -14,7 +14,28 @@ from hepflow.compiler.spec_resolver import InvalidRegisteredSpec, SpecResolver
 HERE = "tests.compiler.test_spec_resolver"
 
 GOOD = {"name": "good", "result": {"stream": "event_stream", "hist": {"kind": "histogram"}}}
-SINGLE = {"name": "single", "result": {"kind": "histogram", "port": "hist"}}
+SINGLE = {
+    "name": "single",
+    "result": {"kind": "histogram", "port": "hist"},
+    "execution": {"scope": "partition"},
+}
+GLOBAL_PRODUCT = {
+    "name": "product",
+    "result": {"schema": "schema_snapshot"},
+    "execution": {"scope": "global"},
+}
+NO_SCOPE = {"name": "no_scope", "result": {"hist": "histogram"}}
+SCOPE_BAD = {
+    "name": "scope_bad",
+    "result": {"hist": "histogram"},
+    "execution": {"scope": "everywhere"},
+}
+SCOPE_NOT_A_MAPPING = {"name": "scope_list", "result": {"hist": "histogram"}, "execution": "global"}
+GLOBAL_STREAM = {
+    "name": "global_stream",
+    "result": {"stream": "event_stream"},
+    "execution": {"scope": "global"},
+}
 NO_RESULT = {"name": "no_result"}
 RESULT_LIST = {"name": "bad", "result": ["stream"]}
 RESULT_EMPTY = {"name": "empty", "result": {}}
@@ -40,6 +61,40 @@ def test_defaults_apply_to_an_unregistered_op_and_a_spec_without_result() -> Non
     assert resolver.stage_outputs("plain") == {"stream": "event_stream"}
     assert resolver.stage_outputs("unknown") == {"stream": "event_stream"}
     assert resolver.sink_outputs("unknown") == {"artifact": "artifact"}
+
+
+def test_a_stream_transform_is_partition_scoped_without_a_declaration() -> None:
+    resolver = _resolver(a="GOOD", plain="NO_RESULT")
+
+    assert resolver.stage_scope("a") == "partition"
+    assert resolver.stage_scope("plain") == "partition"
+    assert resolver.stage_scope("unknown") == "partition"
+
+
+def test_a_transform_without_a_stream_takes_the_declared_scope() -> None:
+    resolver = _resolver(hist="SINGLE", schema="GLOBAL_PRODUCT")
+
+    assert resolver.stage_scope("hist") == "partition"
+    assert resolver.stage_scope("schema") == "global"
+
+
+@pytest.mark.parametrize(
+    ("name", "reason"),
+    [
+        ("NO_SCOPE", "must declare 'execution: {scope: partition | global}'"),
+        ("SCOPE_BAD", "'scope' set to 'partition' or 'global'"),
+        ("SCOPE_NOT_A_MAPPING", "'scope' set to 'partition' or 'global'"),
+        ("GLOBAL_STREAM", "runs per partition"),
+    ],
+)
+def test_a_missing_or_invalid_scope_names_the_op_and_the_spec(name: str, reason: str) -> None:
+    with pytest.raises(InvalidRegisteredSpec) as raised:
+        _resolver(op=name).stage_scope("op")
+
+    message = str(raised.value)
+    assert "registry.transforms['op']" in message
+    assert f"{HERE}:{name}" in message
+    assert reason in message
 
 
 @pytest.mark.parametrize(

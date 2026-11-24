@@ -272,6 +272,7 @@ TOY_PRODUCT_SPEC = {
         "value": {"required": False, "default": "product"},
     },
     "result": {"product": "toy_product"},
+    "execution": {"scope": "global"},
 }
 
 TOY_PRODUCT_PAIR_SPEC = {
@@ -280,6 +281,7 @@ TOY_PRODUCT_PAIR_SPEC = {
     "input": None,
     "params": {},
     "result": {"pair": {"kind": "toy_pair"}},
+    "execution": {"scope": "global"},
 }
 
 TOY_HIST_SPEC = {
@@ -288,6 +290,7 @@ TOY_HIST_SPEC = {
     "input": {"name": "stream", "kind": "event_stream", "required": True},
     "params": {},
     "result": {"hist": {"kind": "histogram"}},
+    "execution": {"scope": "partition"},
 }
 
 TOY_PROJECT_FIELDS_SPEC = {

@@ -112,6 +112,7 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                 "on_mismatch": join_cfg["on_mismatch"],
             },
             outputs={"stream": "event_stream"},
+            execution_scope="partition",
             meta={
                 "join_name": join_name,
             },
@@ -460,6 +461,7 @@ def _make_stage_node(stage: dict[str, Any], *, specs: SpecResolver) -> GraphNode
         impl=op,
         params=params,
         outputs=specs.stage_outputs(op),
+        execution_scope=specs.stage_scope(op),
         meta=meta,
     )
 
@@ -745,6 +747,7 @@ def _insert_projection_nodes(
                 "aliases": aliases,
             },
             outputs={"stream": "event_stream"},
+            execution_scope="partition",
             meta={
                 "stream_id": str(stream_id),
                 "inserted_by": "lower_graph",
