@@ -8,6 +8,7 @@ from typing import Any
 
 import networkx as nx
 
+from hepflow.compiler.normalized_view import NormalizedView
 from hepflow.model.applicability import applicability_is_empty, intersect_applicability
 from hepflow.model.graph import (
     GraphNode,
@@ -40,8 +41,8 @@ def apply_inline_variation_branches_to_graph(
     graph: nx.DiGraph,
     normalized: Mapping[str, Any],
 ) -> list[InlineVariationResult]:
-    systematics = normalized.get("systematics")
-    if not isinstance(systematics, Mapping):
+    systematics = NormalizedView.from_mapping(normalized).systematics
+    if systematics is None:
         return []
     variations = systematics.get("variations") or []
     if not isinstance(variations, list):

@@ -23,6 +23,7 @@ from hepflow.compiler.inputs_manifest import (
     mapping_file_inputs,
     write_inputs_manifest,
 )
+from hepflow.compiler.normalized_view import NormalizedView
 from hepflow.compiler.per_dataset import per_dataset_enabled
 from hepflow.compiler.snapshot import clear_snapshot, write_snapshot
 from hepflow.model.plan import ExecutionPlan
@@ -128,7 +129,8 @@ def write_bundle_manifest(
     when a hook of this compile produced it. With ``snapshot`` the source files are copied
     into ``inputs/`` next to the manifest first, and the rows record what was copied.
     """
-    provenance = dict(normalized.get("provenance") or {})
+    view = NormalizedView.from_mapping(normalized)
+    provenance = dict(view.provenance or {})
     collector = InputCollector.from_rows(provenance.get("inputs") or [])
     collector.extend(mapping_file_inputs(plan))
     target = directory or build_paths.compile_dir()
@@ -137,7 +139,7 @@ def write_bundle_manifest(
         "chunk_size": chunk_size,
     }
     produced = {name for record in records for name in record["artifacts"]}
-    root = provenance.get("root") or normalized.get("project_root")
+    root = provenance.get("root") or view.project_root
     copied = (
         write_snapshot(target, collector.rows(), root)
         if snapshot

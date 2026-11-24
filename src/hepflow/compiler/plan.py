@@ -23,6 +23,7 @@ from hepflow.compiler.execution import (
 from hepflow.compiler.file_access import resolve_file_access
 from hepflow.compiler.inline_variations import apply_inline_variation_branches_to_graph
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
+from hepflow.compiler.normalized_view import NormalizedView
 from hepflow.compiler.output_claims import validate_output_claims
 from hepflow.compiler.partitioning import (
     derive_dataset_partitions,
@@ -183,21 +184,16 @@ def build_plan_from_normalized(
     dataset (per-dataset mode only): the others keep metadata only and get no partitions.
     """
     normalized = apply_component_param_defaults(normalized)
-    execution = normalize_global_execution(normalized.get("execution"))
+    view = NormalizedView.from_mapping(normalized)
+    execution = normalize_global_execution(view.execution)
     enabled = per_dataset_enabled(execution, per_dataset)
     execution = with_per_dataset(execution, enabled)
-    validate_dataset_selection(
-        dataset,
-        enabled=enabled,
-        names=[
-            str(record.get("name"))
-            for record in list((normalized.get("data") or {}).get("datasets") or [])
-        ],
-    )
+    validate_dataset_selection(dataset, enabled=enabled, names=view.dataset_names)
     if dataset is not None:
         normalized = stub_unselected_datasets(normalized, dataset)
+        view = NormalizedView.from_mapping(normalized)
     validate_stage_execution_resource_references(
-        list((normalized.get("analysis") or {}).get("stages") or []),
+        list(view.stages),
         execution["resources"],
         execution["pools"],
     )
@@ -207,18 +203,17 @@ def build_plan_from_normalized(
         graph,
         chunk_size=chunk_size,
         dataset=dataset,
-        registry=dict(normalized.get("registry") or {}),
-        provenance=dict(normalized.get("provenance") or {}),
+        registry=dict(view.registry or {}),
+        provenance=dict(view.provenance or {}),
         execution=execution,
-        execution_hooks=list(normalized.get("execution_hooks") or []),
+        execution_hooks=list(view.execution_hooks),
         compile_context=CompileContext.from_normalized(normalized),
-        datasets=[dict(d) for d in list((normalized.get("data") or {}).get("datasets") or [])],
-        analysis_globals=dict((normalized.get("analysis") or {}).get("globals") or {}),
+        datasets=[dict(d) for d in view.datasets],
+        analysis_globals=dict(view.analysis_globals or {}),
     )
-    variation = normalized.get("variation")
-    if isinstance(variation, dict):
-        plan.context["variation"] = dict(variation)
-    plan.reports = list(normalized.get("reports") or [])
+    if view.variation is not None:
+        plan.context["variation"] = dict(view.variation)
+    plan.reports = list(view.reports)
     return graph, plan
 
 
