@@ -210,6 +210,35 @@ The workflow description does not contain the Python code required to read Parqu
 
 This same mechanism allows another package to provide a different source without changing Flow itself.
 
+### Workflows without sources
+
+A workflow that never reads events needs no source: one that only runs transforms with no stream input
+(for example curator's schema operations), observers, writers and renderers of their products.
+Write `sources: {}`, or leave `sources` out.
+
+```yaml
+sources: {}
+analysis:
+  stages:
+    - id: Product
+      op: curator.root_tree_schema
+```
+
+Leaving `sources` out normally gives the workflow a default `events` source. Flow drops that default
+when no stage needs an event stream, so the two forms compile to the same graph. A source you write
+yourself is never dropped.
+
+A transform needs an event stream unless its spec declares `input: None`. If no source or earlier stage
+provides one, the compile fails and names the first stage that needs it:
+
+```text
+Stage 'Scale' (op 'toy.scale') needs an event stream but has no input. Declare a source under
+'sources:', or take the stream from an earlier stage with 'from:'.
+```
+
+This includes `from: []` on such a stage, which used to compile into a stage with no input. In
+`normalized.yaml` the default source is marked `implicit: true`.
+
 ---
 
 

@@ -50,6 +50,19 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
 
     joins = dict(workflow.get("joins", {}))
 
+    registry = dict(workflow.get("registry") or {})
+    specs = SpecResolver(
+        transforms=registry.get("transforms"), sinks=registry.get("sinks")
+    )
+    if not joins and not any(_needs_stream(stage, specs) for stage in stages):
+        # A source injected by default is only wanted by a workflow that reads events.
+        named = {ref for stage in stages for ref in _stage_input_names(stage)}
+        sources = {
+            name: cfg
+            for name, cfg in sources.items()
+            if name in named or not (isinstance(cfg, dict) and cfg.get("implicit"))
+        }
+
     stream_entry_nodes: dict[str, str] = {}
     stream_effective_nodes: dict[str, str] = {}
 
@@ -145,11 +158,6 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
     previous_stage_stream_source: str | None = None
 
     stage_nodes: dict[str, str] = {}
-    registry = dict(workflow.get("registry") or {})
-    specs = SpecResolver(
-        transforms=registry.get("transforms"), sinks=registry.get("sinks")
-    )
-
     pending_needs_edges: list[tuple[str, str, str, str]] = []
 
     for stage in stages:
@@ -205,6 +213,13 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
 
         explicit_from = stage.get("from", stage.get("in"))
         if isinstance(explicit_from, list):
+            if (
+                not explicit_from
+                and not needs
+                and role == "transform"
+                and specs.stage_needs_stream(op)
+            ):
+                raise ValueError(_needs_stream_message(stage_id, op, "has no input"))
             for item in explicit_from:
                 if not isinstance(item, dict):
                     raise TypeError(
@@ -277,18 +292,25 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                         f"Sink stage '{stage_id}' requires 'needs' or explicit 'from' "
                         "to bind its target input"
                     )
-                if previous_stage_stream_source is None:
-                    previous_stage_stream_source = _resolve_initial_stage_stream(
-                        workflow=workflow,
-                        stream_effective_nodes=stream_effective_nodes,
+                if previous_stage_stream_source is None and not stream_effective_nodes:
+                    if specs.stage_needs_stream(op):
+                        raise ValueError(
+                            _needs_stream_message(stage_id, op, "follows no stream")
+                        )
+                    # A stage that reads no stream needs no input edge.
+                else:
+                    if previous_stage_stream_source is None:
+                        previous_stage_stream_source = _resolve_initial_stage_stream(
+                            workflow=workflow,
+                            stream_effective_nodes=stream_effective_nodes,
+                        )
+                    add_graph_edge(
+                        graph,
+                        previous_stage_stream_source,
+                        stage_node.id,
+                        output="stream",
+                        input_name="stream",
                     )
-                add_graph_edge(
-                    graph,
-                    previous_stage_stream_source,
-                    stage_node.id,
-                    output="stream",
-                    input_name="stream",
-                )
 
         if role == "sink":
             continue
@@ -417,6 +439,7 @@ def _make_source_node(
 
     kind = source_cfg.pop("kind")
     source_cfg.pop("inspect", None)
+    source_cfg.pop("implicit", None)
     stream_type = source_cfg.get("stream_type", "event_stream")
 
     return GraphNode(
@@ -762,6 +785,31 @@ def _insert_projection_nodes(
             input_name="stream",
         )
         stream_effective_nodes[str(stream_id)] = project_node.id
+
+
+def _needs_stream(stage: dict[str, Any], specs: SpecResolver) -> bool:
+    """Whether ``stage`` is a transform that reads an event stream."""
+    op = str(stage.get("op"))
+    if str(stage.get("role") or "transform") != "transform" or op.startswith(
+        "hep.render."
+    ):
+        return False
+    return specs.stage_needs_stream(op)
+
+
+def _stage_input_names(stage: dict[str, Any]) -> list[str]:
+    """Names a stage takes its input from through ``from`` or ``in``."""
+    explicit = stage.get("from", stage.get("in"))
+    if isinstance(explicit, list):
+        return [str(item["node"]) for item in explicit if isinstance(item, dict) and "node" in item]
+    return [] if explicit is None else [str(explicit)]
+
+
+def _needs_stream_message(stage_id: str, op: str, why: str) -> str:
+    return (
+        f"Stage '{stage_id}' (op {op!r}) needs an event stream but {why}. Declare a "
+        "source under 'sources:', or take the stream from an earlier stage with 'from:'."
+    )
 
 
 def _resolve_initial_stage_stream(
