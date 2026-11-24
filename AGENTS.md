@@ -42,7 +42,9 @@ It does not own domain implementations:
   `lower_graph` the validated `{port: kind}` outputs of registered ops, loading each spec once. `compiler/normalized_view.py` (`NormalizedView`) is the typed read view of a
   normalized workflow for steps that only read it; `normalized.yaml` and the dict stay the persisted form.
 - `src/hepflow/runtime/` consumes compiled plans and orchestrates execution,
-  materialisation, partitions, hooks, provenance records and writer manifests.
+  materialisation, partitions, hooks, provenance records and writer manifests. `runtime/products.py` (`ProductBinding`) is the typed
+  binding of a materialized product to its output port; sinks read the bindings of their inputs as the
+  `ctx["input_products"]` mappings.
 - `src/hepflow/backends/model.py` defines backend contracts; keep concrete
   infrastructure-specific implementations outside Flow unless they are the
   minimal local baseline in `src/hepflow/backends/local.py`.
