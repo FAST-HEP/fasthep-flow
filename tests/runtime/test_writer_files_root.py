@@ -7,7 +7,8 @@ from typing import Any
 
 from hepflow.model.io import OutputResult
 from hepflow.model.plan import ExecutionNode, ExecutionPlan
-from hepflow.runtime.handlers import _run_writer_like_sink
+from hepflow.runtime.engine import _store_node_outputs
+from hepflow.runtime.handlers import _run_writer_like_sink_located
 from hepflow.runtime.writer_manifests import write_writer_manifests
 
 DESTINATION = "root://eosuser.cern.ch//eos/user/x/y/skim/"
@@ -58,84 +59,96 @@ def _fake_root_writer(calls: list[dict[str, Any]]) -> Any:
 def _run(
     tmp_path: Path, extra_ctx: dict[str, Any], path: str = "{dataset}/{part}.root"
 ) -> tuple[OutputResult, list[dict[str, Any]]]:
+    """Run the writer and store its result the way the engine does (the funnel)."""
     calls: list[dict[str, Any]] = []
-    result = _run_writer_like_sink(
+    ctx = {
+        "outdir": str(tmp_path / "build"),
+        "partition": {"id": "events__ds__0", "dataset": "ds", "part": "0_0"},
+        "dataset_name": "ds",
+        **extra_ctx,
+    }
+    result, root = _run_writer_like_sink_located(
         sink_name="fake.root",
         impl=_fake_root_writer(calls),
         target={"x": 1},
         params={"path": path, "when": "partition_end"},
-        ctx={
-            "outdir": str(tmp_path / "build"),
-            "partition": {"id": "events__ds__0", "dataset": "ds", "part": "0_0"},
-            "dataset_name": "ds",
-            **extra_ctx,
-        },
+        ctx=ctx,
         meta={"node_id": "write.Selected"},
     )
-    assert isinstance(result, OutputResult)
-    return result, calls
+    store: dict[tuple[str, str], Any] = {}
+    _store_node_outputs(
+        "write.Selected",
+        {"artifact": "artifact"},
+        result,
+        store,
+        ctx=ctx,
+        artifact_root=root,
+        sink="fake.root",
+    )
+    stored = store[("write.Selected", "artifact")]
+    assert isinstance(stored, OutputResult)
+    return stored, calls
 
 
-def test_writer_writes_below_output_files_root_and_records_relative_path(
+def test_writer_writes_below_artifact_root_and_records_the_delivered_uri(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "jobdir"
 
     result, calls = _run(
-        tmp_path, {"output_files_root": str(root), "output_destination": DESTINATION}
+        tmp_path, {"artifact_root": str(root), "output_destination": DESTINATION}
     )
 
     assert calls[0]["path"] == str(root / "ds" / "0_0.root")
     assert (root / "ds" / "0_0.root").is_file()
     assert not (tmp_path / "build").exists()
-    manifest = result.metadata["writer_manifest"]
-    assert manifest["path"] == "ds/0_0.root"
-    assert manifest["path_type"] == "relative_to_files_root"
-    assert manifest["destination"] == DESTINATION
-    assert manifest["adler32"] == f"{zlib.adler32(b'x' * 7):08x}"
+    assert result.path == DESTINATION + "ds/0_0.root"
+    assert result.path_type == "uri"
+    assert result.size_bytes == 7
+    assert result.adler32 == f"{zlib.adler32(b'x' * 7):08x}"
 
 
-def test_writer_without_files_root_keeps_default_layout(tmp_path: Path) -> None:
+def test_writer_without_artifact_root_keeps_default_layout(tmp_path: Path) -> None:
     result, calls = _run(tmp_path, {}, path="skims/x.root")
 
     expected = tmp_path / "build" / "artifacts" / "files" / "skims" / "x" / "ds"
     assert calls[0]["path"] == str(expected / "0_0.root")
-    manifest = result.metadata["writer_manifest"]
-    assert manifest["path_type"] == "absolute"
-    assert "destination" not in manifest
-    assert "adler32" not in manifest
+    assert result.path == "artifacts/files/skims/x/ds/0_0.root"
+    assert result.path_type == "relative_to_outdir"
+    assert result.adler32 is None
 
 
-def test_writer_outside_files_root_keeps_its_manifest(tmp_path: Path) -> None:
+def test_writer_outside_artifact_root_is_recorded_absolute(tmp_path: Path) -> None:
     other = tmp_path / "elsewhere" / "ds" / "0_0.root"
 
     result, _ = _run(
         tmp_path,
-        {"output_files_root": str(tmp_path / "jobdir")},
+        {"artifact_root": str(tmp_path / "jobdir"), "output_destination": DESTINATION},
         path=str(other),
     )
 
-    manifest = result.metadata["writer_manifest"]
-    assert manifest["path_type"] == "absolute"
-    assert "destination" not in manifest
+    assert result.path_type == "absolute"
+    assert result.adler32 is not None
 
 
-def test_relative_output_files_root_resolves_against_working_directory(
+def test_relative_artifact_root_resolves_against_working_directory(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    result, calls = _run(tmp_path, {"output_files_root": "."})
+    result, calls = _run(
+        tmp_path, {"artifact_root": ".", "output_destination": DESTINATION}
+    )
 
-    assert calls[0]["path"] == "ds/0_0.root"
+    assert calls[0]["path"] == str(tmp_path / "ds" / "0_0.root")
     assert (tmp_path / "ds" / "0_0.root").is_file()
-    assert result.metadata["writer_manifest"]["path"] == "ds/0_0.root"
+    assert result.path == DESTINATION + "ds/0_0.root"
 
 
-def test_run_manifest_records_destination_and_relative_paths(tmp_path: Path) -> None:
+def test_run_manifest_records_the_uri_and_checksum(tmp_path: Path) -> None:
     root = tmp_path / "jobdir"
     result, _ = _run(
-        tmp_path, {"output_files_root": str(root), "output_destination": DESTINATION}
+        tmp_path, {"artifact_root": str(root), "output_destination": DESTINATION}
     )
     plan = ExecutionPlan()
     plan.add_node(
@@ -155,12 +168,15 @@ def test_run_manifest_records_destination_and_relative_paths(tmp_path: Path) -> 
     )
 
     # Named after the node because the path stem is only a token.
-    published = tmp_path / "build" / "artifacts" / "files" / "Selected" / "manifest.json"
+    published = (
+        tmp_path / "build" / "artifacts" / "files" / "Selected" / "manifest.json"
+    )
     payload = json.loads(published.read_text(encoding="utf-8"))
-    assert payload["destination"] == DESTINATION
+    assert payload["schema_version"] == "2"
+    assert "destination" not in payload
     [entry] = payload["datasets"]["ds"]["files"]
-    assert entry["path"] == "ds/0_0.root"
-    assert entry["path_type"] == "relative_to_files_root"
+    assert entry["path"] == DESTINATION + "ds/0_0.root"
+    assert entry["path_type"] == "uri"
     assert entry["adler32"] == f"{zlib.adler32(b'x' * 7):08x}"
     assert "destination" not in entry
 

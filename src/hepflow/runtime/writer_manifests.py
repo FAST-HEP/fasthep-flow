@@ -14,6 +14,8 @@ from hepflow.runtime.provenance import (
     write_artifact_provenance_records,
 )
 
+WRITER_MANIFEST_SCHEMA_VERSION = "2"
+
 
 def write_writer_manifests(
     plan: ExecutionPlan,
@@ -38,7 +40,7 @@ def write_writer_manifests(
         records = []
         for store in stores:
             partition = partition_by_store.get(id(store))
-            for output in _writer_outputs(store.get((node.id, "artifact"))):
+            for output, group_root in _writer_outputs(store.get((node.id, "artifact"))):
                 has_writer_manifest = isinstance(
                     output.metadata.get("writer_manifest"), dict
                 )
@@ -48,6 +50,8 @@ def write_writer_manifests(
                     outdir=root,
                     partition=partition,
                 )
+                if group_root is not None:
+                    copied_record["root"] = group_root
                 result_records.append((output, copied_record))
                 if (
                     has_writer_manifest
@@ -89,11 +93,12 @@ def write_writer_manifests(
         _write_json_atomic(manifest_dir / "manifest.json", manifest)
 
 
-def _writer_outputs(value: Any) -> list[ArtifactReference]:
+def _writer_outputs(value: Any) -> list[tuple[ArtifactReference, str | None]]:
+    """The files of a result, each with the root of the manifest it belongs to, if any."""
     if isinstance(value, ArtifactManifest):
-        return list(value.parts)
+        return [(part, value.root) for part in value.parts]
     if isinstance(value, ArtifactReference):
-        return [value]
+        return [(value, None)]
     if isinstance(value, list):
         return [output for item in value for output in _writer_outputs(item)]
     return []
@@ -109,6 +114,15 @@ def _artifact_record_from_output(
     writer_manifest = output.metadata.get("writer_manifest")
     if isinstance(writer_manifest, dict):
         record = dict(writer_manifest)
+        # The funnel's record of the file is the one location; the writer's own copy
+        # may name a worker-local path.
+        record["path"], record["path_type"] = _artifact_path(output.path, outdir)
+        if output.size_bytes is not None:
+            record["size_bytes"] = output.size_bytes
+        if output.adler32 is not None:
+            record["adler32"] = output.adler32
+        if output.delivery is not None:
+            record["delivery"] = output.delivery
         if partition is not None and "inputs" not in record:
             record["inputs"] = [_partition_input(partition)]
         elif "inputs" not in record:
@@ -119,7 +133,7 @@ def _artifact_record_from_output(
                 record["inputs"] = [{"partition_id": output.partition_id}]
         return record
     path, path_type = _artifact_path(output.path, outdir)
-    record = {
+    generic: dict[str, Any] = {
         "kind": str(
             output.metadata.get("artifact_kind")
             or output.metadata.get("kind")
@@ -136,9 +150,13 @@ def _artifact_record_from_output(
         else output.metadata.get("partition"),
         "attempt": output.metadata.get("attempt", 0),
     }
+    if output.size_bytes is not None:
+        generic["size_bytes"] = output.size_bytes
+    if output.adler32 is not None:
+        generic["adler32"] = output.adler32
     if partition is not None:
-        record["inputs"] = [_partition_input(partition)]
-    return record
+        generic["inputs"] = [_partition_input(partition)]
+    return generic
 
 
 def _artifact_path(path: str | Path, outdir: Path) -> tuple[str, str]:
@@ -218,6 +236,7 @@ def _build_manifest(records: list[dict[str, Any]]) -> dict[str, Any]:
                     "entries",
                     "size_bytes",
                     "adler32",
+                    "delivery",
                     "format",
                     "root_classname",
                     "provenance",
@@ -226,6 +245,7 @@ def _build_manifest(records: list[dict[str, Any]]) -> dict[str, Any]:
             }
         )
     manifest: dict[str, Any] = {
+        "schema_version": WRITER_MANIFEST_SCHEMA_VERSION,
         "kind": first["kind"],
         "name": first["name"],
         "node_id": first["node_id"],
@@ -236,11 +256,6 @@ def _build_manifest(records: list[dict[str, Any]]) -> dict[str, Any]:
         "total_entries": total_entries,
         "datasets": datasets,
     }
-    destination = first.get("destination")
-    if destination:
-        # Files with path_type "relative_to_files_root" are found at
-        # <destination>/<path> once the backend has delivered them.
-        manifest["destination"] = destination
     return manifest
 
 

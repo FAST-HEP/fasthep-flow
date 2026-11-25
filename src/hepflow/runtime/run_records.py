@@ -24,6 +24,7 @@ import yaml
 from hepflow.build_layout import BuildPaths
 from hepflow.compiler.bundle import plan_hash
 from hepflow.compiler.dataset_units import PublishConflict, _umask, publish_if_absent
+from hepflow.model.io import DELIVERY_STATUSES
 
 BINDING_FIELDS = ("variation", "plan_hash", "manifest_hash", "chunk_size")
 
@@ -38,7 +39,9 @@ class Binding:
     chunk_size: int | None
 
     def to_bytes(self) -> bytes:
-        return (json.dumps(asdict(self), indent=2, sort_keys=True) + "\n").encode("utf-8")
+        return (json.dumps(asdict(self), indent=2, sort_keys=True) + "\n").encode(
+            "utf-8"
+        )
 
 
 def build_binding(
@@ -114,8 +117,10 @@ def partition_summary(
     run: Mapping[str, Any],
 ) -> dict[str, Any]:
     """The run summary of one partition: what ran, under which binding, in which attempt."""
+    delivery = _delivery_counts(run.get("outputs"))
     return {
         **dict(run),
+        **({"delivery": delivery} if delivery else {}),
         "variation": binding.variation,
         "dataset": dataset,
         "partition": int(partition),
@@ -125,6 +130,18 @@ def partition_summary(
         "manifest_hash": binding.manifest_hash,
         "attempt": attempt_id,
     }
+
+
+def _delivery_counts(outputs: Any) -> dict[str, int]:
+    """Count the delivery statuses of a summary's outputs; empty when none was reported."""
+    counts = dict.fromkeys(DELIVERY_STATUSES, 0)
+    reported = False
+    for output in outputs or []:
+        status = output.get("delivery") if isinstance(output, Mapping) else None
+        if status in counts:
+            counts[status] += 1
+            reported = True
+    return counts if reported else {}
 
 
 def partition_outputs(run_dir: str | Path) -> list[dict[str, Any]]:
@@ -139,7 +156,13 @@ def partition_outputs(run_dir: str | Path) -> list[dict[str, Any]]:
             for item in dataset.get("files") or []:
                 entry = {
                     key: item[key]
-                    for key in ("path", "path_type", "size_bytes", "adler32")
+                    for key in (
+                        "path",
+                        "path_type",
+                        "size_bytes",
+                        "adler32",
+                        "delivery",
+                    )
                     if key in item
                 }
                 outputs.append(entry)

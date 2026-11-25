@@ -6,8 +6,8 @@ import pytest
 
 from hepflow.build_layout import (
     BuildPaths,
+    artifact_root_from_context,
     ensure_build_layout,
-    output_files_root_from_context,
     validate_build_relative_path,
 )
 
@@ -77,9 +77,7 @@ def test_build_paths_render_spec_with_variation() -> None:
 def test_build_paths_debug_path() -> None:
     paths = BuildPaths(root=Path("build"), variation="nominal")
 
-    assert paths.debug("logs", "run.log") == Path(
-        "build/debug/nominal/logs/run.log"
-    )
+    assert paths.debug("logs", "run.log") == Path("build/debug/nominal/logs/run.log")
 
 
 def test_build_paths_execution_path() -> None:
@@ -158,8 +156,8 @@ def test_build_paths_without_files_root_is_unchanged() -> None:
     )
 
 
-def test_build_paths_from_ctx_reads_output_files_root() -> None:
-    paths = BuildPaths.from_ctx({"outdir": "build", "output_files_root": "."})
+def test_build_paths_from_ctx_reads_artifact_root() -> None:
+    paths = BuildPaths.from_ctx({"outdir": "build", "artifact_root": "."})
 
     assert paths.root == Path("build")
     assert paths.artifact("files", "ds/0_0.root") == Path("ds/0_0.root")
@@ -168,9 +166,7 @@ def test_build_paths_from_ctx_reads_output_files_root() -> None:
 def test_build_paths_from_ctx_adds_files_root_to_existing_build_paths() -> None:
     existing = BuildPaths(root=Path("build"), variation="nominal")
 
-    paths = BuildPaths.from_ctx(
-        {"build_paths": existing, "output_files_root": "/job/dir"}
-    )
+    paths = BuildPaths.from_ctx({"build_paths": existing, "artifact_root": "/job/dir"})
 
     assert paths.variation == "nominal"
     assert paths.artifact("files", "a.root") == Path("/job/dir/a.root")
@@ -178,9 +174,9 @@ def test_build_paths_from_ctx_adds_files_root_to_existing_build_paths() -> None:
 
 
 @pytest.mark.parametrize("value", [None, "", "   ", 3])
-def test_output_files_root_from_context_ignores_blank_values(value: object) -> None:
-    assert output_files_root_from_context({"output_files_root": value}) is None
-    assert output_files_root_from_context(None) is None
+def test_artifact_root_from_context_ignores_blank_values(value: object) -> None:
+    assert artifact_root_from_context({"artifact_root": value}) is None
+    assert artifact_root_from_context(None) is None
 
 
 def test_ensure_build_layout_ignores_files_root_context(tmp_path: Path) -> None:

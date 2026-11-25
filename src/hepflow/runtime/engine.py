@@ -5,8 +5,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from hepflow.build_layout import BuildPaths
-from hepflow.model.io import OutputResult
+from hepflow.build_layout import BuildPaths, artifact_root_from_context
+from hepflow.model.io import ArtifactReference, OutputResult
 from hepflow.model.lifecycle import normalize_lifecycle_event
 from hepflow.model.plan import (
     ExecutionNode,
@@ -29,7 +29,14 @@ from hepflow.registry.loaders import (
     runtime_registry_from_config,
 )
 from hepflow.registry.runtime import RuntimeRegistry
-from hepflow.runtime.artifacts import localise_artifacts
+from hepflow.runtime.artifacts import (
+    deliver_artifacts,
+    deliver_location,
+    localise_artifacts,
+    normalise_location,
+    stat_artifacts,
+    wrap_artifact_results,
+)
 from hepflow.runtime.boundary import (
     PartitionBoundaryResult,
     PartitionExecutionSummary,
@@ -38,7 +45,12 @@ from hepflow.runtime.boundary import (
     plan_partition_boundary,
     reduce_product_values,
 )
-from hepflow.runtime.handlers import run_observer, run_sink, run_source, run_transform
+from hepflow.runtime.handlers import (
+    run_observer,
+    run_sink_located,
+    run_source,
+    run_transform,
+)
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
 from hepflow.runtime.materialize import materialize_final_products
 from hepflow.runtime.products import product_bindings, register_product_bindings
@@ -241,7 +253,7 @@ def execute_plan_partition(
                     hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
                     target = _sink_target(inputs)
                     with _operation_context(recorder, node=node, ctx=ctx):
-                        result = run_sink(
+                        result, artifact_root = run_sink_located(
                             sink_name=node.impl,
                             target=target,
                             params=node.params,
@@ -255,6 +267,8 @@ def execute_plan_partition(
                         result,
                         value_store,
                         ctx=ctx,
+                        artifact_root=artifact_root,
+                        sink=node.impl,
                     )
                     hook_manager.after_node(
                         node=node,
@@ -542,7 +556,9 @@ def execute_plan_locally(
 def _record_paths(ctx: Mapping[str, Any]) -> BuildPaths | None:
     """The paths of a per-partition run (records below its run directory), else None."""
     paths = ctx.get("build_paths")
-    return paths if isinstance(paths, BuildPaths) and paths.run_dir is not None else None
+    return (
+        paths if isinstance(paths, BuildPaths) and paths.run_dir is not None else None
+    )
 
 
 def _reset_final_product_manifests(outdir: str) -> None:
@@ -789,7 +805,7 @@ def execute_dataset_sinks(
             ):
                 hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
                 with _operation_context(recorder, node=node, ctx=ctx):
-                    result = run_sink(
+                    result, artifact_root = run_sink_located(
                         sink_name=node.impl,
                         target=target,
                         params=node.params,
@@ -806,6 +822,8 @@ def execute_dataset_sinks(
                     result,
                     dataset_value_store,
                     ctx=ctx,
+                    artifact_root=artifact_root,
+                    sink=node.impl,
                 )
                 hook_manager.after_node(
                     node=node,
@@ -867,7 +885,7 @@ def execute_final_nodes(
             ):
                 hook_manager.before_node(node=node, inputs=inputs, ctx=ctx)
                 with _operation_context(recorder, node=node, ctx=ctx):
-                    result = run_sink(
+                    result, artifact_root = run_sink_located(
                         sink_name=node.impl,
                         target=target,
                         params=node.params,
@@ -881,6 +899,8 @@ def execute_final_nodes(
                     result,
                     value_store,
                     ctx=ctx,
+                    artifact_root=artifact_root,
+                    sink=node.impl,
                 )
                 hook_manager.after_node(
                     node=node,
@@ -1237,11 +1257,15 @@ def _store_node_outputs(
     value_store: dict[tuple[str, str], Any],
     *,
     ctx: dict[str, Any] | None = None,
+    artifact_root: str | Path | None = None,
+    sink: str | None = None,
 ) -> None:
     if isinstance(result, OperationResult):
         for output_name, product in result.products.items():
             if output_name in outputs:
-                _localise_artifact_product(product, outputs[output_name], ctx)
+                _localise_artifact_product(
+                    product, outputs[output_name], ctx, node_id=node_id, sink=sink
+                )
                 value_store[(node_id, output_name)] = product
         return
 
@@ -1254,6 +1278,8 @@ def _store_node_outputs(
                 output_name=output_name,
                 product_kind=outputs[output_name],
                 ctx=ctx,
+                artifact_root=artifact_root,
+                sink=sink,
             )
         return
 
@@ -1265,6 +1291,8 @@ def _store_node_outputs(
             output_name=output_name,
             product_kind=outputs[output_name],
             ctx=ctx,
+            artifact_root=artifact_root,
+            sink=sink,
         )
         return
 
@@ -1281,7 +1309,18 @@ def _normalize_single_output(
     output_name: str,
     product_kind: str,
     ctx: dict[str, Any] | None,
+    artifact_root: str | Path | None = None,
+    sink: str | None = None,
 ) -> Any:
+    if product_kind == "artifact" and isinstance(result, list | tuple):
+        return _normalize_artifact_list(
+            list(result),
+            node_id=node_id,
+            output_name=output_name,
+            ctx=ctx,
+            artifact_root=artifact_root,
+            sink=sink,
+        )
     normalised = _normalize_artifact_dict(
         result,
         node_id=node_id,
@@ -1289,17 +1328,120 @@ def _normalize_single_output(
         product_kind=product_kind,
         ctx=ctx,
     )
-    _localise_artifact_product(normalised, product_kind, ctx)
+    _localise_artifact_product(
+        normalised,
+        product_kind,
+        ctx,
+        node_id=node_id,
+        sink=sink,
+        artifact_root=artifact_root,
+    )
     return normalised
 
 
+def _normalize_artifact_list(
+    items: list[Any],
+    *,
+    node_id: str,
+    output_name: str,
+    ctx: dict[str, Any] | None,
+    artifact_root: str | Path | None,
+    sink: str | None,
+) -> Any:
+    """One sink output that reported several files: tag, localise, check, then wrap."""
+    converted = [
+        _normalize_artifact_dict(
+            item,
+            node_id=node_id,
+            output_name=output_name,
+            product_kind="artifact",
+            ctx=ctx,
+        )
+        for item in items
+    ]
+    references = [item for item in converted if isinstance(item, ArtifactReference)]
+    if len(references) != len(converted):
+        # Not a list of files (for example manifests of several datasets): keep it.
+        _localise_artifact_product(
+            converted,
+            "artifact",
+            ctx,
+            node_id=node_id,
+            sink=sink,
+            artifact_root=artifact_root,
+        )
+        return converted
+    for reference in references:
+        reference.producer_node = reference.producer_node or node_id
+        reference.output_name = reference.output_name or output_name
+        if reference.dataset_name is None:
+            reference.dataset_name = _ctx_dataset_name(ctx)
+        if reference.partition_id is None:
+            reference.partition_id = _ctx_partition_id(ctx)
+        if reference.partition_index is None:
+            reference.partition_index = _ctx_partition_index(ctx)
+    _localise_artifact_product(
+        references,
+        "artifact",
+        ctx,
+        node_id=node_id,
+        sink=sink,
+        artifact_root=artifact_root,
+    )
+    root = _location_of_root(artifact_root, ctx)
+    return wrap_artifact_results(
+        references,
+        node_id=node_id,
+        output_name=output_name,
+        dataset_name=_ctx_dataset_name(ctx),
+        root=root,
+    )
+
+
+def _location_of_root(
+    artifact_root: str | Path | None, ctx: dict[str, Any] | None
+) -> str | None:
+    outdir = (ctx or {}).get("outdir")
+    if artifact_root is None or not outdir:
+        return None
+    location = normalise_location(str(artifact_root), str(outdir))
+    base, destination = _delivery(ctx)
+    if base is not None and destination is not None:
+        return deliver_location(location, base=base, destination=destination)
+    return location
+
+
+def _delivery(ctx: dict[str, Any] | None) -> tuple[Path | None, str | None]:
+    """A backend's run-level artifact base and the destination it delivers to, if any."""
+    base = artifact_root_from_context(ctx)
+    destination = (ctx or {}).get("output_destination")
+    return base, (str(destination) if destination else None)
+
+
 def _localise_artifact_product(
-    value: Any, product_kind: str, ctx: dict[str, Any] | None
+    value: Any,
+    product_kind: str,
+    ctx: dict[str, Any] | None,
+    *,
+    node_id: str = "",
+    sink: str | None = None,
+    artifact_root: str | Path | None = None,
 ) -> None:
     """Store artifact locations as Flow records them, in the producing process."""
     outdir = (ctx or {}).get("outdir")
-    if product_kind == "artifact" and outdir:
-        localise_artifacts(value, str(outdir))
+    if product_kind != "artifact" or not outdir:
+        return
+    base, destination = _delivery(ctx)
+    localise_artifacts(value, str(outdir), root=artifact_root)
+    stat_artifacts(
+        value,
+        outdir=str(outdir),
+        node_id=node_id,
+        sink=sink or node_id,
+        with_adler32=destination is not None,
+    )
+    if base is not None and destination is not None:
+        deliver_artifacts(value, base=base, destination=destination)
 
 
 def _normalize_artifact_dict(
@@ -1316,9 +1458,7 @@ def _normalize_artifact_dict(
         and isinstance(result.get("path"), str)
     ):
         metadata = {
-            key: value
-            for key, value in result.items()
-            if key not in {"path", "format"}
+            key: value for key, value in result.items() if key not in {"path", "format"}
         }
         return OutputResult(
             kind="artifact",

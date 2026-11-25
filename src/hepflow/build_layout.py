@@ -44,7 +44,7 @@ class BuildPaths:
     @classmethod
     def from_ctx(cls, ctx: Mapping[str, Any] | None) -> BuildPaths:
         context = dict(ctx or {})
-        files_root = output_files_root_from_context(context)
+        files_root = artifact_root_from_context(context)
         existing = context.get("build_paths")
         if isinstance(existing, BuildPaths):
             if files_root is not None and existing.files_root is None:
@@ -60,9 +60,7 @@ class BuildPaths:
     def from_plan(cls, plan: Any, *, outdir: str | Path) -> BuildPaths:
         return cls(
             root=Path(outdir),
-            variation=output_variation_from_context(
-                getattr(plan, "context", {}) or {}
-            ),
+            variation=output_variation_from_context(getattr(plan, "context", {}) or {}),
         )
 
     def artifact_dir(self, kind: str) -> Path:
@@ -216,17 +214,19 @@ def partition_output_roots(plan: Any) -> list[str]:
     return partition_writer_roots(plan)
 
 
-def output_files_root_from_context(context: Mapping[str, Any] | None) -> Path | None:
+def artifact_root_from_context(context: Mapping[str, Any] | None) -> Path | None:
     """
-    Return the ``output_files_root`` context entry, if set.
+    Return the run-level ``artifact_root`` context entry, if set.
 
     A backend that delivers writer outputs itself sets it to a directory local to
-    the process that writes (for example ``.`` for a job directory).
+    the process that writes (for example ``.`` for a job directory); the ``files``
+    family is then written below it. A sink sees its own, narrower ``artifact_root``
+    (see ``runtime.handlers.allocate_artifact_root``), never this base.
     """
 
     if context is None:
         return None
-    value = context.get("output_files_root")
+    value = context.get("artifact_root")
     if isinstance(value, Path):
         return value
     if isinstance(value, str) and value.strip():
@@ -251,7 +251,14 @@ def output_variation_from_context(context: Mapping[str, Any] | None) -> str | No
 
 def build_root(path: str | Path) -> Path:
     candidate = Path(path)
-    if candidate.name in {"compile", "graph", "render", "reports", "debug", "execution"}:
+    if candidate.name in {
+        "compile",
+        "graph",
+        "render",
+        "reports",
+        "debug",
+        "execution",
+    }:
         return candidate.parent
     return candidate
 
@@ -349,7 +356,10 @@ def ensure_build_layout(
         paths.debug_dir("performance"),
         paths.debug_dir("logs"),
     ]
-    for path in [*base_paths, *backend_declared_build_paths(paths, backend_directories)]:
+    for path in [
+        *base_paths,
+        *backend_declared_build_paths(paths, backend_directories),
+    ]:
         path.mkdir(parents=True, exist_ok=True)
 
 

@@ -23,7 +23,7 @@ from hepflow.runtime.provenance.model import (
 )
 from hepflow.runtime.provenance.resources import resolved_resource_record
 
-PROVENANCE_VERSION = "1.0"
+PROVENANCE_VERSION = "2.0"
 
 
 class ProvenanceStore:
@@ -184,13 +184,16 @@ def write_artifact_provenance_records(
         record_doc = {
             "version": PROVENANCE_VERSION,
             "run_id": run_id,
-            "artifact": {
-                "path": artifact_path,
-                "path_type": str(
-                    writer_record.get("path_type") or "relative_to_outdir"
-                ),
-                "kind": str(writer_record.get("kind") or "artifact"),
-            },
+            "artifact": _drop_none(
+                {
+                    "path": artifact_path,
+                    "path_type": str(
+                        writer_record.get("path_type") or "relative_to_outdir"
+                    ),
+                    "kind": str(writer_record.get("kind") or "artifact"),
+                    "root": writer_record.get("root"),
+                }
+            ),
             "producer": _record_producer(writer_record),
             "inputs": _record_inputs(writer_record),
         }
@@ -203,13 +206,16 @@ def write_artifact_provenance_records(
         }
         provenance_by_record_id[record_id] = provenance_link
         manifest_records.append(
-            {
-                "artifact": artifact_path,
-                "kind": str(writer_record.get("kind") or "artifact"),
-                "node_id": str(writer_record.get("node_id") or ""),
-                "record": record_rel,
-                "record_hash": record_hash,
-            }
+            _drop_none(
+                {
+                    "artifact": artifact_path,
+                    "kind": str(writer_record.get("kind") or "artifact"),
+                    "node_id": str(writer_record.get("node_id") or ""),
+                    "root": writer_record.get("root"),
+                    "record": record_rel,
+                    "record_hash": record_hash,
+                }
+            )
         )
 
     manifest = {
@@ -231,6 +237,11 @@ def load_provenance_document(path: str | Path) -> ProvenanceDocument:
     doc = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(doc, dict):
         raise ValueError(f"Expected provenance JSON object in {path}")
+    if doc.get("version") != PROVENANCE_VERSION:
+        raise ValueError(
+            f"{path} has provenance version {doc.get('version')!r}; this Flow reads "
+            f"{PROVENANCE_VERSION!r} (bundles of older versions are not supported)"
+        )
     return ProvenanceDocument.from_obj(doc)
 
 

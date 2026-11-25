@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-import zlib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -26,9 +26,29 @@ def run_sink(
     meta: dict[str, Any] | None = None,
     registry_cfg: dict[str, Any] | None,
 ) -> OutputResult | Any:
+    return run_sink_located(
+        sink_name=sink_name,
+        target=target,
+        params=params,
+        ctx=ctx,
+        meta=meta,
+        registry_cfg=registry_cfg,
+    )[0]
+
+
+def run_sink_located(
+    *,
+    sink_name: str,
+    target: Any,
+    params: dict[str, Any],
+    ctx: dict[str, Any],
+    meta: dict[str, Any] | None = None,
+    registry_cfg: dict[str, Any] | None,
+) -> tuple[OutputResult | Any, Path]:
+    """Run a sink and also return the artifact root Flow allocated for it."""
     _spec, impl = load_runtime_spec_and_impl(registry_cfg, "sinks", sink_name)
     sink_ctx = _sink_runtime_context(ctx=ctx, registry_cfg=registry_cfg)
-    return _run_writer_like_sink(
+    return _run_writer_like_sink_located(
         sink_name=sink_name,
         impl=impl,
         target=target,
@@ -62,10 +82,30 @@ def _run_writer_like_sink(
     ctx: dict[str, Any] | None = None,
     meta: dict[str, Any] | None = None,
 ) -> OutputResult | Any:
+    return _run_writer_like_sink_located(
+        sink_name=sink_name,
+        impl=impl,
+        target=target,
+        params=params,
+        ctx=ctx,
+        meta=meta,
+    )[0]
+
+
+def _run_writer_like_sink_located(
+    *,
+    sink_name: str,
+    impl: Any,
+    target: Any,
+    params: dict[str, Any],
+    ctx: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
+) -> tuple[OutputResult | Any, Path]:
     if target is None:
         raise ValueError(f"Sink '{sink_name}' target is None")
 
     component_ctx = component_context(ctx)
+    run_ctx = component_ctx
     impl_params = _sink_impl_params(params)
     when = normalize_lifecycle_event(params.get("when") or "run_end")
     if "path" in impl_params:
@@ -82,13 +122,17 @@ def _run_writer_like_sink(
     if "output_path" not in impl_params and (
         "out" in impl_params or "spec" in impl_params
     ):
-        output_path, output_dir = _derive_artifact_output_paths(
+        impl_params["output_path"] = _derive_artifact_output_path(
             impl_params,
             ctx=component_ctx,
             meta=dict(meta or {}),
         )
-        impl_params["output_path"] = output_path
-        impl_params["output_dir"] = output_dir
+
+    # The sink sees its own root, narrower than a backend's run-level base.
+    artifact_root = allocate_artifact_root(impl_params, ctx=run_ctx)
+    component_ctx = component_context(
+        {**component_ctx, "artifact_root": str(artifact_root)}
+    )
 
     signature = inspect.signature(impl)
     accepts_kwargs = any(
@@ -111,7 +155,7 @@ def _run_writer_like_sink(
         if final_path is not None:
             final_path[0].unlink(missing_ok=True)
         raise
-    return _localise_writer_manifest(result, component_ctx)
+    return result, artifact_root
 
 
 def _attempt_path(
@@ -127,7 +171,12 @@ def _attempt_path(
     last because writers may pick their format from it.
     """
     attempt = ctx.get("attempt_id")
-    if not (ctx.get("per_dataset") and attempt and when == "partition_end" and "path" in params):
+    if not (
+        ctx.get("per_dataset")
+        and attempt
+        and when == "partition_end"
+        and "path" in params
+    ):
         return None
     final = Path(str(params["path"]))
     return final.with_name(f"{final.stem}.tmp-{attempt}{final.suffix}"), final
@@ -153,54 +202,12 @@ def _rename_in(value: Any, old: str, new: str) -> None:
             _rename_in(item, old, new)
 
 
-def _localise_writer_manifest(
-    result: Any, ctx: dict[str, Any] | ComponentContext
-) -> Any:
-    """
-    Express a writer's manifest path relative to ``output_files_root``.
-
-    Writers record paths relative to ``outdir``, or absolute. When the files are
-    written below ``output_files_root`` (a directory local to the worker), the
-    absolute path would be meaningless after the run. The path becomes relative
-    to that root, ``path_type`` says so, and the optional ``output_destination``
-    context entry is recorded as ``destination``, the place where the backend
-    delivers the files.
-    """
-
-    files_root = BuildPaths.from_ctx(ctx).files_root
-    metadata = getattr(result, "metadata", None)
-    manifest = metadata.get("writer_manifest") if isinstance(metadata, dict) else None
-    if files_root is None or not isinstance(manifest, dict):
-        return result
-    written = Path(str(getattr(result, "path", None) or manifest.get("path") or ""))
-    try:
-        relative = written.resolve().relative_to(files_root.resolve())
-    except ValueError:
-        return result
-    manifest["path"] = relative.as_posix()
-    manifest["path_type"] = "relative_to_files_root"
-    # A checksum to compare with the delivered copy. adler32 is what EOS keeps.
-    manifest["adler32"] = _adler32_of_file(written)
-    destination = ctx.get("output_destination")
-    if destination:
-        manifest["destination"] = str(destination)
-    return result
-
-
 def _sink_impl_params(params: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in dict(params or {}).items()
         if key not in EXECUTION_ONLY_SINK_PARAMS
     }
-
-
-def _adler32_of_file(path: Path) -> str:
-    value = 1
-    with path.open("rb") as stream:
-        while chunk := stream.read(8 * 1024 * 1024):
-            value = zlib.adler32(chunk, value)
-    return f"{value & 0xFFFFFFFF:08x}"
 
 
 def _writer_name(path_template: str, *, meta: dict[str, Any]) -> str:
@@ -241,24 +248,61 @@ def _resolve_writer_paths_for_context(
     if any("{" + key + "}" in path_template for key in values):
         path = Path(path_template.format(**values))
     elif when == "partition_end" and partition:
-        path = path.with_suffix("") / str(values["dataset"]) / (
-            str(values["part"]) + Path(path_template).suffix
+        path = (
+            path.with_suffix("")
+            / str(values["dataset"])
+            / (str(values["part"]) + Path(path_template).suffix)
         )
 
     if not path.is_absolute():
         path = BuildPaths.from_ctx(ctx).artifact("files", path)
 
     resolved = dict(params)
-    resolved["path"] = str(path)
+    resolved["path"] = str(_absolute(path))
     return resolved
 
 
-def _derive_artifact_output_paths(
+def allocate_artifact_root(
+    params: dict[str, Any],
+    *,
+    ctx: dict[str, Any] | ComponentContext,
+) -> Path:
+    """
+    The directory one sink output is written into: its artifact root.
+
+    ``params`` are the sink's resolved parameters and ``ctx`` the run context (its
+    ``artifact_root`` entry, if any, is a backend's base for the ``files`` family).
+    A writer's root is its first folder below the files family (the whole family
+    for a path directly below it, the file's folder for a path outside it); a
+    render sink's root is the folder holding its output file (so the output file and a
+    folder written next to it, such as a per-dataset heatmap's, are both below it);
+    any other sink gets the files family.
+    """
+    paths = BuildPaths.from_ctx(ctx)
+    files_dir = _absolute(paths.artifact_dir("files"))
+    if "path" in params:
+        written = _absolute(Path(str(params["path"])))
+        try:
+            relative = written.relative_to(files_dir)
+        except ValueError:
+            return written.parent
+        return files_dir / relative.parts[0] if len(relative.parts) > 1 else files_dir
+    if "output_path" in params:
+        return _absolute(Path(str(params["output_path"]))).parent
+    return files_dir
+
+
+def _absolute(path: Path) -> Path:
+    """Lexically absolute (symlinks are not resolved), read from the working directory."""
+    return Path(os.path.normpath(Path.cwd() / path))
+
+
+def _derive_artifact_output_path(
     params: dict[str, Any],
     *,
     ctx: dict[str, Any] | ComponentContext,
     meta: dict[str, Any],
-) -> tuple[str, str]:
+) -> str:
     spec = dict(params.get("spec") or {})
     out = (
         params.get("out")
@@ -274,8 +318,7 @@ def _derive_artifact_output_paths(
         spec = dict(params.get("spec") or {})
         family = "tables" if spec.get("op") == "hep.render.cutflow_csv" else "plots"
         out_path = BuildPaths.from_ctx(ctx).artifact(family, out_path)
-    output_dir = out_path.with_suffix("")
-    return str(out_path), str(output_dir)
+    return str(_absolute(out_path))
 
 
 def run_observer(
