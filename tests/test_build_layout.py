@@ -6,8 +6,8 @@ import pytest
 
 from hepflow.build_layout import (
     BuildPaths,
-    ensure_build_layout,
     artifact_root_from_context,
+    ensure_build_layout,
     validate_build_relative_path,
 )
 
