@@ -343,6 +343,9 @@ def _with_reference_defaults(reference: ArtifactReference) -> ArtifactReference:
             if reference.partition_index is not None
             else writer_manifest.get("partition")
         ),
+        size_bytes=reference.size_bytes,
+        adler32=reference.adler32,
+        delivery=reference.delivery,
     )
 
 
