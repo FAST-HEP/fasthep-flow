@@ -16,7 +16,12 @@ class ArtifactMissingError(ValueError):
 
 
 def normalise_location(
-    uri: str, outdir: str | Path, *, root: str | Path | None = None
+    uri: str,
+    outdir: str | Path,
+    *,
+    root: str | Path | None = None,
+    base: str | Path | None = None,
+    destination: str | None = None,
 ) -> str:
     """
     Express where a sink put an artifact the way Flow stores it.
@@ -29,12 +34,23 @@ def normalise_location(
     ``root`` is too. Run this once per result in the process that produced it.
     Paths are made absolute and normalised lexically; symlinks are not
     resolved. An ``outdir`` that is a URI leaves the input unchanged.
+
+    A backend that delivers files itself sets ``base`` (its job directory) and
+    ``destination`` (where the files end up): a file below ``base`` is then
+    recorded as ``destination`` joined with its path relative to ``base``, a URI.
     """
     if is_uri(uri) or is_uri(str(outdir)):
         return uri
     cwd = Path.cwd()
-    base = Path(os.path.normpath(cwd / root)) if root is not None else cwd
-    location = Path(os.path.normpath(base / uri))
+    start = Path(os.path.normpath(cwd / root)) if root is not None else cwd
+    location = Path(os.path.normpath(start / uri))
+    if destination and base is not None:
+        try:
+            relative = location.relative_to(Path(os.path.normpath(cwd / base)))
+        except ValueError:
+            pass
+        else:
+            return destination.rstrip("/") + "/" + relative.as_posix()
     root = Path(os.path.normpath(cwd / outdir))
     try:
         return location.relative_to(root).as_posix()
@@ -42,18 +58,64 @@ def normalise_location(
         return location.as_posix()
 
 
-def localise_artifacts(value: Any, outdir: str | Path) -> None:
+def localise_artifacts(
+    value: Any,
+    outdir: str | Path,
+    *,
+    root: str | Path | None = None,
+    base: str | Path | None = None,
+    destination: str | None = None,
+) -> None:
     """Normalise the location of every artifact reference in ``value`` in place."""
+    kwargs: dict[str, Any] = {"root": root, "base": base, "destination": destination}
     if isinstance(value, ArtifactManifest):
         for part in value.parts:
-            localise_artifacts(part, outdir)
+            localise_artifacts(part, outdir, **kwargs)
     elif isinstance(value, ArtifactReference):
-        value.path = normalise_location(value.path, outdir)
+        value.path = normalise_location(value.path, outdir, **kwargs)
     elif isinstance(value, dict) and isinstance(value.get("path"), str):
-        value["path"] = normalise_location(value["path"], outdir)
+        value["path"] = normalise_location(value["path"], outdir, **kwargs)
     elif isinstance(value, list | tuple):
         for item in value:
-            localise_artifacts(item, outdir)
+            localise_artifacts(item, outdir, **kwargs)
+
+
+def wrap_artifact_results(
+    items: list[ArtifactReference],
+    *,
+    node_id: str,
+    output_name: str,
+    dataset_name: str | None,
+    root: str | None,
+) -> ArtifactReference | ArtifactManifest | list[ArtifactReference]:
+    """
+    Turn the files one sink output reported into its recorded product.
+
+    No file stays an empty list (a sink may write nothing), one file a bare
+    reference, several a manifest tagged with the node identity and the output's
+    ``root``. Two files with one location fail, naming the node.
+    """
+    seen: set[str] = set()
+    for item in items:
+        if item.uri in seen:
+            raise ValueError(
+                f"Node {node_id!r} reported {item.uri!r} more than once in one result"
+            )
+        seen.add(item.uri)
+    if not items:
+        return []
+    if len(items) == 1:
+        return items[0]
+    return ArtifactManifest(
+        product_kind="artifact",
+        format=None,
+        producer_node=node_id,
+        output_name=output_name,
+        dataset_name=dataset_name,
+        parts=tuple(items),
+        metadata={"node_id": node_id},
+        root=root,
+    )
 
 
 def stat_artifacts(
@@ -150,6 +212,7 @@ def merge_artifact_products(
     for part in parts:
         groups.setdefault(part.dataset_name, []).append(part)
 
+    roots = _agreed_roots(values)
     manifests = [
         _manifest_for_parts(
             parts_for_dataset,
@@ -157,6 +220,7 @@ def merge_artifact_products(
             output_name=output_name,
             dataset_name=dataset,
             enforce_dataset=dataset_name,
+            root=roots.get(dataset),
         )
         for dataset, parts_for_dataset in groups.items()
     ]
@@ -165,6 +229,19 @@ def merge_artifact_products(
     if dataset_name is None and len(manifests) > 1:
         return manifests
     return manifests[0]
+
+
+def _agreed_roots(values: Iterable[Any]) -> dict[str | None, str]:
+    """Per dataset, the root all merged input manifests share (single-file results have none)."""
+    seen: dict[str | None, set[str | None]] = {}
+    for value in values:
+        if isinstance(value, ArtifactManifest):
+            seen.setdefault(value.dataset_name, set()).add(value.root)
+    return {
+        dataset: next(iter(roots))  # type: ignore[misc]
+        for dataset, roots in seen.items()
+        if len(roots) == 1 and None not in roots
+    }
 
 
 def _flatten_artifact_values(values: Iterable[Any]) -> list[ArtifactReference]:
@@ -216,6 +293,7 @@ def _manifest_for_parts(
     output_name: str,
     dataset_name: str | None,
     enforce_dataset: str | None,
+    root: str | None = None,
 ) -> ArtifactManifest:
     first = parts[0]
     product_kind = _logical_product_kind(first)
@@ -254,6 +332,7 @@ def _manifest_for_parts(
         dataset_name=dataset_name,
         parts=tuple(sorted(parts, key=_part_order_key)),
         metadata={"node_id": node.id},
+        root=root,
     )
 
 

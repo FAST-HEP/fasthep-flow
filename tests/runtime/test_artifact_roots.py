@@ -94,8 +94,8 @@ def test_relative_backend_root_resolves_against_cwd_and_does_not_nest(
 
     seen = _run(tmp_path, {"path": "skims/x.root"}, artifact_root=".")
 
-    assert seen["root"] == "skims"
-    assert seen["params"]["path"] == "skims/x/ds/0_0.root"
+    assert seen["root"] == str(tmp_path / "skims")
+    assert seen["params"]["path"] == str(tmp_path / "skims" / "x" / "ds" / "0_0.root")
 
 
 def test_sink_receives_its_own_root_without_nesting_twice(tmp_path: Path) -> None:

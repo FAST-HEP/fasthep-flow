@@ -108,7 +108,11 @@ def _part(path: str) -> OutputResult:
 
 @pytest.fixture
 def in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A working directory whose ``out`` holds the files the funnel tests report."""
     monkeypatch.chdir(tmp_path)
+    for name in ("a.png", "b.png"):
+        (tmp_path / "out").mkdir(exist_ok=True)
+        (tmp_path / "out" / name).write_bytes(b"x")
     return tmp_path
 
 
@@ -139,13 +143,11 @@ def test_funnel_manifest_parts(in_tmp: Path) -> None:
     assert [part.path for part in out.parts] == ["a.png", "b.png"]
 
 
-def test_funnel_list(in_tmp: Path) -> None:
+def test_funnel_list_of_two_files_becomes_a_manifest(in_tmp: Path) -> None:
     out = _store([{"path": "out/a.png"}, _part("out/b.png")], "artifact", _ctx("out"))
 
-    assert [item["path"] if isinstance(item, dict) else item.path for item in out] == [
-        "a.png",
-        "b.png",
-    ]
+    assert isinstance(out, ArtifactManifest)
+    assert [part.path for part in out.parts] == ["a.png", "b.png"]
 
 
 def test_funnel_operation_result_product(in_tmp: Path) -> None:
@@ -213,7 +215,7 @@ def test_stat_sets_size_bytes(in_tmp: Path) -> None:
 
 
 def test_stat_missing_file_names_sink_node_path(in_tmp: Path) -> None:
-    (in_tmp / "out").mkdir()
+    (in_tmp / "out").mkdir(exist_ok=True)
 
     with pytest.raises(artifacts.ArtifactMissingError) as error:
         artifacts.stat_artifacts(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 from pathlib import Path
 from typing import Any
 
@@ -26,9 +27,29 @@ def run_sink(
     meta: dict[str, Any] | None = None,
     registry_cfg: dict[str, Any] | None,
 ) -> OutputResult | Any:
+    return run_sink_located(
+        sink_name=sink_name,
+        target=target,
+        params=params,
+        ctx=ctx,
+        meta=meta,
+        registry_cfg=registry_cfg,
+    )[0]
+
+
+def run_sink_located(
+    *,
+    sink_name: str,
+    target: Any,
+    params: dict[str, Any],
+    ctx: dict[str, Any],
+    meta: dict[str, Any] | None = None,
+    registry_cfg: dict[str, Any] | None,
+) -> tuple[OutputResult | Any, Path]:
+    """Run a sink and also return the artifact root Flow allocated for it."""
     _spec, impl = load_runtime_spec_and_impl(registry_cfg, "sinks", sink_name)
     sink_ctx = _sink_runtime_context(ctx=ctx, registry_cfg=registry_cfg)
-    return _run_writer_like_sink(
+    return _run_writer_like_sink_located(
         sink_name=sink_name,
         impl=impl,
         target=target,
@@ -62,6 +83,25 @@ def _run_writer_like_sink(
     ctx: dict[str, Any] | None = None,
     meta: dict[str, Any] | None = None,
 ) -> OutputResult | Any:
+    return _run_writer_like_sink_located(
+        sink_name=sink_name,
+        impl=impl,
+        target=target,
+        params=params,
+        ctx=ctx,
+        meta=meta,
+    )[0]
+
+
+def _run_writer_like_sink_located(
+    *,
+    sink_name: str,
+    impl: Any,
+    target: Any,
+    params: dict[str, Any],
+    ctx: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
+) -> tuple[OutputResult | Any, Path]:
     if target is None:
         raise ValueError(f"Sink '{sink_name}' target is None")
 
@@ -90,11 +130,9 @@ def _run_writer_like_sink(
         )
 
     # The sink sees its own root, narrower than a backend's run-level base.
+    artifact_root = allocate_artifact_root(impl_params, ctx=run_ctx)
     component_ctx = component_context(
-        {
-            **component_ctx,
-            "artifact_root": str(allocate_artifact_root(impl_params, ctx=run_ctx)),
-        }
+        {**component_ctx, "artifact_root": str(artifact_root)}
     )
 
     signature = inspect.signature(impl)
@@ -118,7 +156,7 @@ def _run_writer_like_sink(
         if final_path is not None:
             final_path[0].unlink(missing_ok=True)
         raise
-    return _localise_writer_manifest(result, run_ctx)
+    return _localise_writer_manifest(result, run_ctx), artifact_root
 
 
 def _attempt_path(
@@ -255,7 +293,7 @@ def _resolve_writer_paths_for_context(
         path = BuildPaths.from_ctx(ctx).artifact("files", path)
 
     resolved = dict(params)
-    resolved["path"] = str(path)
+    resolved["path"] = str(_absolute(path))
     return resolved
 
 
@@ -275,17 +313,22 @@ def allocate_artifact_root(
     any other sink gets the files family.
     """
     paths = BuildPaths.from_ctx(ctx)
-    files_dir = paths.artifact_dir("files")
+    files_dir = _absolute(paths.artifact_dir("files"))
     if "path" in params:
-        written = Path(str(params["path"]))
+        written = _absolute(Path(str(params["path"])))
         try:
             relative = written.relative_to(files_dir)
         except ValueError:
             return written.parent
         return files_dir / relative.parts[0] if len(relative.parts) > 1 else files_dir
     if "output_path" in params:
-        return Path(str(params["output_path"])).with_suffix("")
+        return _absolute(Path(str(params["output_path"]))).with_suffix("")
     return files_dir
+
+
+def _absolute(path: Path) -> Path:
+    """Lexically absolute (symlinks are not resolved), read from the working directory."""
+    return Path(os.path.normpath(Path.cwd() / path))
 
 
 def _derive_artifact_output_path(
@@ -309,7 +352,7 @@ def _derive_artifact_output_path(
         spec = dict(params.get("spec") or {})
         family = "tables" if spec.get("op") == "hep.render.cutflow_csv" else "plots"
         out_path = BuildPaths.from_ctx(ctx).artifact(family, out_path)
-    return str(out_path)
+    return str(_absolute(out_path))
 
 
 def run_observer(

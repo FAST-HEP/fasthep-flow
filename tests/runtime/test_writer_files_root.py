@@ -127,7 +127,7 @@ def test_relative_artifact_root_resolves_against_working_directory(
 
     result, calls = _run(tmp_path, {"artifact_root": "."})
 
-    assert calls[0]["path"] == "ds/0_0.root"
+    assert calls[0]["path"] == str(tmp_path / "ds" / "0_0.root")
     assert (tmp_path / "ds" / "0_0.root").is_file()
     assert result.metadata["writer_manifest"]["path"] == "ds/0_0.root"
 
