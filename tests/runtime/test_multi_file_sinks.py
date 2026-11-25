@@ -8,7 +8,11 @@ import pytest
 
 from hepflow.model.io import ArtifactManifest, ArtifactReference, OutputResult
 from hepflow.model.plan import ExecutionNode
-from hepflow.runtime.artifacts import ArtifactMissingError, merge_artifact_products
+from hepflow.runtime.artifacts import (
+    ArtifactMissingError,
+    merge_artifact_products,
+    validate_artifact_reference_like,
+)
 from hepflow.runtime.engine import _store_node_outputs
 from hepflow.runtime.handlers import _run_writer_like_sink_located
 
@@ -59,10 +63,10 @@ def _run(
 
 
 def test_three_files_become_manifest_with_root(tmp_path: Path) -> None:
-    out = _run(tmp_path, _sink(["ds_a.png", "ds_b.png", "ds_c.png"]))
+    out = _run(tmp_path, _sink(["heat/ds_a.png", "heat/ds_b.png", "heat/ds_c.png"]))
 
     assert isinstance(out, ArtifactManifest)
-    assert out.root == "artifacts/plots/heat"
+    assert out.root == "artifacts/plots"
     assert out.producer_node == NODE
     assert out.output_name == "artifact"
     assert out.dataset_name == "ds"
@@ -75,7 +79,7 @@ def test_three_files_become_manifest_with_root(tmp_path: Path) -> None:
 
 
 def test_records_match_files_on_disk(tmp_path: Path) -> None:
-    out = _run(tmp_path, _sink(["1.png", "2.png"]))
+    out = _run(tmp_path, _sink(["heat/1.png", "heat/2.png"]))
 
     for part in out.parts:
         assert (tmp_path / "build" / part.path).is_file()
@@ -84,7 +88,7 @@ def test_records_match_files_on_disk(tmp_path: Path) -> None:
 
 
 def test_single_file_stays_bare_reference(tmp_path: Path) -> None:
-    out = _run(tmp_path, _sink(["only.png"]))
+    out = _run(tmp_path, _sink(["heat/only.png"]))
 
     assert isinstance(out, ArtifactReference)
     assert out.path == "artifacts/plots/heat/only.png"
@@ -212,3 +216,25 @@ def test_merged_manifest_has_no_root_when_inputs_disagree() -> None:
 
     assert isinstance(merged, ArtifactManifest)
     assert merged.root is None
+
+
+def test_merge_skips_a_sink_that_wrote_nothing() -> None:
+    merged = merge_artifact_products(
+        [[], _manifest("artifacts/plots/heat", 0)], node=_node(), output_name="artifact"
+    )
+
+    assert isinstance(merged, ArtifactManifest)
+    assert len(merged.parts) == 2
+
+
+def test_merge_of_only_empty_results_is_an_empty_manifest() -> None:
+    merged = merge_artifact_products([[], []], node=_node(), output_name="artifact")
+
+    assert isinstance(merged, ArtifactManifest)
+    assert merged.parts == ()
+
+
+def test_boundary_validation_accepts_an_empty_result_but_not_other_lists() -> None:
+    validate_artifact_reference_like([], context="x")
+    with pytest.raises(ValueError, match="expected an ArtifactReference"):
+        validate_artifact_reference_like([1], context="x")

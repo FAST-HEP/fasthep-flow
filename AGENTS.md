@@ -178,7 +178,7 @@ the layout. Workflow authors set only a `path`:
   moves; cutflows, histograms, provenance and the manifests stay below `outdir`.
   A sink sees its own, narrower `ctx["artifact_root"]` (`runtime/handlers.py`,
   `allocate_artifact_root`: a writer's first folder below the files family, a render
-  sink's extensionless output folder), works only there or below it
+  sink's folder holding its output file), works only there or below it
   (`ctx.artifact_path(name)`), and reports every file it wrote; a relative path it
   returns is read against that root. With the optional context entry
   `output_destination`, a file below the base is recorded as the destination URI

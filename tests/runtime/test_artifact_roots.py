@@ -68,11 +68,12 @@ def test_path_outside_the_bundle_uses_its_folder(tmp_path: Path) -> None:
     assert seen["root"] == str(other.with_suffix("") / "ds")
 
 
-def test_render_root_is_the_extensionless_output_folder(tmp_path: Path) -> None:
+def test_render_root_is_the_folder_holding_the_output_file(tmp_path: Path) -> None:
     seen = _run(tmp_path, {"out": "NumberMuons_heatmap.png"})
 
     plots = tmp_path / "build" / "artifacts" / "plots"
-    assert seen["root"] == str(plots / "NumberMuons_heatmap")
+    # The root holds the output file and the folder a multi-file sink writes next to it.
+    assert seen["root"] == str(plots)
     assert seen["params"]["output_path"] == str(plots / "NumberMuons_heatmap.png")
     assert "output_dir" not in seen["params"]
 
@@ -84,7 +85,7 @@ def test_backend_root_moves_only_the_files_family(tmp_path: Path) -> None:
     plots = _run(tmp_path, {"out": "a.png"}, artifact_root=str(tmp_path / "job"))
 
     assert files["root"] == str(tmp_path / "job" / "skims")
-    assert plots["root"] == str(tmp_path / "build" / "artifacts" / "plots" / "a")
+    assert plots["root"] == str(tmp_path / "build" / "artifacts" / "plots")
 
 
 def test_relative_backend_root_resolves_against_cwd_and_does_not_nest(

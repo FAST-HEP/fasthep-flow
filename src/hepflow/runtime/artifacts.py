@@ -235,6 +235,9 @@ def adler32_of_file(path: Path) -> str:
 
 
 def is_artifact_reference_like(value: Any) -> bool:
+    """A reference, a manifest, or the empty result of a sink that wrote no file."""
+    if isinstance(value, list | tuple):
+        return not value
     return isinstance(value, ArtifactReference | ArtifactManifest)
 
 
@@ -310,7 +313,7 @@ def _flatten_artifact_values(values: Iterable[Any]) -> list[ArtifactReference]:
         if isinstance(value, ArtifactReference):
             parts.append(_with_reference_defaults(value))
             continue
-        validate_artifact_reference_like(value, context="artifact merge")
+        validate_artifact_reference_like(value, context="artifact merge")  # [] writes no file
     return parts
 
 

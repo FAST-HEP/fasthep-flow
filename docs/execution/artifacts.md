@@ -42,8 +42,9 @@ A sink never computes sizes or checksums, and Flow never walks a directory: what
 sink does not report is not recorded.
 
 The root of a writer is its first folder below `artifacts/files`; the root of a
-render sink is its output file's name without the suffix (the `NumberMuons_heatmap`
-folder of `NumberMuons_heatmap.png`).
+render sink is the folder holding its output file (`artifacts/plots`), so the file
+and a folder written next to it (the `NumberMuons_heatmap` folder of a per-dataset
+heatmap) are both below it.
 
 ### What Flow records
 
@@ -119,6 +120,12 @@ Physical coalescing is deliberately not implicit. A later operation may consume
 an `ArtifactManifest` and publish a new coalesced artifact reference, but the
 manifest remains the default representation.
 
+A dataset manifest merged from single-file partition results (as below) has no
+`root`: a single file stays a bare reference and carries none. A sink that reports
+several files in one result gets a manifest with `root`, for example a per-dataset
+heatmap writing `artifacts/plots/NumberMuons_heatmap/<dataset>.png` for nine
+datasets, root `artifacts/plots`.
+
 Example serialized manifest:
 
 ```json
@@ -129,7 +136,6 @@ Example serialized manifest:
   "producer_node": "write.SelectedEvents.0",
   "output_name": "artifact",
   "dataset_name": "data",
-  "root": "artifacts/files/skim",
   "parts": [
     {
       "type": "artifact_reference",

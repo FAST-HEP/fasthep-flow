@@ -274,7 +274,8 @@ def allocate_artifact_root(
     ``artifact_root`` entry, if any, is a backend's base for the ``files`` family).
     A writer's root is its first folder below the files family (the whole family
     for a path directly below it, the file's folder for a path outside it); a
-    render sink's root is the folder named like its output file without the suffix;
+    render sink's root is the folder holding its output file (so the output file and a
+    folder written next to it, such as a per-dataset heatmap's, are both below it);
     any other sink gets the files family.
     """
     paths = BuildPaths.from_ctx(ctx)
@@ -287,7 +288,7 @@ def allocate_artifact_root(
             return written.parent
         return files_dir / relative.parts[0] if len(relative.parts) > 1 else files_dir
     if "output_path" in params:
-        return _absolute(Path(str(params["output_path"]))).with_suffix("")
+        return _absolute(Path(str(params["output_path"]))).parent
     return files_dir
 
 
