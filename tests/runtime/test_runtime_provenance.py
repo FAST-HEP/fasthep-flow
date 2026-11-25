@@ -147,7 +147,9 @@ def test_resource_id_conflict_fails_clearly() -> None:
         )
     )
 
-    with pytest.raises(ValueError, match="Resource 'resource' changed during execution"):
+    with pytest.raises(
+        ValueError, match="Resource 'resource' changed during execution"
+    ):
         recorder.record_resource(
             ResolvedResource(
                 id="resource",
@@ -347,7 +349,9 @@ def test_artifact_provenance_records_product_inputs(tmp_path: Path) -> None:
         outdir=tmp_path,
     )
 
-    record_path = next((tmp_path / "artifacts" / "provenance" / "records").glob("*.json"))
+    record_path = next(
+        (tmp_path / "artifacts" / "provenance" / "records").glob("*.json")
+    )
     record = json.loads(record_path.read_text(encoding="utf-8"))
 
     assert record["producer"]["node_id"] == "render.ProductReport.0"

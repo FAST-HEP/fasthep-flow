@@ -60,9 +60,7 @@ class BuildPaths:
     def from_plan(cls, plan: Any, *, outdir: str | Path) -> BuildPaths:
         return cls(
             root=Path(outdir),
-            variation=output_variation_from_context(
-                getattr(plan, "context", {}) or {}
-            ),
+            variation=output_variation_from_context(getattr(plan, "context", {}) or {}),
         )
 
     def artifact_dir(self, kind: str) -> Path:
@@ -251,7 +249,14 @@ def output_variation_from_context(context: Mapping[str, Any] | None) -> str | No
 
 def build_root(path: str | Path) -> Path:
     candidate = Path(path)
-    if candidate.name in {"compile", "graph", "render", "reports", "debug", "execution"}:
+    if candidate.name in {
+        "compile",
+        "graph",
+        "render",
+        "reports",
+        "debug",
+        "execution",
+    }:
         return candidate.parent
     return candidate
 
@@ -349,7 +354,10 @@ def ensure_build_layout(
         paths.debug_dir("performance"),
         paths.debug_dir("logs"),
     ]
-    for path in [*base_paths, *backend_declared_build_paths(paths, backend_directories)]:
+    for path in [
+        *base_paths,
+        *backend_declared_build_paths(paths, backend_directories),
+    ]:
         path.mkdir(parents=True, exist_ok=True)
 
 

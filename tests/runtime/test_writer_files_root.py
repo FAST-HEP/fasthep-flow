@@ -155,7 +155,9 @@ def test_run_manifest_records_destination_and_relative_paths(tmp_path: Path) -> 
     )
 
     # Named after the node because the path stem is only a token.
-    published = tmp_path / "build" / "artifacts" / "files" / "Selected" / "manifest.json"
+    published = (
+        tmp_path / "build" / "artifacts" / "files" / "Selected" / "manifest.json"
+    )
     payload = json.loads(published.read_text(encoding="utf-8"))
     assert payload["destination"] == DESTINATION
     [entry] = payload["datasets"]["ds"]["files"]

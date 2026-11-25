@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-import zlib
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +11,7 @@ from hepflow.registry.loaders import (
     load_runtime_spec_and_impl,
     runtime_registry_from_config,
 )
+from hepflow.runtime.artifacts import adler32_of_file
 from hepflow.runtime.context import ComponentContext, component_context
 
 EXECUTION_ONLY_SINK_PARAMS = {"when"}
@@ -127,7 +127,12 @@ def _attempt_path(
     last because writers may pick their format from it.
     """
     attempt = ctx.get("attempt_id")
-    if not (ctx.get("per_dataset") and attempt and when == "partition_end" and "path" in params):
+    if not (
+        ctx.get("per_dataset")
+        and attempt
+        and when == "partition_end"
+        and "path" in params
+    ):
         return None
     final = Path(str(params["path"]))
     return final.with_name(f"{final.stem}.tmp-{attempt}{final.suffix}"), final
@@ -180,7 +185,7 @@ def _localise_writer_manifest(
     manifest["path"] = relative.as_posix()
     manifest["path_type"] = "relative_to_files_root"
     # A checksum to compare with the delivered copy. adler32 is what EOS keeps.
-    manifest["adler32"] = _adler32_of_file(written)
+    manifest["adler32"] = adler32_of_file(written)
     destination = ctx.get("output_destination")
     if destination:
         manifest["destination"] = str(destination)
@@ -193,14 +198,6 @@ def _sink_impl_params(params: dict[str, Any]) -> dict[str, Any]:
         for key, value in dict(params or {}).items()
         if key not in EXECUTION_ONLY_SINK_PARAMS
     }
-
-
-def _adler32_of_file(path: Path) -> str:
-    value = 1
-    with path.open("rb") as stream:
-        while chunk := stream.read(8 * 1024 * 1024):
-            value = zlib.adler32(chunk, value)
-    return f"{value & 0xFFFFFFFF:08x}"
 
 
 def _writer_name(path_template: str, *, meta: dict[str, Any]) -> str:
@@ -241,8 +238,10 @@ def _resolve_writer_paths_for_context(
     if any("{" + key + "}" in path_template for key in values):
         path = Path(path_template.format(**values))
     elif when == "partition_end" and partition:
-        path = path.with_suffix("") / str(values["dataset"]) / (
-            str(values["part"]) + Path(path_template).suffix
+        path = (
+            path.with_suffix("")
+            / str(values["dataset"])
+            / (str(values["part"]) + Path(path_template).suffix)
         )
 
     if not path.is_absolute():

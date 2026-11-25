@@ -38,7 +38,9 @@ class Binding:
     chunk_size: int | None
 
     def to_bytes(self) -> bytes:
-        return (json.dumps(asdict(self), indent=2, sort_keys=True) + "\n").encode("utf-8")
+        return (json.dumps(asdict(self), indent=2, sort_keys=True) + "\n").encode(
+            "utf-8"
+        )
 
 
 def build_binding(

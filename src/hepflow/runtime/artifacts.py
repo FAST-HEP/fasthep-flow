@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import zlib
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -10,22 +11,30 @@ from hepflow.model.io import ArtifactManifest, ArtifactReference, OutputResult
 from hepflow.model.plan import ExecutionNode
 
 
-def normalise_location(uri: str, outdir: str | Path) -> str:
+class ArtifactMissingError(ValueError):
+    """A sink reported a local file that does not exist (or is not a file)."""
+
+
+def normalise_location(
+    uri: str, outdir: str | Path, *, root: str | Path | None = None
+) -> str:
     """
     Express where a sink put an artifact the way Flow stores it.
 
-    A sink returns a path usable from its own working directory, an absolute
-    path, or a URI. Flow stores a URI unchanged, a path inside ``outdir``
-    relative to it (POSIX separators) and any other path as an absolute path.
-    A relative input is read from the current working directory, never from
-    ``outdir``, so run this once per result in the process that produced it.
+    A sink returns a path relative to its ``root`` (its artifact root, the
+    directory it works in), an absolute path, or a URI. Flow stores a URI
+    unchanged, a path inside ``outdir`` relative to it (POSIX separators) and
+    any other path as an absolute path. Without ``root`` a relative input is
+    read from the current working directory, never from ``outdir``; a relative
+    ``root`` is too. Run this once per result in the process that produced it.
     Paths are made absolute and normalised lexically; symlinks are not
     resolved. An ``outdir`` that is a URI leaves the input unchanged.
     """
     if is_uri(uri) or is_uri(str(outdir)):
         return uri
     cwd = Path.cwd()
-    location = Path(os.path.normpath(cwd / uri))
+    base = Path(os.path.normpath(cwd / root)) if root is not None else cwd
+    location = Path(os.path.normpath(base / uri))
     root = Path(os.path.normpath(cwd / outdir))
     try:
         return location.relative_to(root).as_posix()
@@ -45,6 +54,65 @@ def localise_artifacts(value: Any, outdir: str | Path) -> None:
     elif isinstance(value, list | tuple):
         for item in value:
             localise_artifacts(item, outdir)
+
+
+def stat_artifacts(
+    value: Any,
+    *,
+    outdir: str | Path,
+    node_id: str,
+    sink: str,
+    with_adler32: bool,
+) -> None:
+    """
+    Record ``size_bytes`` (and ``adler32`` when asked) of every local file in ``value``.
+
+    Run after :func:`localise_artifacts`, in the process that produced the result.
+    A relative location is read from ``outdir``. A local location that is not a
+    file raises :class:`ArtifactMissingError` naming the sink, the node and the
+    path; URIs are not checked.
+    """
+    if isinstance(value, ArtifactManifest):
+        for part in value.parts:
+            stat_artifacts(
+                part,
+                outdir=outdir,
+                node_id=node_id,
+                sink=sink,
+                with_adler32=with_adler32,
+            )
+    elif isinstance(value, ArtifactReference):
+        if value.path_type == "uri":
+            return
+        path = Path(value.uri)
+        if not path.is_absolute():
+            path = Path(outdir) / path
+        if not path.is_file():
+            raise ArtifactMissingError(
+                f"Sink {sink!r} of node {node_id!r} reported {value.uri!r}, "
+                "which is not a file that exists"
+            )
+        value.size_bytes = path.stat().st_size
+        if with_adler32:
+            value.adler32 = adler32_of_file(path)
+    elif isinstance(value, list | tuple):
+        for item in value:
+            stat_artifacts(
+                item,
+                outdir=outdir,
+                node_id=node_id,
+                sink=sink,
+                with_adler32=with_adler32,
+            )
+
+
+def adler32_of_file(path: Path) -> str:
+    """adler32 of a file as eight hex digits (the checksum EOS keeps)."""
+    value = 1
+    with path.open("rb") as stream:
+        while chunk := stream.read(8 * 1024 * 1024):
+            value = zlib.adler32(chunk, value)
+    return f"{value & 0xFFFFFFFF:08x}"
 
 
 def is_artifact_reference_like(value: Any) -> bool:
@@ -171,10 +239,11 @@ def _manifest_for_parts(
             previous = seen_partitions[partition_key]
             if previous.to_dict() != part.to_dict():
                 raise ValueError(
-                    "Conflicting artifact references for partition "
-                    f"{partition_key!r}"
+                    f"Conflicting artifact references for partition {partition_key!r}"
                 )
-            raise ValueError(f"Duplicate artifact reference for partition {partition_key!r}")
+            raise ValueError(
+                f"Duplicate artifact reference for partition {partition_key!r}"
+            )
         seen_partitions[partition_key] = part
 
     return ArtifactManifest(
@@ -214,7 +283,10 @@ def _validate_part_compatible(
             f"Artifact reference dataset {part.dataset_name!r} does not match "
             f"dataset boundary {enforce_dataset!r}"
         )
-    if artifact_format is not None and _artifact_format(part) not in {None, artifact_format}:
+    if artifact_format is not None and _artifact_format(part) not in {
+        None,
+        artifact_format,
+    }:
         raise ValueError("Incompatible artifact formats in one manifest")
 
 
@@ -240,7 +312,10 @@ def _partition_key(part: ArtifactReference) -> str:
     if part.partition_index is not None:
         return f"index:{part.partition_index}"
     writer_manifest = part.metadata.get("writer_manifest")
-    if isinstance(writer_manifest, dict) and writer_manifest.get("partition") is not None:
+    if (
+        isinstance(writer_manifest, dict)
+        and writer_manifest.get("partition") is not None
+    ):
         return f"index:{writer_manifest['partition']}"
     return f"uri:{part.uri}"
 
@@ -249,6 +324,13 @@ def _part_order_key(part: ArtifactReference) -> tuple[int, str, str]:
     if part.partition_index is not None:
         return (int(part.partition_index), str(part.partition_id or ""), part.uri)
     writer_manifest = part.metadata.get("writer_manifest")
-    if isinstance(writer_manifest, dict) and writer_manifest.get("partition") is not None:
-        return (int(writer_manifest["partition"]), str(part.partition_id or ""), part.uri)
+    if (
+        isinstance(writer_manifest, dict)
+        and writer_manifest.get("partition") is not None
+    ):
+        return (
+            int(writer_manifest["partition"]),
+            str(part.partition_id or ""),
+            part.uri,
+        )
     return (0, str(part.partition_id or ""), part.uri)

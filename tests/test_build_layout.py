@@ -77,9 +77,7 @@ def test_build_paths_render_spec_with_variation() -> None:
 def test_build_paths_debug_path() -> None:
     paths = BuildPaths(root=Path("build"), variation="nominal")
 
-    assert paths.debug("logs", "run.log") == Path(
-        "build/debug/nominal/logs/run.log"
-    )
+    assert paths.debug("logs", "run.log") == Path("build/debug/nominal/logs/run.log")
 
 
 def test_build_paths_execution_path() -> None:

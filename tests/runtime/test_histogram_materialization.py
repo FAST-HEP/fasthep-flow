@@ -119,9 +119,7 @@ def test_final_product_materialization_goes_through_handler(tmp_path: Path) -> N
         value_store=value_store,
         outdir=tmp_path,
         runtime_registry=RuntimeRegistry(
-            product_handlers={
-                "histogram": ProductHandlerEntry(materialize=materialize)
-            }
+            product_handlers={"histogram": ProductHandlerEntry(materialize=materialize)}
         ),
     )
 
@@ -269,14 +267,7 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
     )
     output = OutputResult(
         kind="artifact",
-        path=str(
-            tmp_path
-            / "artifacts"
-            / "files"
-            / "selected"
-            / "data"
-            / "0_0.root"
-        ),
+        path=str(tmp_path / "artifacts" / "files" / "selected" / "data" / "0_0.root"),
         format="root",
         metadata={
             "writer_manifest": {
@@ -311,9 +302,9 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
     )
 
     writer_manifest = json.loads(
-        (
-            tmp_path / "artifacts" / "files" / "selected" / "manifest.json"
-        ).read_text(encoding="utf-8")
+        (tmp_path / "artifacts" / "files" / "selected" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert writer_manifest["total_entries"] == 12
     assert writer_manifest["format"] == "rntuple"
@@ -698,6 +689,7 @@ def test_dataset_event_stream_merge_goes_through_handler() -> None:
         "merged": [{"part": 1}, {"part": 2}]
     }
 
+
 def test_render_spec_does_not_define_histogram_product_contract(tmp_path: Path) -> None:
     plan = ExecutionPlan()
     plan.add_node(
@@ -739,9 +731,9 @@ def test_render_spec_does_not_define_histogram_product_contract(tmp_path: Path) 
     ensure_build_layout(tmp_path)
     write_compile_artifacts(plan=plan, graph=nx.DiGraph(), outdir=tmp_path)
 
-    spec = (
-        tmp_path / "render" / "specs" / "render_NumberMuons_0.yaml"
-    ).read_text(encoding="utf-8")
+    spec = (tmp_path / "render" / "specs" / "render_NumberMuons_0.yaml").read_text(
+        encoding="utf-8"
+    )
     assert "product:" not in spec
     assert "products:" not in spec
 
@@ -781,9 +773,9 @@ def test_render_spec_does_not_define_cutflow_product_contract(tmp_path: Path) ->
     ensure_build_layout(tmp_path)
     write_compile_artifacts(plan=plan, graph=nx.DiGraph(), outdir=tmp_path)
 
-    spec = (
-        tmp_path / "render" / "specs" / "render_EventSelection_0.yaml"
-    ).read_text(encoding="utf-8")
+    spec = (tmp_path / "render" / "specs" / "render_EventSelection_0.yaml").read_text(
+        encoding="utf-8"
+    )
     assert "product:" not in spec
     assert "products:" not in spec
 

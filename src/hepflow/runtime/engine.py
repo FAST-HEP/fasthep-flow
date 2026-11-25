@@ -542,7 +542,9 @@ def execute_plan_locally(
 def _record_paths(ctx: Mapping[str, Any]) -> BuildPaths | None:
     """The paths of a per-partition run (records below its run directory), else None."""
     paths = ctx.get("build_paths")
-    return paths if isinstance(paths, BuildPaths) and paths.run_dir is not None else None
+    return (
+        paths if isinstance(paths, BuildPaths) and paths.run_dir is not None else None
+    )
 
 
 def _reset_final_product_manifests(outdir: str) -> None:
@@ -1316,9 +1318,7 @@ def _normalize_artifact_dict(
         and isinstance(result.get("path"), str)
     ):
         metadata = {
-            key: value
-            for key, value in result.items()
-            if key not in {"path", "format"}
+            key: value for key, value in result.items() if key not in {"path", "format"}
         }
         return OutputResult(
             kind="artifact",
