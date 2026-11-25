@@ -8,6 +8,7 @@ import pytest
 from hepflow.model import ResolvedResource
 from hepflow.model.plan import ExecutionPartition, ExecutionPlan
 from hepflow.runtime.provenance import (
+    PROVENANCE_VERSION,
     ExecutionRecord,
     OperationRecord,
     ProvenanceDocument,
@@ -168,7 +169,7 @@ def test_resource_id_conflict_fails_clearly() -> None:
 
 def test_provenance_document_persistence_round_trip(tmp_path: Path) -> None:
     document = ProvenanceDocument(
-        version="1.0",
+        version=PROVENANCE_VERSION,
         run_id="run",
         workflow={"graph": "graph/graph.json"},
         software={},
@@ -202,7 +203,7 @@ def test_resource_selected_fingerprint_survives_record_round_trip() -> None:
 
     round_tripped = ProvenanceDocument.from_obj(
         {
-            "version": "1.0",
+            "version": PROVENANCE_VERSION,
             "run_id": "run",
             "workflow": {},
             "software": {},

@@ -12,7 +12,6 @@ from hepflow.registry.loaders import (
     load_runtime_spec_and_impl,
     runtime_registry_from_config,
 )
-from hepflow.runtime.artifacts import adler32_of_file
 from hepflow.runtime.context import ComponentContext, component_context
 
 EXECUTION_ONLY_SINK_PARAMS = {"when"}
@@ -156,7 +155,7 @@ def _run_writer_like_sink_located(
         if final_path is not None:
             final_path[0].unlink(missing_ok=True)
         raise
-    return _localise_writer_manifest(result, run_ctx), artifact_root
+    return result, artifact_root
 
 
 def _attempt_path(
@@ -201,40 +200,6 @@ def _rename_in(value: Any, old: str, new: str) -> None:
             value[key] = item.replace(old, new)
         elif isinstance(item, dict | list):
             _rename_in(item, old, new)
-
-
-def _localise_writer_manifest(
-    result: Any, ctx: dict[str, Any] | ComponentContext
-) -> Any:
-    """
-    Express a writer's manifest path relative to the run-level ``artifact_root``.
-
-    Writers record paths relative to ``outdir``, or absolute. When the files are
-    written below the run-level ``artifact_root`` (a directory local to the worker), the
-    absolute path would be meaningless after the run. The path becomes relative
-    to that root, ``path_type`` says so, and the optional ``output_destination``
-    context entry is recorded as ``destination``, the place where the backend
-    delivers the files.
-    """
-
-    files_root = BuildPaths.from_ctx(ctx).files_root
-    metadata = getattr(result, "metadata", None)
-    manifest = metadata.get("writer_manifest") if isinstance(metadata, dict) else None
-    if files_root is None or not isinstance(manifest, dict):
-        return result
-    written = Path(str(getattr(result, "path", None) or manifest.get("path") or ""))
-    try:
-        relative = written.resolve().relative_to(files_root.resolve())
-    except ValueError:
-        return result
-    manifest["path"] = relative.as_posix()
-    manifest["path_type"] = "relative_to_files_root"
-    # A checksum to compare with the delivered copy. adler32 is what EOS keeps.
-    manifest["adler32"] = adler32_of_file(written)
-    destination = ctx.get("output_destination")
-    if destination:
-        manifest["destination"] = str(destination)
-    return result
 
 
 def _sink_impl_params(params: dict[str, Any]) -> dict[str, Any]:

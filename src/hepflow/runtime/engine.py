@@ -30,6 +30,8 @@ from hepflow.registry.loaders import (
 )
 from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.artifacts import (
+    deliver_artifacts,
+    deliver_location,
     localise_artifacts,
     normalise_location,
     stat_artifacts,
@@ -1402,10 +1404,11 @@ def _location_of_root(
     outdir = (ctx or {}).get("outdir")
     if artifact_root is None or not outdir:
         return None
+    location = normalise_location(str(artifact_root), str(outdir))
     base, destination = _delivery(ctx)
-    return normalise_location(
-        str(artifact_root), str(outdir), base=base, destination=destination
-    )
+    if base is not None and destination is not None:
+        return deliver_location(location, base=base, destination=destination)
+    return location
 
 
 def _delivery(ctx: dict[str, Any] | None) -> tuple[Path | None, str | None]:
@@ -1429,9 +1432,7 @@ def _localise_artifact_product(
     if product_kind != "artifact" or not outdir:
         return
     base, destination = _delivery(ctx)
-    localise_artifacts(
-        value, str(outdir), root=artifact_root, base=base, destination=destination
-    )
+    localise_artifacts(value, str(outdir), root=artifact_root)
     stat_artifacts(
         value,
         outdir=str(outdir),
@@ -1439,6 +1440,8 @@ def _localise_artifact_product(
         sink=sink or node_id,
         with_adler32=destination is not None,
     )
+    if base is not None and destination is not None:
+        deliver_artifacts(value, base=base, destination=destination)
 
 
 def _normalize_artifact_dict(

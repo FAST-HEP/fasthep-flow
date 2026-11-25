@@ -20,8 +20,6 @@ def normalise_location(
     outdir: str | Path,
     *,
     root: str | Path | None = None,
-    base: str | Path | None = None,
-    destination: str | None = None,
 ) -> str:
     """
     Express where a sink put an artifact the way Flow stores it.
@@ -34,23 +32,12 @@ def normalise_location(
     ``root`` is too. Run this once per result in the process that produced it.
     Paths are made absolute and normalised lexically; symlinks are not
     resolved. An ``outdir`` that is a URI leaves the input unchanged.
-
-    A backend that delivers files itself sets ``base`` (its job directory) and
-    ``destination`` (where the files end up): a file below ``base`` is then
-    recorded as ``destination`` joined with its path relative to ``base``, a URI.
     """
     if is_uri(uri) or is_uri(str(outdir)):
         return uri
     cwd = Path.cwd()
     start = Path(os.path.normpath(cwd / root)) if root is not None else cwd
     location = Path(os.path.normpath(start / uri))
-    if destination and base is not None:
-        try:
-            relative = location.relative_to(Path(os.path.normpath(cwd / base)))
-        except ValueError:
-            pass
-        else:
-            return destination.rstrip("/") + "/" + relative.as_posix()
     root = Path(os.path.normpath(cwd / outdir))
     try:
         return location.relative_to(root).as_posix()
@@ -59,25 +46,49 @@ def normalise_location(
 
 
 def localise_artifacts(
-    value: Any,
-    outdir: str | Path,
-    *,
-    root: str | Path | None = None,
-    base: str | Path | None = None,
-    destination: str | None = None,
+    value: Any, outdir: str | Path, *, root: str | Path | None = None
 ) -> None:
     """Normalise the location of every artifact reference in ``value`` in place."""
-    kwargs: dict[str, Any] = {"root": root, "base": base, "destination": destination}
     if isinstance(value, ArtifactManifest):
         for part in value.parts:
-            localise_artifacts(part, outdir, **kwargs)
+            localise_artifacts(part, outdir, root=root)
     elif isinstance(value, ArtifactReference):
-        value.path = normalise_location(value.path, outdir, **kwargs)
+        value.path = normalise_location(value.path, outdir, root=root)
     elif isinstance(value, dict) and isinstance(value.get("path"), str):
-        value["path"] = normalise_location(value["path"], outdir, **kwargs)
+        value["path"] = normalise_location(value["path"], outdir, root=root)
     elif isinstance(value, list | tuple):
         for item in value:
-            localise_artifacts(item, outdir, **kwargs)
+            localise_artifacts(item, outdir, root=root)
+
+
+def deliver_location(location: str, *, base: str | Path, destination: str) -> str:
+    """
+    The place a backend delivers a file to: ``destination`` joined with its path below ``base``.
+
+    A backend that delivers files itself sets ``base`` (its job directory) and
+    ``destination``. A location that is not an absolute path below ``base`` is
+    returned unchanged. Run after :func:`localise_artifacts` and
+    :func:`stat_artifacts`, which still need the local file.
+    """
+    if is_uri(location) or not Path(location).is_absolute():
+        return location
+    try:
+        relative = Path(location).relative_to(Path(os.path.normpath(Path.cwd() / base)))
+    except ValueError:
+        return location
+    return destination.rstrip("/") + "/" + relative.as_posix()
+
+
+def deliver_artifacts(value: Any, *, base: str | Path, destination: str) -> None:
+    """Record every artifact reference in ``value`` at its delivered location, in place."""
+    if isinstance(value, ArtifactManifest):
+        for part in value.parts:
+            deliver_artifacts(part, base=base, destination=destination)
+    elif isinstance(value, ArtifactReference):
+        value.path = deliver_location(value.path, base=base, destination=destination)
+    elif isinstance(value, list | tuple):
+        for item in value:
+            deliver_artifacts(item, base=base, destination=destination)
 
 
 def wrap_artifact_results(
