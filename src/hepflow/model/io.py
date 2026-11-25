@@ -3,7 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal
+
+from hepflow.compiler.input_paths import is_uri
+
+PathType = Literal["relative_to_outdir", "absolute", "uri"]
+
+DELIVERY_STATUSES = ("ok", "missing", "size_mismatch", "checksum_mismatch", "error")
 
 
 @dataclass(slots=True)
@@ -14,7 +20,10 @@ class ArtifactReference:
     ``uri`` (also ``path``) is where the artifact is. A sink returns a path usable
     from its working directory, an absolute path or a URI; once Flow has stored the
     result it is a path relative to the outdir for files inside it, an absolute path
-    for files outside it, or a URI (``scheme://``) unchanged.
+    for files outside it, or a URI (``scheme://``) unchanged. ``path_type`` is derived from
+    that string. ``size_bytes`` is set for every local file Flow could stat, ``adler32``
+    only when a delivery destination is configured, ``delivery`` is the per-file outcome
+    the backend reports (one of ``DELIVERY_STATUSES``).
     """
 
     uri: str
@@ -27,10 +36,18 @@ class ArtifactReference:
     dataset_name: str | None = None
     partition_id: str | None = None
     partition_index: int | None = None
+    size_bytes: int | None = None
+    adler32: str | None = None
+    delivery: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.uri, str) or not self.uri.strip():
             raise ValueError("ArtifactReference.uri is required")
+        if self.delivery is not None and self.delivery not in DELIVERY_STATUSES:
+            raise ValueError(
+                f"ArtifactReference.delivery must be one of {DELIVERY_STATUSES}; "
+                f"got {self.delivery!r}"
+            )
         if not isinstance(self.product_kind, str) or not self.product_kind.strip():
             raise ValueError("ArtifactReference.product_kind is required")
         self.uri = self.uri.strip()
@@ -70,6 +87,15 @@ class ArtifactReference:
     def name(self) -> str:
         return Path(self.uri).name
 
+    @property
+    def path_type(self) -> PathType:
+        """Classify ``uri``: a URI, an absolute path, or a path relative to the outdir."""
+        if is_uri(self.uri):
+            return "uri"
+        if self.uri.startswith("/"):
+            return "absolute"
+        return "relative_to_outdir"
+
     def to_dict(self) -> dict[str, Any]:
         return _drop_none(
             {
@@ -82,6 +108,10 @@ class ArtifactReference:
                 "dataset_name": self.dataset_name,
                 "partition_id": self.partition_id,
                 "partition_index": self.partition_index,
+                "path_type": self.path_type,
+                "size_bytes": self.size_bytes,
+                "adler32": self.adler32,
+                "delivery": self.delivery,
                 "metadata": dict(self.metadata),
                 "provenance": dict(self.provenance),
             }
@@ -100,6 +130,9 @@ class ArtifactReference:
             dataset_name=data.get("dataset_name") or data.get("dataset"),
             partition_id=data.get("partition_id"),
             partition_index=data.get("partition_index") or data.get("partition"),
+            size_bytes=data.get("size_bytes"),
+            adler32=data.get("adler32"),
+            delivery=data.get("delivery"),
         )
 
 
@@ -119,6 +152,9 @@ class OutputResult(ArtifactReference):
         dataset_name: str | None = None,
         partition_id: str | None = None,
         partition_index: int | None = None,
+        size_bytes: int | None = None,
+        adler32: str | None = None,
+        delivery: str | None = None,
     ) -> None:
         super().__init__(
             uri=path,
@@ -131,6 +167,9 @@ class OutputResult(ArtifactReference):
             dataset_name=dataset_name,
             partition_id=partition_id,
             partition_index=partition_index,
+            size_bytes=size_bytes,
+            adler32=adler32,
+            delivery=delivery,
         )
 
 
@@ -143,6 +182,7 @@ class ArtifactManifest:
     dataset_name: str | None
     parts: tuple[ArtifactReference, ...]
     metadata: dict[str, Any] = field(default_factory=dict)
+    root: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.product_kind, str) or not self.product_kind.strip():
@@ -166,6 +206,7 @@ class ArtifactManifest:
                 "producer_node": self.producer_node,
                 "output_name": self.output_name,
                 "dataset_name": self.dataset_name,
+                "root": self.root,
                 "metadata": dict(self.metadata),
                 "parts": [part.to_dict() for part in self.parts],
             }
@@ -186,6 +227,7 @@ class ArtifactManifest:
                 for item in list(data.get("parts") or [])
             ),
             metadata=dict(data.get("metadata") or {}),
+            root=data.get("root"),
         )
 
 
