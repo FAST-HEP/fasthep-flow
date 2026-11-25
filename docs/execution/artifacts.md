@@ -19,34 +19,76 @@ file.
 
 ## Artifact Locations
 
-A sink tells Flow where it wrote an artifact by returning one of:
+A location is one string. Flow stores it as one of three kinds, and `path_type` is
+derived from the string:
 
-- a path usable from the sink's own working directory (for example the
-  `--outdir` as given, relative or absolute, plus the file name);
-- an absolute path;
-- a URI (`scheme://`, for example `root://` or `file://`).
+| Location | `path_type` |
+|---|---|
+| a path inside the outdir, relative to it (POSIX separators) | `relative_to_outdir` |
+| an absolute path (outside the outdir) | `absolute` |
+| a full URI (`scheme://`, for example `root://` or `file://`) | `uri` |
 
-A relative path is always read from the working directory of the process that
-ran the sink, never from the outdir. A sink must not return a path relative to
-the outdir.
+### What a sink gets and returns
 
-Flow normalises the result once, in the process that produced it, before it
-is stored, and stores:
+Flow allocates one **artifact root** per sink output and passes it as
+`ctx["artifact_root"]`. The sink treats it as its working directory: it writes there
+or in subfolders (`ctx.artifact_path("a/b.png")` joins a name below the root and
+rejects one that leaves it). Flow does not change the process working directory.
 
-| Sink returned | Flow stores | Provenance `path_type` |
-|---|---|---|
-| a path inside the outdir | the path relative to the outdir | `relative_to_outdir` |
-| a path outside the outdir | an absolute path | `absolute` |
-| a URI | the URI unchanged | `uri` |
+A sink reports every file it wrote, one result or a list. A relative path it returns
+is read against its artifact root, never against the process working directory. A
+file outside the root is returned as an absolute path or URI and is recorded as such.
+A sink never computes sizes or checksums, and Flow never walks a directory: what a
+sink does not report is not recorded.
 
-Paths are made absolute and normalised lexically (`..` is collapsed); symbolic
-links are not resolved. The result is the same for a relative and an absolute
-`--outdir`. Provenance evidence is read-relocatable: a finished bundle can be
-copied elsewhere and every `relative_to_outdir` record resolves under the copy.
-This is not a restart guarantee.
+The root of a writer is its first folder below `artifacts/files`; the root of a
+render sink is its output file's name without the suffix (the `NumberMuons_heatmap`
+folder of `NumberMuons_heatmap.png`).
 
-Provenance bundles written before this contract with a relative `--outdir`
-hold wrong record paths and should be regenerated.
+### What Flow records
+
+Flow normalises each file once, in the process that produced it:
+
+- one file stays a bare `ArtifactReference`; several files become an
+  `ArtifactManifest` carrying `producer_node`, `output_name`, `dataset_name` and
+  `root` (the root as a location by the rule above); no file is an empty list;
+- every reference carries the node identity and, for a partitioned run, the dataset
+  and partition;
+- `size_bytes` is recorded for every local file; `adler32` only when a delivery
+  destination is configured;
+- a reported local file that does not exist (or is a directory) fails the node,
+  naming the sink, the node and the path; URIs are not checked;
+- two files with one location in one result fail the node.
+
+Paths are made absolute and normalised lexically (`..` is collapsed); symbolic links
+are not resolved. The result is the same for a relative and an absolute `--outdir`.
+Provenance evidence is read-relocatable: a finished bundle can be copied elsewhere
+and every `relative_to_outdir` record resolves under the copy. This is not a restart
+guarantee.
+
+### Delivery by a backend
+
+A backend that delivers files itself (for example HTCondor sending job-directory
+files to EOS) sets the run-level context entry `artifact_root` to the directory the
+`files` family is written below (`.` is a job directory) and `output_destination` to
+where the files end up. A sink still sees only its own root. A file below that base
+is recorded as the destination URI joined with its path relative to the base, and
+carries `size_bytes` and `adler32` of the local file. Without a destination the
+local path is recorded, which is only meaningful for a run on one machine.
+
+The backend owns the transfer and the check. It reports one status per file,
+`ok`, `missing`, `size_mismatch`, `checksum_mismatch` or `error`, and Flow records it
+with `hepflow.runtime.artifacts.apply_delivery_status` on the file's record, in the
+writer manifest and as counts in the partition's `run_summary.yaml` (`delivery`). A
+failed delivery is recorded; it does not fail the run.
+
+### Bundle versions
+
+Provenance documents are version `2.0` and writer manifests carry
+`schema_version: "2"`. Bundles written before this contract are not read:
+`load_provenance_document` rejects them and they should be regenerated. Writer
+manifests no longer record `relative_to_files_root` or `destination`; a delivered
+file's location is its destination URI.
 
 ## Boundary Representations
 
@@ -87,6 +129,7 @@ Example serialized manifest:
   "producer_node": "write.SelectedEvents.0",
   "output_name": "artifact",
   "dataset_name": "data",
+  "root": "artifacts/files/skim",
   "parts": [
     {
       "type": "artifact_reference",
@@ -97,7 +140,9 @@ Example serialized manifest:
       "output_name": "artifact",
       "dataset_name": "data",
       "partition_id": "events__data__0",
-      "partition_index": 0
+      "partition_index": 0,
+      "path_type": "relative_to_outdir",
+      "size_bytes": 1048576
     }
   ]
 }

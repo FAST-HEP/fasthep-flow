@@ -176,11 +176,15 @@ the layout. Workflow authors set only a `path`:
   `<outdir>/artifacts/files`; a relative root is resolved against the working
   directory of the process that writes (`.` is a job directory). Only `files`
   moves; cutflows, histograms, provenance and the manifests stay below `outdir`.
-  Writers' manifest entries are rewritten to `path_type: relative_to_files_root`
-  with the path relative to that root and an `adler32` checksum of the file, and
-  the optional context entry `output_destination` is recorded as `destination` on
-  the writer manifest: a file is at `<destination>/<path>` once the backend has
-  delivered it. Delivery itself is the backend's job, not Flow's.
+  A sink sees its own, narrower `ctx["artifact_root"]` (`runtime/handlers.py`,
+  `allocate_artifact_root`: a writer's first folder below the files family, a render
+  sink's extensionless output folder), works only there or below it
+  (`ctx.artifact_path(name)`), and reports every file it wrote; a relative path it
+  returns is read against that root. With the optional context entry
+  `output_destination`, a file below the base is recorded as the destination URI
+  plus its path relative to the base, with `size_bytes` and `adler32`. Delivery
+  itself, and the per-file delivery status Flow records
+  (`artifacts.apply_delivery_status`), are the backend's job.
   `hepflow.build_layout.partition_output_roots(plan)` lists the top-level entries
   below the root that partition writers create (the first path component, with
   `{dataset}` expanded), so a backend knows what to deliver before the run.
@@ -189,8 +193,9 @@ the layout. Workflow authors set only a `path`:
   `runtime/handlers.py`, manifests are written by
   `runtime/writer_manifests.py`.
 
-What a sink returns and what Flow stores (outdir-relative, absolute or URI) is in
-`docs/execution/artifacts.md`, section "Artifact Locations".
+What a sink returns and what Flow stores (outdir-relative, absolute or URI; one record per file,
+an `ArtifactManifest` with `root` for several) is in `docs/execution/artifacts.md`, section
+"Artifact Locations".
 
 Example (workshop `04-save-data/01-skims`, `path: dimuon_candidates.root`):
 
