@@ -76,13 +76,13 @@ def _run(
     return result, calls
 
 
-def test_writer_writes_below_output_files_root_and_records_relative_path(
+def test_writer_writes_below_artifact_root_and_records_relative_path(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "jobdir"
 
     result, calls = _run(
-        tmp_path, {"output_files_root": str(root), "output_destination": DESTINATION}
+        tmp_path, {"artifact_root": str(root), "output_destination": DESTINATION}
     )
 
     assert calls[0]["path"] == str(root / "ds" / "0_0.root")
@@ -111,7 +111,7 @@ def test_writer_outside_files_root_keeps_its_manifest(tmp_path: Path) -> None:
 
     result, _ = _run(
         tmp_path,
-        {"output_files_root": str(tmp_path / "jobdir")},
+        {"artifact_root": str(tmp_path / "jobdir")},
         path=str(other),
     )
 
@@ -120,12 +120,12 @@ def test_writer_outside_files_root_keeps_its_manifest(tmp_path: Path) -> None:
     assert "destination" not in manifest
 
 
-def test_relative_output_files_root_resolves_against_working_directory(
+def test_relative_artifact_root_resolves_against_working_directory(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    result, calls = _run(tmp_path, {"output_files_root": "."})
+    result, calls = _run(tmp_path, {"artifact_root": "."})
 
     assert calls[0]["path"] == "ds/0_0.root"
     assert (tmp_path / "ds" / "0_0.root").is_file()
@@ -135,7 +135,7 @@ def test_relative_output_files_root_resolves_against_working_directory(
 def test_run_manifest_records_destination_and_relative_paths(tmp_path: Path) -> None:
     root = tmp_path / "jobdir"
     result, _ = _run(
-        tmp_path, {"output_files_root": str(root), "output_destination": DESTINATION}
+        tmp_path, {"artifact_root": str(root), "output_destination": DESTINATION}
     )
     plan = ExecutionPlan()
     plan.add_node(

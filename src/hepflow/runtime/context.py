@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from hepflow.model import ResolvedResource
@@ -31,6 +33,28 @@ class ComponentContext(dict[str, Any]):
         if not isinstance(dataset, Mapping):
             return {}
         return dataset
+
+    def artifact_path(self, name: str | Path) -> Path:
+        """
+        Path of ``name`` below this sink's ``artifact_root``.
+
+        A sink treats its root as its working directory: it writes there or in
+        subfolders. A name that is absolute or leaves the root raises ``ValueError``.
+        A relative root stays relative (it is read from the process working directory).
+        """
+        root = self.get("artifact_root")
+        if not root:
+            raise ValueError("artifact_root is not set in the component context")
+        candidate = Path(name)
+        if candidate.is_absolute():
+            raise ValueError(
+                f"{str(name)!r} is absolute; give a path below artifact_root"
+            )
+        base = Path(os.path.normpath(str(root)))
+        resolved = Path(os.path.normpath(base / candidate))
+        if resolved != base and base not in resolved.parents:
+            raise ValueError(f"{str(name)!r} leaves artifact_root {str(root)!r}")
+        return resolved
 
     @property
     def node_id(self) -> str:

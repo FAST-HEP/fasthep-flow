@@ -171,7 +171,7 @@ the layout. Workflow authors set only a `path`:
   (`{dataset}/{part}.root`) the writer is named after its node id
   (`write.FilterChannel.0` becomes `FilterChannel_0`).
 - A backend that delivers writer outputs itself (for example HTCondor sending
-  job-directory files to EOS) sets the context entry `output_files_root`. Then
+  job-directory files to EOS) sets the run-level context entry `artifact_root`. Then
   the `files` family resolves below that directory instead of
   `<outdir>/artifacts/files`; a relative root is resolved against the working
   directory of the process that writes (`.` is a job directory). Only `files`

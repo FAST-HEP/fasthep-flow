@@ -66,6 +66,7 @@ def _run_writer_like_sink(
         raise ValueError(f"Sink '{sink_name}' target is None")
 
     component_ctx = component_context(ctx)
+    run_ctx = component_ctx
     impl_params = _sink_impl_params(params)
     when = normalize_lifecycle_event(params.get("when") or "run_end")
     if "path" in impl_params:
@@ -82,13 +83,19 @@ def _run_writer_like_sink(
     if "output_path" not in impl_params and (
         "out" in impl_params or "spec" in impl_params
     ):
-        output_path, output_dir = _derive_artifact_output_paths(
+        impl_params["output_path"] = _derive_artifact_output_path(
             impl_params,
             ctx=component_ctx,
             meta=dict(meta or {}),
         )
-        impl_params["output_path"] = output_path
-        impl_params["output_dir"] = output_dir
+
+    # The sink sees its own root, narrower than a backend's run-level base.
+    component_ctx = component_context(
+        {
+            **component_ctx,
+            "artifact_root": str(allocate_artifact_root(impl_params, ctx=run_ctx)),
+        }
+    )
 
     signature = inspect.signature(impl)
     accepts_kwargs = any(
@@ -111,7 +118,7 @@ def _run_writer_like_sink(
         if final_path is not None:
             final_path[0].unlink(missing_ok=True)
         raise
-    return _localise_writer_manifest(result, component_ctx)
+    return _localise_writer_manifest(result, run_ctx)
 
 
 def _attempt_path(
@@ -162,10 +169,10 @@ def _localise_writer_manifest(
     result: Any, ctx: dict[str, Any] | ComponentContext
 ) -> Any:
     """
-    Express a writer's manifest path relative to ``output_files_root``.
+    Express a writer's manifest path relative to the run-level ``artifact_root``.
 
     Writers record paths relative to ``outdir``, or absolute. When the files are
-    written below ``output_files_root`` (a directory local to the worker), the
+    written below the run-level ``artifact_root`` (a directory local to the worker), the
     absolute path would be meaningless after the run. The path becomes relative
     to that root, ``path_type`` says so, and the optional ``output_destination``
     context entry is recorded as ``destination``, the place where the backend
@@ -252,12 +259,41 @@ def _resolve_writer_paths_for_context(
     return resolved
 
 
-def _derive_artifact_output_paths(
+def allocate_artifact_root(
+    params: dict[str, Any],
+    *,
+    ctx: dict[str, Any] | ComponentContext,
+) -> Path:
+    """
+    The directory one sink output is written into: its artifact root.
+
+    ``params`` are the sink's resolved parameters and ``ctx`` the run context (its
+    ``artifact_root`` entry, if any, is a backend's base for the ``files`` family).
+    A writer's root is its first folder below the files family (the whole family
+    for a path directly below it, the file's folder for a path outside it); a
+    render sink's root is the folder named like its output file without the suffix;
+    any other sink gets the files family.
+    """
+    paths = BuildPaths.from_ctx(ctx)
+    files_dir = paths.artifact_dir("files")
+    if "path" in params:
+        written = Path(str(params["path"]))
+        try:
+            relative = written.relative_to(files_dir)
+        except ValueError:
+            return written.parent
+        return files_dir / relative.parts[0] if len(relative.parts) > 1 else files_dir
+    if "output_path" in params:
+        return Path(str(params["output_path"])).with_suffix("")
+    return files_dir
+
+
+def _derive_artifact_output_path(
     params: dict[str, Any],
     *,
     ctx: dict[str, Any] | ComponentContext,
     meta: dict[str, Any],
-) -> tuple[str, str]:
+) -> str:
     spec = dict(params.get("spec") or {})
     out = (
         params.get("out")
@@ -273,8 +309,7 @@ def _derive_artifact_output_paths(
         spec = dict(params.get("spec") or {})
         family = "tables" if spec.get("op") == "hep.render.cutflow_csv" else "plots"
         out_path = BuildPaths.from_ctx(ctx).artifact(family, out_path)
-    output_dir = out_path.with_suffix("")
-    return str(out_path), str(output_dir)
+    return str(out_path)
 
 
 def run_observer(
