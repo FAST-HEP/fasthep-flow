@@ -10,6 +10,7 @@ import yaml
 from hepflow.build_layout import BuildPaths
 from hepflow.compiler.dataset_units import PublishConflict, dataset_manifest
 from hepflow.runtime.run_records import (
+    Binding,
     build_binding,
     claim_attempt_dir,
     new_attempt_id,
@@ -166,3 +167,47 @@ def test_partition_summary_is_replaced_atomically_by_a_rerun(tmp_path: Path) -> 
     )
     assert written["plan_hash"] == binding.plan_hash
     assert [p.name for p in run_dir.iterdir()] == ["run_summary.yaml"]
+
+
+def test_partition_summary_counts_delivery_statuses_and_keeps_success() -> None:
+    binding = Binding(variation=None, chunk_size=None, plan_hash="p", manifest_hash="m")
+    outputs = [
+        {"path": "u://a", "path_type": "uri", "delivery": "ok"},
+        {"path": "u://b", "path_type": "uri", "delivery": "error"},
+    ]
+
+    summary = partition_summary(
+        dataset="ds",
+        partition="1",
+        partitions=1,
+        binding=binding,
+        attempt_id="a",
+        run={"success": True, "outputs": outputs},
+    )
+
+    assert summary["success"] is True
+    assert summary["delivery"] == {
+        "ok": 1,
+        "missing": 0,
+        "size_mismatch": 0,
+        "checksum_mismatch": 0,
+        "error": 1,
+    }
+
+
+def test_partition_summary_without_delivery_has_no_delivery_key() -> None:
+    binding = Binding(variation=None, chunk_size=None, plan_hash="p", manifest_hash="m")
+
+    summary = partition_summary(
+        dataset="ds",
+        partition="1",
+        partitions=1,
+        binding=binding,
+        attempt_id="a",
+        run={
+            "success": True,
+            "outputs": [{"path": "a.root", "path_type": "relative_to_outdir"}],
+        },
+    )
+
+    assert "delivery" not in summary

@@ -282,3 +282,67 @@ def test_adler32_only_when_requested(in_tmp: Path) -> None:
     )
 
     assert ref.adler32 == f"{zlib.adler32(b'hello world') & 0xFFFFFFFF:08x}"
+
+
+def _refs(*names: str) -> list[OutputResult]:
+    return [
+        OutputResult(kind="artifact", path=name, producer_node="n") for name in names
+    ]
+
+
+def test_delivery_status_recorded_on_each_file() -> None:
+    refs = _refs("root://eos//a.root", "root://eos//b.root")
+
+    artifacts.apply_delivery_status(
+        refs, {"root://eos//a.root": "ok", "root://eos//b.root": "size_mismatch"}
+    )
+
+    assert [ref.delivery for ref in refs] == ["ok", "size_mismatch"]
+
+
+def test_delivery_status_walks_manifests() -> None:
+    manifest = ArtifactManifest(
+        product_kind="artifact",
+        format=None,
+        producer_node="n",
+        output_name="artifact",
+        dataset_name=None,
+        parts=tuple(_refs("u://a", "u://b")),
+    )
+
+    artifacts.apply_delivery_status(manifest, {"u://a": "ok", "u://b": "missing"})
+
+    assert [part.delivery for part in manifest.parts] == ["ok", "missing"]
+
+
+def test_delivery_status_for_an_unknown_location_raises() -> None:
+    with pytest.raises(KeyError, match="u://nope"):
+        artifacts.apply_delivery_status(_refs("u://a"), {"u://nope": "ok"})
+
+
+def test_delivery_status_rejects_an_unknown_status() -> None:
+    with pytest.raises(ValueError, match="delivery"):
+        artifacts.apply_delivery_status(_refs("u://a"), {"u://a": "lost"})
+
+
+def test_failed_delivery_is_recorded_and_does_not_raise() -> None:
+    refs = _refs("u://a")
+
+    artifacts.apply_delivery_status(refs, {"u://a": "error"})
+
+    assert refs[0].delivery == "error"
+
+
+def test_delivery_counts_cover_every_status() -> None:
+    refs = _refs("u://a", "u://b", "u://c")
+    artifacts.apply_delivery_status(
+        refs, {"u://a": "ok", "u://b": "ok", "u://c": "error"}
+    )
+
+    assert artifacts.delivery_counts(refs) == {
+        "ok": 2,
+        "missing": 0,
+        "size_mismatch": 0,
+        "checksum_mismatch": 0,
+        "error": 1,
+    }

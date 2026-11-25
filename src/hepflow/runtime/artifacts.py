@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import os
 import zlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
 from hepflow.compiler.input_paths import is_uri
-from hepflow.model.io import ArtifactManifest, ArtifactReference, OutputResult
+from hepflow.model.io import (
+    DELIVERY_STATUSES,
+    ArtifactManifest,
+    ArtifactReference,
+    OutputResult,
+)
 from hepflow.model.plan import ExecutionNode
 
 
@@ -177,6 +182,47 @@ def stat_artifacts(
                 sink=sink,
                 with_adler32=with_adler32,
             )
+
+
+def _references(value: Any) -> list[ArtifactReference]:
+    if isinstance(value, ArtifactManifest):
+        return list(value.parts)
+    if isinstance(value, ArtifactReference):
+        return [value]
+    if isinstance(value, list | tuple):
+        return [ref for item in value for ref in _references(item)]
+    return []
+
+
+def apply_delivery_status(value: Any, statuses: Mapping[str, str]) -> None:
+    """
+    Record the per-file delivery outcome a backend reports.
+
+    ``statuses`` maps a recorded location (the file's ``path``) to one of
+    ``DELIVERY_STATUSES``. A location that names no file in ``value`` raises
+    ``KeyError``, an unknown status ``ValueError``. A failed delivery is recorded;
+    it never fails the run. Flow does not copy or check files itself.
+    """
+    references = {ref.uri: ref for ref in _references(value)}
+    unknown = sorted(set(statuses) - set(references))
+    if unknown:
+        raise KeyError(f"No artifact at {unknown} to record a delivery status for")
+    for status in statuses.values():
+        if status not in DELIVERY_STATUSES:
+            raise ValueError(
+                f"delivery must be one of {DELIVERY_STATUSES}; got {status!r}"
+            )
+    for location, status in statuses.items():
+        references[location].delivery = status
+
+
+def delivery_counts(value: Any) -> dict[str, int]:
+    """How many files of ``value`` have each delivery status (every status is a key)."""
+    counts = dict.fromkeys(DELIVERY_STATUSES, 0)
+    for ref in _references(value):
+        if ref.delivery is not None:
+            counts[ref.delivery] += 1
+    return counts
 
 
 def adler32_of_file(path: Path) -> str:

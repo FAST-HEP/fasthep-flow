@@ -121,6 +121,8 @@ def _artifact_record_from_output(
             record["size_bytes"] = output.size_bytes
         if output.adler32 is not None:
             record["adler32"] = output.adler32
+        if output.delivery is not None:
+            record["delivery"] = output.delivery
         if partition is not None and "inputs" not in record:
             record["inputs"] = [_partition_input(partition)]
         elif "inputs" not in record:
@@ -234,6 +236,7 @@ def _build_manifest(records: list[dict[str, Any]]) -> dict[str, Any]:
                     "entries",
                     "size_bytes",
                     "adler32",
+                    "delivery",
                     "format",
                     "root_classname",
                     "provenance",
