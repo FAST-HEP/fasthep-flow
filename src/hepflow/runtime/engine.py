@@ -430,7 +430,8 @@ def execute_plan_locally(
     persistence_selection = resolve_persistence(
         boundary_plan, runtime_registry, persistence_settings
     )
-    base_ctx["_persistence"] = persistence_selection.to_dict()
+    if persistence_settings.mode != "off":
+        base_ctx["_persistence"] = persistence_selection.to_dict()
     attempt_id = str(base_ctx.setdefault("_attempt_id", uuid.uuid4().hex))
     evidence_ledger = EvidenceLedger()
     global_side_values = execute_global_side_product_nodes(
@@ -579,6 +580,10 @@ def execute_plan_locally(
             progress.phase_completed("finalizing")
             progress.run_completed()
         if isinstance(ctx, dict):
+            if evidence_ledger.consumptions:
+                base_ctx["_persistence"]["consumed"] = list(
+                    evidence_ledger.consumptions
+                )
             ctx["_hook_summary"] = base_ctx.get("_hook_summary")
             ctx["_persistence"] = base_ctx.get("_persistence")
         return partition_summaries

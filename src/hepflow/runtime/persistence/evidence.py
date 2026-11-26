@@ -21,7 +21,17 @@ from hepflow.runtime.provenance.model import ExecutionRecord, ResolvedResourceRe
 from hepflow.runtime.provenance.store import ProvenanceStore
 
 EVIDENCE_SCHEMA_VERSION = "1"
-_CREDENTIAL_KEY = re.compile(r"token|secret|passw|credential|x509|proxy|api_?key", re.I)
+_CREDENTIAL_KEY = re.compile(
+    r"(?:^|[_\-.])(?:token|secret|passw(?:or)?d|credential|x509|proxy|api[_\-]?key|"
+    r"authorization|auth|bearer|cookie|private[_\-]?key|access[_\-]?key|"
+    r"ssh[_\-]?key|sas)s?(?:$|[_\-.])",
+    re.I,
+)
+_CREDENTIAL_VALUE = re.compile(
+    r"://[^/\s:@]+:[^/\s@]+@|[?&](?:authz|token|access_token|sig|signature|"
+    r"x-amz-signature)=",
+    re.I,
+)
 
 RecordKey = tuple[str, str, str | None, str | None, str]
 
@@ -72,11 +82,20 @@ def build_evidence(
 
 
 def forbid_credentials(data: Any, *, where: str, **identity: str) -> None:
-    """Refuse credential-like keys anywhere in ``data`` (manifests, params, evidence)."""
-    for path, key in _walk_keys(data, ""):
-        if _CREDENTIAL_KEY.search(str(key)):
+    """Refuse credential-like keys and values anywhere in ``data``.
+
+    A heuristic (key names, URL userinfo, ``authz=``/``token=`` query values), not a
+    content scan: it makes the common mistakes loud, it does not prove absence.
+    """
+    for path, key, value in _walk(data, ""):
+        if _CREDENTIAL_KEY.search(key):
             raise InvalidBinding(
                 f"{where} contains a credential-like key {key!r} at {path or '/'}",
+                **identity,  # type: ignore[arg-type]
+            )
+        if isinstance(value, str) and _CREDENTIAL_VALUE.search(value):
+            raise InvalidBinding(
+                f"{where} contains a credential-like value at {path or '/'}",
                 **identity,  # type: ignore[arg-type]
             )
 
@@ -132,8 +151,13 @@ def _register(
 ) -> None:
     for record in dict(evidence.get("executions") or {}).values():
         execution = ExecutionRecord.from_obj(record)
+        present = store.executions().get(execution.id)
+        have = [op.to_record() for op in present.operations] if present else []
         for operation in execution.operations:
+            if operation.to_record() in have:
+                continue  # importing the same record again changes nothing
             store.register_operation_record(execution, operation)
+            have.append(operation.to_record())
     for resource_id, record in dict(evidence.get("resources") or {}).items():
         try:
             store.register_resource_record(
@@ -148,14 +172,17 @@ def _digest(evidence: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _walk_keys(data: Any, prefix: str) -> list[tuple[str, str]]:
-    found: list[tuple[str, str]] = []
+def _walk(data: Any, prefix: str) -> list[tuple[str, str, Any]]:
+    """(path, key, value) for every dict entry, and ("", "", value) for list items."""
+    found: list[tuple[str, str, Any]] = []
     if isinstance(data, dict):
         for key, value in data.items():
             path = f"{prefix}/{key}"
-            found.append((path, str(key)))
-            found.extend(_walk_keys(value, path))
+            found.append((path, str(key), value))
+            found.extend(_walk(value, path))
     elif isinstance(data, list | tuple):
         for index, value in enumerate(data):
-            found.extend(_walk_keys(value, f"{prefix}[{index}]"))
+            path = f"{prefix}[{index}]"
+            found.append((path, "", value))
+            found.extend(_walk(value, path))
     return found

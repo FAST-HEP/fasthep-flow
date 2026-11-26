@@ -190,6 +190,11 @@ def normalize_persistence(raw: Any) -> dict[str, Any]:
     if not isinstance(reuse, bool):
         raise ValueError("execution.persistence.reuse must be a boolean")
     if mode == "off":
+        if products:
+            raise ValueError(
+                "execution.persistence.products is set but mode is off; "
+                "choose mode: selected or all"
+            )
         return {}
     result: dict[str, Any] = {"mode": mode}
     if reuse:

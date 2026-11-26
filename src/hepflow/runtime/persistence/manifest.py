@@ -8,7 +8,7 @@ without it nothing was published.
 from __future__ import annotations
 
 import json
-import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -61,18 +61,10 @@ def write_product_set(
         root=root if root is not None else str(folder),
         products=tuple(products),
         evidence=EVIDENCE_NAME,
+        evidence_sha256=file_sha256(folder / EVIDENCE_NAME),
     )
     final = folder / MANIFEST_NAME
-    temporary = folder / f".{MANIFEST_NAME}.tmp-{os.getpid()}"
-    try:
-        temporary.write_text(
-            json.dumps(manifest.to_dict(), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(final)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
+    _write_json(final, manifest.to_dict())
     return final
 
 
@@ -97,14 +89,23 @@ def read_manifest(path: Path) -> ProductManifest:
         )
     for product in manifest.products:
         _check_payloads(folder, product)
-    if manifest.products and not (folder / manifest.evidence).is_file():
+    if manifest.products:
         first = manifest.products[0]
-        raise MissingEvidence(
-            f"evidence file {manifest.evidence!r} is missing",
-            producer_node=first.producer_node,
-            output_name=first.output_name,
-            kind=first.product_kind,
-        )
+        identity = {
+            "producer_node": first.producer_node,
+            "output_name": first.output_name,
+            "kind": first.product_kind,
+        }
+        evidence = folder / manifest.evidence
+        if not evidence.is_file():
+            raise MissingEvidence(
+                f"evidence file {manifest.evidence!r} is missing", **identity
+            )
+        if file_sha256(evidence) != manifest.evidence_sha256:
+            raise SizeOrHashMismatch(
+                f"evidence file {manifest.evidence!r} differs from the recorded sha256",
+                **identity,
+            )
     return manifest
 
 
@@ -126,6 +127,7 @@ def _parse_manifest(data: dict[str, Any]) -> ProductManifest:
         root=str(data.get("root", "")),
         products=tuple(products),
         evidence=str(data.get("evidence", "")),
+        evidence_sha256=str(data.get("evidence_sha256", "")),
     )
 
 
@@ -154,4 +156,13 @@ def _check_payloads(folder: Path, product: ProductEntry) -> None:
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    """Write ``path`` through a uniquely named temporary file and a rename."""
+    temporary = path.with_name(f".{path.name}.tmp-{uuid.uuid4().hex}")
+    try:
+        temporary.write_text(
+            json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        temporary.replace(path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()

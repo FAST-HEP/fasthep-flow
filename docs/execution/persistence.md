@@ -37,7 +37,8 @@ capability is listed as `not persisted: no capability` in the backend summary
 (`summary["persistence"]`), never skipped silently; asking for it explicitly is an error.
 A kind with several capabilities needs a name in `products`.
 
-Each persisted partition product is published as one product set below
+Publishing a set again over an existing one removes its `manifest.json` first, so a crash
+leaves it unpublished. Each persisted partition product is published as one product set below
 `<root>/<node>/<output>/<dataset>/<partition>/`: the payloads, then `evidence.json`,
 then `manifest.json`. The value also stays in memory, so the run continues as before.
 Remote roots (`root://`, `https://`) are a backend's job and are refused here.
@@ -46,9 +47,14 @@ Remote roots (`root://`, `https://`) are a backend's job and are refused here.
 boundary products from the published sets when every boundary product is persisted, the
 manifest's `plan_hash` equals the current plan's, the set validates (payload sizes and
 `sha256`) and the plan has no sink or observer whose side effects a skipped partition
-would lose. Anything else runs the producers. Until the semantic plan hash of
+would lose, and the plan has no execution hooks (a skipped partition skips them). The
+restored products, their evidence and a consumption record reach the run only when every
+product of the partition can be reused (`summary["persistence"]["consumed"]` lists them).
+Anything else, including a corrupt set, runs the producers. Until the semantic plan hash of
 [fasthep-flow#105](https://github.com/FAST-HEP/fasthep-flow/issues/105) exists, the
-`plan_hash` is a hash of the plan's nodes.
+`plan_hash` is a hash of the plan's nodes, partitions (file and event range), dataset
+metadata, the registry's product handlers, the execution settings (not `persistence`) and
+the execution hooks. Code behind an unchanged `impl` name is not covered.
 
 `hepflow.api.restore_products(manifest, registry=None, ledger=None, store=None)` restores
 a published set in another process (see "Restoring").
@@ -127,6 +133,7 @@ One result manifest describes one published product set. It extends
 | `root` | yes | the location of the product set, by the location rule |
 | `products` | yes | one entry per product instance: identity, `storage` and its payload references |
 | `evidence` | yes | one location of the shared evidence file |
+| `evidence_sha256` | yes | checksum of the evidence file, verified on load |
 
 Each entry of `products`:
 
@@ -247,7 +254,10 @@ Each error carries the producer node, the output name and the product kind.
 - Retries stay distinct records.
 - A failed attempt never appears as a successful producer.
 - A restore adds a consumption record and replays no hook.
-- Manifests, parameters and evidence never contain credentials.
+- Manifests, parameters and evidence never contain credentials. Flow refuses credential-like
+  keys (`token`, `secret`, `password`, `x509`, `proxy`, `authorization`, `cookie`, `private_key`,
+  ...) and values (URL user info, `authz=`/`token=` query parameters) on save and on import.
+  This is a heuristic that makes common mistakes loud; it does not prove absence.
 
 ## Breaking change
 

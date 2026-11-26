@@ -16,7 +16,12 @@ from hepflow.model.plan import ExecutionPartition, ExecutionPlan
 from hepflow.model.products import BoundaryOutputSpec, BoundaryProduct
 from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.persistence.errors import ManifestNotPublished, PersistenceError
-from hepflow.runtime.persistence.evidence import EvidenceLedger
+from hepflow.runtime.persistence.evidence import (
+    EvidenceLedger,
+    import_evidence,
+    record_consumption,
+)
+from hepflow.runtime.persistence.manifest import read_manifest
 from hepflow.runtime.persistence.restore import restore_manifest
 from hepflow.runtime.persistence.save import (
     persistence_root,
@@ -41,30 +46,59 @@ def reuse_partition_products(
     ledger: EvidenceLedger,
     store: ProvenanceStore | None,
 ) -> list[BoundaryProduct] | None:
-    """The partition's restored boundary products, or ``None`` to run it."""
+    """The partition's restored boundary products, or ``None`` to run it.
+
+    Two phases: every set is read and checked first (manifest, plan hash, identity), then
+    loaded into scratch state; evidence reaches ``ledger`` and ``store`` only when every
+    product of the partition can be reused.
+    """
     if not settings.reuse or not boundary:
         return None
+    if plan.execution_hooks:
+        return None  # a skipped partition would skip its hooks
     if any(node.role in _SIDE_EFFECT_ROLES for node in plan.nodes):
         return None
     if {spec.key() for spec in boundary} != set(selection.persisted):
         return None
     root = persistence_root(settings, outdir)
     plan_hash = provisional_plan_hash(plan)
-    products: list[BoundaryProduct] = []
-    for spec in boundary:
-        folder = product_folder(
-            root, spec.node_id, spec.output_name, partition.dataset, partition.id
-        )
-        manifest_path = folder / "manifest.json"
-        try:
-            restored = restore_manifest(
-                manifest_path, registry, ledger=ledger, store=store
+    paths: list[tuple[BoundaryOutputSpec, Path]] = []
+    try:
+        for spec in boundary:
+            folder = product_folder(
+                root, spec.node_id, spec.output_name, partition.dataset, partition.id
             )
-        except (ManifestNotPublished, PersistenceError):
-            return None
-        if restored.manifest.plan_hash != plan_hash:
-            return None
-        [value] = restored.products.values()
+            manifest = read_manifest(folder / "manifest.json")
+            if manifest.plan_hash != plan_hash or len(manifest.products) != 1:
+                return None
+            entry = manifest.products[0]
+            if (
+                entry.producer_node,
+                entry.output_name,
+                entry.dataset_name,
+                entry.product_kind,
+            ) != (spec.node_id, spec.output_name, partition.dataset, spec.kind):
+                return None
+            paths.append((spec, folder / "manifest.json"))
+        restored = [
+            restore_manifest(
+                path, registry, ledger=EvidenceLedger(), store=ProvenanceStore()
+            )
+            for _, path in paths
+        ]
+    except (ManifestNotPublished, PersistenceError, OSError, ValueError, KeyError):
+        return None
+    products: list[BoundaryProduct] = []
+    for (spec, path), result in zip(paths, restored, strict=True):
+        import_evidence(ledger, result.evidence, store=store)
+        record_consumption(
+            ledger,
+            manifest=str(path),
+            identities=[
+                {"producer_node": spec.node_id, "output_name": spec.output_name}
+            ],
+        )
+        [value] = result.products.values()
         products.append(
             BoundaryProduct(
                 node_id=spec.node_id,
@@ -76,7 +110,7 @@ def reuse_partition_products(
                 value=value,
                 metadata={
                     "reasons": list(spec.reasons),
-                    "persisted": str(manifest_path),
+                    "persisted": str(path),
                     "restored": True,
                 },
             )

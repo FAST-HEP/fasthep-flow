@@ -50,7 +50,7 @@ def resolve_persistence(
     persisted: dict[tuple[str, str], PersistenceCapability] = {}
     left_out: list[dict[str, str]] = []
     for spec in boundary:
-        key = f"{spec.node_id}:{spec.output_name}"
+        key = _key(spec)
         handler = registry.product_handlers.get(spec.kind)
         capabilities = dict(handler.persistence) if handler is not None else {}
         choice = settings.products.get(key)
@@ -74,8 +74,33 @@ def resolve_persistence(
                 }
             )
             continue
-        persisted[spec.key()] = _pick(key, spec.kind, capabilities, choice)
+        capability = _pick(key, spec.kind, capabilities, choice)
+        if capability.save is None:
+            if choice is not None:
+                raise ValueError(
+                    f"execution.persistence.products[{key!r}]: capability "
+                    f"{capability.name!r} has no save implementation"
+                )
+            left_out.append(
+                {
+                    "node": spec.node_id,
+                    "output": spec.output_name,
+                    "kind": spec.kind,
+                    "reason": "no save implementation",
+                }
+            )
+            continue
+        persisted[spec.key()] = capability
+    unmatched = sorted(set(settings.products) - {_key(spec) for spec in boundary})
+    if unmatched:
+        raise ValueError(
+            f"execution.persistence.products entries {unmatched} match no boundary product"
+        )
     return PersistenceSelection(persisted=persisted, not_persisted=left_out)
+
+
+def _key(spec: BoundaryOutputSpec) -> str:
+    return f"{spec.node_id}:{spec.output_name}"
 
 
 def _wanted_by_mode(

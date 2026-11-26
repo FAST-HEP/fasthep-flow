@@ -8,7 +8,8 @@ import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
+from urllib.request import url2pathname
 
 from hepflow.compiler.input_paths import is_uri
 from hepflow.model.persistence import (
@@ -40,15 +41,38 @@ def persistence_root(settings: PersistenceSettings, outdir: str | Path) -> Path:
                 f"persistence root {root!r}: writing to {parsed.scheme}:// is a "
                 "backend's job; use a local path or file:// root"
             )
-        return Path(parsed.path)
+        if parsed.netloc not in {"", "localhost"}:
+            raise ValueError(
+                f"persistence root {root!r} names a host {parsed.netloc!r}; use "
+                "file:///absolute/path"
+            )
+        return Path(url2pathname(unquote(parsed.path)))
     path = Path(root)
     return path if path.is_absolute() else Path(outdir) / path
 
 
 def provisional_plan_hash(plan: ExecutionPlan) -> str:
-    """Hash of the plan's nodes, until the semantic plan hash of flow#105 exists."""
+    """Hash of what decides a product, until the semantic plan hash of flow#105 exists.
+
+    Nodes, partitions (file and event range), dataset metadata, the registry's product
+    handlers, execution settings (not ``persistence``) and execution hooks. Code behind an
+    unchanged ``impl`` name is not covered.
+    """
     payload = json.dumps(
-        [node.to_dict() for node in plan.nodes], sort_keys=True, default=str
+        {
+            "nodes": [node.to_dict() for node in plan.nodes],
+            "partitions": [partition.to_dict() for partition in plan.partitions],
+            "datasets": plan.context.get("datasets"),
+            "product_handlers": plan.registry.get("product_handlers"),
+            "execution": {
+                key: value
+                for key, value in plan.execution.items()
+                if key != "persistence"
+            },
+            "execution_hooks": plan.execution_hooks,
+        },
+        sort_keys=True,
+        default=str,
     )
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -138,6 +162,9 @@ def _save_one(
         output_name=product.output_name,
         kind=product.kind,
     )
+    (folder / "manifest.json").unlink(
+        missing_ok=True
+    )  # republishing starts unpublished
     outcome = capability.save(
         product.value, root=folder, params=save_params, identity=identity
     )
@@ -172,6 +199,13 @@ def _save_one(
     evidence = build_evidence(
         store, identity=identity, attempt_id=attempt_id, status="succeeded"
     )
+    who = {
+        "producer_node": product.node_id,
+        "output_name": product.output_name,
+        "kind": product.kind,
+    }
+    forbid_credentials(evidence, where="evidence", **who)
+    forbid_credentials(entry.to_dict(), where="manifest", **who)
     return write_product_set(folder, [entry], evidence, plan_hash=plan_hash, root=shown)
 
 
@@ -181,5 +215,16 @@ def _qualname(func: Any) -> str:
     return f"{getattr(func, '__module__', '?')}:{getattr(func, '__qualname__', '?')}"
 
 
+_PLAIN = re.compile(r"[A-Za-z0-9._-]+")
+
+
 def _safe(part: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", part).strip("_") or "_"
+    """A folder name for ``part``; names that needed changing carry a short hash.
+
+    Different names never share a folder, and ``.``, ``..`` and the empty name are
+    never used as they are.
+    """
+    if _PLAIN.fullmatch(part) and part not in {".", ".."}:
+        return part
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", part).strip("._") or "_"
+    return f"{cleaned}-{hashlib.sha256(part.encode('utf-8')).hexdigest()[:8]}"

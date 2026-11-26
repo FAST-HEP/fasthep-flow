@@ -85,6 +85,7 @@ class ProductManifest:
     root: str
     products: tuple[ProductEntry, ...]
     evidence: str
+    evidence_sha256: str = ""
     schema_version: str = PRODUCT_MANIFEST_SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -94,6 +95,7 @@ class ProductManifest:
             "root": self.root,
             "products": [product.to_dict() for product in self.products],
             "evidence": self.evidence,
+            "evidence_sha256": self.evidence_sha256,
         }
 
     @classmethod
@@ -104,4 +106,5 @@ class ProductManifest:
             root=str(data["root"]),
             products=tuple(ProductEntry.from_dict(dict(p)) for p in data["products"]),
             evidence=str(data["evidence"]),
+            evidence_sha256=str(data.get("evidence_sha256", "")),
         )
