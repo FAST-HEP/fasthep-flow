@@ -75,6 +75,7 @@ def test_product_handler_combine_rejects_non_callable() -> None:
         ("value", True),
         ("reference", True),
         ("materialize", False),
+        ("persist", True),
     ],
 )
 def test_product_handler_boundary_policy_loads_explicit_modes(

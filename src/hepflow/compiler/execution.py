@@ -11,6 +11,7 @@ from hepflow.model.execution import (
     StageExecutionConfig,
 )
 from hepflow.model.lifecycle import WHEN_ALIASES
+from hepflow.model.persistence import normalize_persistence
 from hepflow.model.worker_environment import worker_environment_plan_from_execution
 
 
@@ -90,6 +91,7 @@ def normalize_global_execution(raw: Any) -> dict[str, Any]:
         staging=staging,
         config=config,
         file_access=normalize_file_access(raw.get("file_access")),
+        persistence=normalize_persistence(raw.get("persistence")),
     ).to_dict()
 
 

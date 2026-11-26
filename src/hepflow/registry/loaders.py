@@ -185,10 +185,10 @@ def _product_boundary_policy(
         raise TypeError(f"Product handler boundary '{name}'.retain must be boolean")
 
     representation = cfg.get("representation", "value")
-    if representation not in {"value", "reference", "materialize"}:
+    if representation not in {"value", "reference", "materialize", "persist"}:
         raise ValueError(
             f"Product handler boundary '{name}'.representation must be one of "
-            "'value', 'reference', or 'materialize'; got {representation!r}"
+            "'value', 'reference', 'materialize' or 'persist'; got {representation!r}"
         )
 
     return ProductBoundaryPolicy(

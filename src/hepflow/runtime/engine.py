@@ -8,6 +8,7 @@ from typing import Any
 from hepflow.build_layout import BuildPaths, artifact_root_from_context
 from hepflow.model.io import ArtifactReference, OutputResult
 from hepflow.model.lifecycle import normalize_lifecycle_event
+from hepflow.model.persistence import PersistenceSettings
 from hepflow.model.plan import (
     ExecutionNode,
     ExecutionPartition,
@@ -53,6 +54,8 @@ from hepflow.runtime.handlers import (
 )
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
 from hepflow.runtime.materialize import materialize_final_products
+from hepflow.runtime.persistence.save import persist_boundary_products
+from hepflow.runtime.persistence.select import resolve_persistence
 from hepflow.runtime.products import product_bindings, register_product_bindings
 from hepflow.runtime.provenance import (
     ProvenanceRecorder,
@@ -420,6 +423,11 @@ def execute_plan_locally(
 
     runtime_registry = runtime_registry_from_config(registry_cfg)
     boundary_plan = plan_partition_boundary(plan, runtime_registry=runtime_registry)
+    persistence_settings = PersistenceSettings.from_execution(plan.execution)
+    persistence_selection = resolve_persistence(
+        boundary_plan, runtime_registry, persistence_settings
+    )
+    base_ctx["_persistence"] = persistence_selection.to_dict()
     global_side_values = execute_global_side_product_nodes(
         plan,
         ctx=base_ctx,
@@ -459,6 +467,13 @@ def execute_plan_locally(
                     boundary=boundary_plan,
                     runtime_registry=runtime_registry,
                     ctx=partition_ctx,
+                )
+                boundary_products = persist_boundary_products(
+                    boundary_products,
+                    persistence_selection,
+                    plan=plan,
+                    settings=persistence_settings,
+                    outdir=str(base_ctx.get("outdir") or "."),
                 )
                 del value_store
                 boundary_result = PartitionBoundaryResult(
@@ -546,6 +561,7 @@ def execute_plan_locally(
             progress.run_completed()
         if isinstance(ctx, dict):
             ctx["_hook_summary"] = base_ctx.get("_hook_summary")
+            ctx["_persistence"] = base_ctx.get("_persistence")
         return partition_summaries
     except Exception as exc:
         if progress is not None:

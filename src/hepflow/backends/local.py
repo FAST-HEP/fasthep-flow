@@ -39,6 +39,8 @@ class LocalBackend:
         summary = _value_store_summary(value, plan=plan)
         summary["warnings"] = warnings
         summary["hooks"] = run_ctx.get("_hook_summary") or {"enabled": []}
+        if run_ctx.get("_persistence"):
+            summary["persistence"] = run_ctx["_persistence"]
         summary["progress"] = {
             "run_id": reporter.run_id,
             "counts": reporter.counts.to_dict(),

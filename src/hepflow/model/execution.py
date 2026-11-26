@@ -16,9 +16,13 @@ class ExecutionConfig:
     staging: dict[str, Any] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
     file_access: list[dict[str, str]] = field(default_factory=list)
+    persistence: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        if not data["persistence"]:
+            del data["persistence"]  # off: plans stay as they were
+        return data
 
 
 @dataclass(frozen=True)

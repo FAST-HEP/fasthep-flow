@@ -123,3 +123,71 @@ class PersistenceCapability:
     variants: tuple[str, ...] = ()
     params: Mapping[str, Any] = field(default_factory=dict)
     bindings: Mapping[str, Any] = field(default_factory=dict)
+
+
+PERSISTENCE_MODES = ("off", "all", "selected")
+
+
+@dataclass(frozen=True, slots=True)
+class PersistenceSettings:
+    """``execution.persistence``: the run-level persistence switch.
+
+    ``off`` persists nothing (the default). ``all`` persists every boundary product whose
+    kind has a capability. ``selected`` persists products chosen in ``products`` and kinds
+    whose registry boundary representation is ``persist``. An entry of ``products`` (key
+    ``<node id>:<output name>``) overrides the mode: ``false`` never, ``true`` with the
+    kind's only capability, a string with that capability.
+    """
+
+    mode: str = "off"
+    root: str | None = None
+    products: Mapping[str, bool | str] = field(default_factory=dict)
+
+    @classmethod
+    def from_execution(cls, execution: Mapping[str, Any] | None) -> PersistenceSettings:
+        raw = (execution or {}).get("persistence")
+        return cls(**normalize_persistence(raw)) if raw else cls()
+
+
+def normalize_persistence(raw: Any) -> dict[str, Any]:
+    """Validate ``execution.persistence``; ``{}`` when nothing is persisted."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("execution.persistence must be a mapping")
+    unknown = set(raw) - {"mode", "root", "products"}
+    if unknown:
+        raise ValueError(
+            f"execution.persistence has unknown keys {sorted(unknown)}; "
+            "allowed: mode, root, products"
+        )
+    mode = raw.get("mode", "off")
+    if mode not in PERSISTENCE_MODES:
+        raise ValueError(
+            f"execution.persistence.mode must be one of {PERSISTENCE_MODES}; got {mode!r}"
+        )
+    root = raw.get("root")
+    if root is not None and (not isinstance(root, str) or not root.strip()):
+        raise ValueError("execution.persistence.root must be a non-empty string")
+    products = raw.get("products") or {}
+    if not isinstance(products, dict):
+        raise ValueError("execution.persistence.products must be a mapping")
+    for key, choice in products.items():
+        if ":" not in str(key):
+            raise ValueError(
+                f"execution.persistence.products key {key!r} must be "
+                "'<node id>:<output name>'"
+            )
+        if not isinstance(choice, bool | str):
+            raise ValueError(
+                f"execution.persistence.products[{key!r}] must be true, false or a "
+                "capability name"
+            )
+    if mode == "off":
+        return {}
+    result: dict[str, Any] = {"mode": mode}
+    if root is not None:
+        result["root"] = root.strip()
+    if products:
+        result["products"] = dict(products)
+    return result

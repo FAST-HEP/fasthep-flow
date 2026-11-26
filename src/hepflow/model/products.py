@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from hepflow.model.persistence import PersistenceCapability
 
-BoundaryRepresentation = Literal["value", "reference", "materialize"]
+BoundaryRepresentation = Literal["value", "reference", "materialize", "persist"]
 
 
 @dataclass(frozen=True, slots=True)
