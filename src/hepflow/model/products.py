@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal
+
+from hepflow.model.persistence import PersistenceCapability
 
 BoundaryRepresentation = Literal["value", "reference", "materialize"]
 
@@ -83,3 +85,4 @@ class ProductHandlerEntry:
     materialize: Callable[..., Any] | None = None
     boundary: ProductBoundaryPolicy = field(default_factory=ProductBoundaryPolicy)
     boundary_materialize: Callable[..., Any] | None = None
+    persistence: Mapping[str, PersistenceCapability] = field(default_factory=dict)

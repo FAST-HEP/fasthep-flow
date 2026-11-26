@@ -6,6 +6,7 @@ that ``ArtifactReference`` carries; it imports nothing from ``hepflow.model.io``
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -82,3 +83,43 @@ class StorageBinding:
             variant=data.get("variant"),
             locator=data.get("locator"),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class SavedPayload:
+    """One file a ``save`` callable wrote, named relative to the product folder."""
+
+    path: str
+    role: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SaveOutcome:
+    """What a ``save`` callable reports. Flow stats and checksums the payloads."""
+
+    payloads: tuple[SavedPayload, ...]
+    variant: str | None = None
+    locator: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PersistenceCapability:
+    """A registered way to save and load one product kind.
+
+    ``save(value, *, root, params, identity) -> SaveOutcome`` writes below ``root``;
+    ``load(root, payloads, *, params, variant, locator) -> value`` reads back the
+    payload files (absolute paths). A capability without ``load`` registers, and a
+    restore of its products fails with ``missing_reader``.
+    """
+
+    name: str
+    version: str
+    kind: str
+    container: str
+    payload_roles: tuple[str, ...]
+    fidelity: str
+    save: Callable[..., SaveOutcome] | None = None
+    load: Callable[..., Any] | None = None
+    variants: tuple[str, ...] = ()
+    params: Mapping[str, Any] = field(default_factory=dict)
+    bindings: Mapping[str, Any] = field(default_factory=dict)
