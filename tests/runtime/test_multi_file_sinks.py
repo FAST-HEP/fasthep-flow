@@ -238,3 +238,24 @@ def test_boundary_validation_accepts_an_empty_result_but_not_other_lists() -> No
     validate_artifact_reference_like([], context="x")
     with pytest.raises(ValueError, match="expected an ArtifactReference"):
         validate_artifact_reference_like([1], context="x")
+
+
+def test_merge_keeps_size_checksum_and_delivery_of_a_writer_file() -> None:
+    reference = OutputResult(
+        kind="artifact",
+        path="artifacts/files/skim/ds/0_0.root",
+        producer_node=NODE,
+        output_name="artifact",
+        dataset_name="ds",
+        partition_index=0,
+        size_bytes=2571,
+        adler32="0a0b0c0d",
+        delivery="ok",
+        metadata={"writer_manifest": {"kind": "root_tree", "partition": 0, "dataset": "ds"}},
+    )
+
+    merged = merge_artifact_products([reference], node=_node(), output_name="artifact")
+
+    assert isinstance(merged, ArtifactManifest)
+    [part] = merged.parts
+    assert (part.size_bytes, part.adler32, part.delivery) == (2571, "0a0b0c0d", "ok")
