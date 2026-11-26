@@ -20,7 +20,8 @@ decision is [fasthep-flow#152](https://github.com/FAST-HEP/fasthep-flow/issues/1
 | Resolved plan binding | the execution plan | which capability a product uses, with its parameters resolved |
 | Published storage binding | the product's `ArtifactReference` | what was actually written, recorded at publication |
 
-Restore uses the published storage binding and nothing else. A changed registry
+Restore uses the published storage binding and nothing else: it supplies the capability, the
+version and the load parameters, and the registry only supplies the code. A changed registry
 default or a newer capability never changes how an old product is read.
 
 Parameters are resolved in this order: an explicit persistence choice, then
@@ -52,7 +53,8 @@ The first histogram capability is data-only: axes, categories, storage type,
 weighted values, variances and metadata. It does not use pickle. A projected or
 selected ROOT result is a legitimate derived product; it is never claimed to
 reconstruct its pre-projection input. ROOT histogram storage is not part of this
-schema. It will use the same mechanism later.
+schema. It will use the same mechanism later. ROOT streams are exercised only through mocks in
+the first implementation.
 
 ## Storage binding
 
@@ -69,7 +71,8 @@ schema. It will use the same mechanism later.
 | `save` | yes | `{implementation, version, params}` that wrote it |
 | `load` | yes | `{implementation, version, params}` that will read it |
 
-The implementation and adapter versions are evidence. They do not select the reader.
+The recorded `save` and `load` implementations and versions are evidence. They do not
+select the reader.
 
 ## Result manifest
 
@@ -84,7 +87,28 @@ One result manifest describes one published product set. It extends
 | `products` | yes | one entry per product instance: identity, `storage` and its payload references |
 | `evidence` | yes | one location of the shared evidence file |
 
-Every payload reference records `size_bytes` and `sha256`. Both are verified on load.
+Each entry of `products`:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `producer_node`, `output_name`, `product_kind` | yes | identity (see below) |
+| `dataset_name` | no | dataset, when the product belongs to one |
+| `scope` | yes | partition or aggregation scope (`partition`, `dataset`, ...) |
+| `storage` | yes | the [storage binding](#storage-binding) |
+| `payloads` | yes | the payload files, below |
+
+Each payload reference:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `uri` | yes | a location by the location rule, relative to the manifest's `root` when below it |
+| `role` | no | one of the capability's `payload_roles`, when it has several |
+| `size_bytes` | yes | verified on load |
+| `sha256` | yes | verified on load |
+
+The manifest has its own `schema_version`, independent of the writer manifest's. Its
+format is meant to be extended later to artifacts that are not persisted products;
+`products` entries do not assume a storage binding for that reason.
 
 The manifest is written last and atomically: a temporary file in the same directory,
 then a rename. Its presence is the commit marker. A payload without a manifest, or a
@@ -116,11 +140,11 @@ Illustrative manifest for a histogram (not a locked layout):
         "load": {"implementation": "fasthep_carpenter.products:load_hist", "version": "0.1", "params": {}}
       },
       "payloads": [
-        {"uri": "pt_hist/pt.json", "size_bytes": 2048, "sha256": "…"}
+        {"uri": "pt.json", "size_bytes": 2048, "sha256": "…"}
       ]
     }
   ],
-  "evidence": "pt_hist/evidence.json"
+  "evidence": "evidence.json"
 }
 ```
 
@@ -136,10 +160,10 @@ identity.
 | product kind | yes |
 | dataset | yes |
 | partition or aggregation scope | yes |
-| semantic plan hash | yes |
+| semantic plan hash | yes (carried once, as the manifest's `plan_hash`) |
 | location, container | no |
-| lossless re-encoding | no |
-| scientific projection or selection | yes |
+| lossless re-encoding (same content, another container) | no |
+| scientific projection or selection | yes: a different one is a different product, reflected in the producer node, output name and plan hash |
 
 Flow owns this vocabulary. The later run artifact index extends it.
 
@@ -148,7 +172,7 @@ Flow owns this vocabulary. The later run artifact index extends it.
 1. Read the manifest. A missing manifest means nothing was published.
 2. For each product, find the reader in the trusted registry by the recorded
    `capability` and `capability_version`. The match is exact.
-3. Check the payloads: present, `size_bytes` and `sha256` equal.
+3. Check the payloads: present, `size_bytes` and `sha256` equal. Read the evidence file.
 4. Load. Restore is a consumption event, not a new scientific producer invocation.
    Hooks are not replayed.
 
@@ -164,7 +188,7 @@ Each error carries the producer node, the output name and the product kind.
 | `unsupported_version` | the capability is registered, but not at the recorded version |
 | `missing_reader` | the capability has no load implementation available |
 | `invalid_binding` | the storage binding fails validation, for example a required field is missing |
-| `kind_mismatch` | the binding's kind is not the product's kind |
+| `kind_mismatch` | the registered capability's `kind` differs from the product's kind |
 | `variant_mismatch` | the recorded variant is not one the reader supports |
 | `missing_payload` | a payload named in the manifest does not exist |
 | `size_or_hash_mismatch` | a payload's `size_bytes` or `sha256` differs from the manifest |
@@ -184,22 +208,27 @@ Each error carries the producer node, the output name and the product kind.
 
 This is an alpha change with no shim.
 
-- `ArtifactReference.format` is removed. The storage binding's `capability`, `container`
-  and `variant` replace it.
+- `ArtifactReference.format` is removed, and with it `ArtifactManifest.format` (a manifest's
+  format was derived from its parts). The storage binding's `capability`, `container` and
+  `variant` replace them. `OutputResult.format`, the field a sink sets, goes with it.
 - `schema_version` changes once, in the implementation of
   [fasthep-flow#115](https://github.com/FAST-HEP/fasthep-flow/issues/115), after the
   bump of the [location contract](artifacts.md) ("Bundle versions").
 
-Consumers that set or read `format` change in the same stack:
+Code that sets or reads the artifact `format` changes in the same stack:
 
-- fasthep-flow itself: `ArtifactReference` and `ArtifactManifest` serialisation,
-  writer manifests, report records;
-- fasthep-render: its sinks pass `format` in their results;
-- fasthep-carpenter: the ROOT writer's result and persistence specs;
-- fasthep-curator: the observers' results and persistence specs;
-- the provenance viewer reads the recorded format.
+- fasthep-flow: `model/io.py`, `runtime/artifacts.py`, `runtime/engine.py` and
+  `runtime/writer_manifests.py` (the record `kind` falls back to `format`). A report
+  output's own `format` (`png`, `html`) is a report setting and stays;
+- fasthep-render: `OutputResult(format=...)` in `api.py` and `graph/d2.py`;
+- fasthep-carpenter: `sinks/root_tree.py`;
+- fasthep-curator: the observers `branches.py` and `schema_snapshot.py`;
+- fasthep-toolbench: `cms/das.py`.
 
-`fasthep-distributed` and `fasthep-cli` only read the manifest.
+Carpenter and Curator also gain persistence specs for their products; those are new, not
+changed. Any reader of a writer manifest's `kind` or `format` (for example a provenance
+viewer) must use the storage binding instead. `fasthep-distributed` and `fasthep-cli` do
+not use the artifact `format`; they only read the manifest.
 
 ## Not covered
 
@@ -209,6 +238,6 @@ Consumers that set or read `format` change in the same stack:
 - migration of stored products between capability versions;
 - cache lookup.
 
-"Publication completeness" is the commit state of a manifest. "Lineage completeness" is
-reserved for the run artifact index and means something else: whether every product has
-its producers recorded.
+"Publication completeness" is the commit state: the manifest is present and validated.
+"Lineage completeness" is a different property and the name is reserved for the later run
+artifact index, which defines it.
