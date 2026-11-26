@@ -32,7 +32,9 @@ execution:
 | `all` | every boundary product whose kind has a registered capability |
 | `selected` | products named in `products`, and kinds whose registry boundary representation is `persist` |
 
-An entry in `products` overrides the mode (`false` never persists). A kind without a
+An entry in `products` overrides the mode (`false` never persists). Global side products (a transform with global input and output scope, run once and seeded
+into every partition) have no partition identity and are listed as `not persisted: global
+side product`. A kind without a
 capability is listed as `not persisted: no capability` in the backend summary
 (`summary["persistence"]`), never skipped silently; asking for it explicitly is an error.
 A kind with several capabilities needs a name in `products`.
@@ -53,8 +55,9 @@ product of the partition can be reused (`summary["persistence"]["consumed"]` lis
 Anything else, including a corrupt set, runs the producers. Until the semantic plan hash of
 [fasthep-flow#105](https://github.com/FAST-HEP/fasthep-flow/issues/105) exists, the
 `plan_hash` is a hash of the plan's nodes, partitions (file and event range), dataset
-metadata, the registry's product handlers, the execution settings (not `persistence`) and
-the execution hooks. Code behind an unchanged `impl` name is not covered.
+metadata, the registry's product handlers, the execution `partitioning` and `file_access`
+and the execution hooks. The backend, strategy, pools, resources and environment are not
+in it, so a run that died on a cluster can restart with other worker settings. Code behind an unchanged `impl` name is not covered.
 
 `hepflow.api.restore_products(manifest, registry=None, ledger=None, store=None)` restores
 a published set in another process (see "Restoring").

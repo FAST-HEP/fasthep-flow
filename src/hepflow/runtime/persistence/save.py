@@ -55,7 +55,8 @@ def provisional_plan_hash(plan: ExecutionPlan) -> str:
     """Hash of what decides a product, until the semantic plan hash of flow#105 exists.
 
     Nodes, partitions (file and event range), dataset metadata, the registry's product
-    handlers, execution settings (not ``persistence``) and execution hooks. Code behind an
+    handlers, the execution ``partitioning`` and ``file_access`` and the execution hooks
+    (not the backend, strategy, pools, resources, environment or ``persistence``). Code behind an
     unchanged ``impl`` name is not covered.
     """
     payload = json.dumps(
@@ -64,10 +65,10 @@ def provisional_plan_hash(plan: ExecutionPlan) -> str:
             "partitions": [partition.to_dict() for partition in plan.partitions],
             "datasets": plan.context.get("datasets"),
             "product_handlers": plan.registry.get("product_handlers"),
+            # only what decides which events a product holds; backend, strategy, pools,
+            # environment, resources and other run-time settings may change on a restart
             "execution": {
-                key: value
-                for key, value in plan.execution.items()
-                if key != "persistence"
+                key: plan.execution.get(key) for key in ("partitioning", "file_access")
             },
             "execution_hooks": plan.execution_hooks,
         },
