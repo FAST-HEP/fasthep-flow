@@ -281,10 +281,13 @@ Code that sets or reads the artifact `format` changes in the same stack:
 - fasthep-flow: `model/io.py`, `runtime/artifacts.py`, `runtime/engine.py` and
   `runtime/writer_manifests.py` (the record `kind` falls back to `format`). A report
   output's own `format` (`png`, `html`) is a report setting and stays;
-- fasthep-render: `OutputResult(format=...)` in `api.py` and `graph/d2.py`;
+- fasthep-render: `OutputResult(format=...)` in `api.py`, `reports/template.py` and
+  `reports/schema_validation.py` (`graph/d2.py` has its own render `format` parameter and
+  is unaffected);
 - fasthep-carpenter: `sinks/root_tree.py`;
-- fasthep-curator: the observers `branches.py` and `schema_snapshot.py`;
-- fasthep-toolbench: `cms/das.py`.
+- fasthep-curator: the observers `branches.py` and `schema_snapshot.py`.
+
+fasthep-toolbench does not use it (its `format` is a DAS client argument).
 
 Carpenter and Curator also gain persistence specs for their products; those are new, not
 changed. Any reader of a writer manifest's `kind` or `format` (for example a provenance
