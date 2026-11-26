@@ -17,6 +17,9 @@ more ordered artifact references. For a partitioned ROOT skim, the default
 dataset product is therefore a manifest of ROOT part files, not one merged ROOT
 file.
 
+How a product is saved and restored in another process, with its provenance, is the
+[product persistence schema](persistence.md).
+
 ## Artifact Locations
 
 A location is one string. Flow stores it as one of three kinds, and `path_type` is
