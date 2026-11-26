@@ -1458,12 +1458,11 @@ def _normalize_artifact_dict(
         and isinstance(result.get("path"), str)
     ):
         metadata = {
-            key: value for key, value in result.items() if key not in {"path", "format"}
+            key: value for key, value in result.items() if key != "path"
         }
         return OutputResult(
             kind="artifact",
             path=str(result["path"]),
-            format=result.get("format"),
             metadata=metadata,
             producer_node=node_id,
             output_name=output_name,

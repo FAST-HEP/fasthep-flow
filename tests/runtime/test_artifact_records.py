@@ -35,7 +35,6 @@ def _group(
             OutputResult(
                 kind="artifact",
                 path=location,
-                format="png",
                 producer_node=NODE,
                 output_name="artifact",
                 dataset_name=dataset,
@@ -45,7 +44,6 @@ def _group(
         )
     manifest = ArtifactManifest(
         product_kind="artifact",
-        format=None,
         producer_node=NODE,
         output_name="artifact",
         dataset_name=None,

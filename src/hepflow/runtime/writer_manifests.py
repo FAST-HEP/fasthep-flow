@@ -137,7 +137,6 @@ def _artifact_record_from_output(
         "kind": str(
             output.metadata.get("artifact_kind")
             or output.metadata.get("kind")
-            or output.format
             or output.kind
         ),
         "node_id": str(getattr(node, "id", "")),

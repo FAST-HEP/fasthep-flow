@@ -44,7 +44,6 @@ def _fake_root_writer(calls: list[dict[str, Any]]) -> Any:
         return OutputResult(
             kind="artifact",
             path=str(output),
-            format="root",
             producer_node="write.Selected",
             output_name="artifact",
             dataset_name=partition.get("dataset"),

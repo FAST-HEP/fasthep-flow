@@ -48,7 +48,6 @@ def test_manifest_root_round_trip() -> None:
     part = ArtifactReference(uri="p/0.png", product_kind="artifact")
     manifest = ArtifactManifest(
         product_kind="artifact",
-        format=None,
         producer_node="n",
         output_name="artifact",
         dataset_name=None,
@@ -63,7 +62,6 @@ def test_manifest_root_round_trip() -> None:
 def test_manifest_root_defaults_to_none() -> None:
     manifest = ArtifactManifest(
         product_kind="artifact",
-        format=None,
         producer_node="n",
         output_name="artifact",
         dataset_name=None,

@@ -6,6 +6,7 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 from hepflow.compiler.input_paths import is_uri
+from hepflow.model.persistence import StorageBinding
 
 PathType = Literal["relative_to_outdir", "absolute", "uri"]
 
@@ -28,7 +29,6 @@ class ArtifactReference:
 
     uri: str
     product_kind: str
-    format: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     provenance: dict[str, Any] = field(default_factory=dict)
     producer_node: str | None = None
@@ -39,6 +39,7 @@ class ArtifactReference:
     size_bytes: int | None = None
     adler32: str | None = None
     delivery: str | None = None
+    storage: StorageBinding | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.uri, str) or not self.uri.strip():
@@ -102,7 +103,6 @@ class ArtifactReference:
                 "type": "artifact_reference",
                 "uri": self.uri,
                 "product_kind": self.product_kind,
-                "format": self.format,
                 "producer_node": self.producer_node,
                 "output_name": self.output_name,
                 "dataset_name": self.dataset_name,
@@ -112,6 +112,7 @@ class ArtifactReference:
                 "size_bytes": self.size_bytes,
                 "adler32": self.adler32,
                 "delivery": self.delivery,
+                "storage": self.storage.to_dict() if self.storage else None,
                 "metadata": dict(self.metadata),
                 "provenance": dict(self.provenance),
             }
@@ -122,7 +123,6 @@ class ArtifactReference:
         return cls(
             uri=str(data.get("uri") or data.get("path") or ""),
             product_kind=str(data.get("product_kind") or data.get("kind") or ""),
-            format=data.get("format"),
             metadata=dict(data.get("metadata") or {}),
             provenance=dict(data.get("provenance") or {}),
             producer_node=data.get("producer_node") or data.get("node_id"),
@@ -133,6 +133,11 @@ class ArtifactReference:
             size_bytes=data.get("size_bytes"),
             adler32=data.get("adler32"),
             delivery=data.get("delivery"),
+            storage=(
+                StorageBinding.from_dict(dict(data["storage"]))
+                if data.get("storage")
+                else None
+            ),
         )
 
 
@@ -144,7 +149,6 @@ class OutputResult(ArtifactReference):
         *,
         kind: str,
         path: str,
-        format: str | None = None,
         metadata: dict[str, Any] | None = None,
         provenance: dict[str, Any] | None = None,
         producer_node: str | None = None,
@@ -155,11 +159,11 @@ class OutputResult(ArtifactReference):
         size_bytes: int | None = None,
         adler32: str | None = None,
         delivery: str | None = None,
+        storage: StorageBinding | None = None,
     ) -> None:
         super().__init__(
             uri=path,
             product_kind=kind,
-            format=format,
             metadata=dict(metadata or {}),
             provenance=dict(provenance or {}),
             producer_node=producer_node,
@@ -170,13 +174,13 @@ class OutputResult(ArtifactReference):
             size_bytes=size_bytes,
             adler32=adler32,
             delivery=delivery,
+            storage=storage,
         )
 
 
 @dataclass(frozen=True, slots=True)
 class ArtifactManifest:
     product_kind: str
-    format: str | None
     producer_node: str
     output_name: str
     dataset_name: str | None
@@ -202,7 +206,6 @@ class ArtifactManifest:
             {
                 "type": "artifact_manifest",
                 "product_kind": self.product_kind,
-                "format": self.format,
                 "producer_node": self.producer_node,
                 "output_name": self.output_name,
                 "dataset_name": self.dataset_name,
@@ -216,7 +219,6 @@ class ArtifactManifest:
     def from_dict(cls, data: dict[str, Any]) -> ArtifactManifest:
         return cls(
             product_kind=str(data.get("product_kind") or data.get("kind") or ""),
-            format=data.get("format"),
             producer_node=str(data.get("producer_node") or data.get("node_id") or ""),
             output_name=str(data.get("output_name") or ""),
             dataset_name=data.get("dataset_name") or data.get("dataset"),

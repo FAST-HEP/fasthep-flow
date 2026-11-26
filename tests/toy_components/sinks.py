@@ -108,7 +108,6 @@ def run_toy_write_manifest(
     return OutputResult(
         kind="artifact",
         path=str(output_path),
-        format="toy",
         producer_node=node_id,
         output_name="artifact",
         dataset_name=dataset,

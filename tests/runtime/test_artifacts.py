@@ -14,7 +14,6 @@ def test_artifact_reference_contract_serializes_metadata_and_remote_uri() -> Non
     ref = ArtifactReference(
         uri="s3://bucket/skims/data/part-0.root",
         product_kind="root_tree",
-        format="rntuple",
         producer_node="write.Selected",
         output_name="artifact",
         dataset_name="data",
@@ -39,7 +38,6 @@ def test_artifact_manifest_contract_is_read_only_and_serializable() -> None:
     ref = _reference(dataset="data", partition_index=0)
     manifest = ArtifactManifest(
         product_kind="root_tree",
-        format="rntuple",
         producer_node="write.Selected",
         output_name="artifact",
         dataset_name="data",
@@ -82,7 +80,6 @@ def test_artifact_merge_produces_ordered_dataset_manifest_without_file_io() -> N
 def test_artifact_merge_flattens_nested_manifests() -> None:
     first = ArtifactManifest(
         product_kind="root_tree",
-        format="rntuple",
         producer_node="write.Selected",
         output_name="artifact",
         dataset_name="data",
@@ -128,11 +125,6 @@ def test_artifact_merge_rejects_incompatible_sets(
             _reference(dataset="data", producer_node="write.Other", partition_index=1),
             _reference(dataset="data", partition_index=0),
             "producer nodes",
-        ),
-        (
-            _reference(dataset="data", format="ttree", partition_index=1),
-            _reference(dataset="data", partition_index=0),
-            "formats",
         ),
         (
             _reference(dataset="data", partition_id="same", partition_index=0),
@@ -183,7 +175,6 @@ def test_writer_manifest_accepts_dataset_artifact_manifest(tmp_path) -> None:
     )
     manifest = ArtifactManifest(
         product_kind="root_tree",
-        format="rntuple",
         producer_node="write.Selected",
         output_name="artifact",
         dataset_name="data",
@@ -212,12 +203,10 @@ def _reference(
     partition_index: int,
     partition_id: str | None = None,
     producer_node: str = "write.Selected",
-    format: str = "rntuple",
 ) -> ArtifactReference:
     return ArtifactReference(
         uri=f"root://store/{dataset}/part-{partition_index}.root",
         product_kind="root_tree",
-        format=format,
         producer_node=producer_node,
         output_name="artifact",
         dataset_name=dataset,
@@ -237,7 +226,6 @@ def _writer_reference(
     return OutputResult(
         kind="artifact",
         path=path,
-        format="root",
         producer_node="write.Selected",
         output_name="artifact",
         dataset_name=dataset,

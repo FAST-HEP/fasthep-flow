@@ -265,7 +265,9 @@ def _output_record(report_id: str, output: OutputResult) -> dict[str, Any]:
     return {
         "report_id": report_id,
         "path": str(output.path),
-        "format": output.format,
+        "format": str(
+            output.metadata.get("format") or Path(output.path).suffix.lstrip(".")
+        ),
         "kind": output.kind,
     }
 
