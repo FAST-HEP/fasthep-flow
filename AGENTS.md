@@ -206,6 +206,20 @@ artifacts/files/dimuon_candidates/
 └── manifest.json
 ```
 
+## Product Persistence
+
+`docs/execution/persistence.md` is the schema. `model/persistence.py` holds the typed
+records (`StorageBinding`, `PersistenceCapability`, `PersistenceSettings`),
+`model/product_manifest.py` the result manifest, `runtime/persistence/` the work:
+`select.py` (which products), `save.py` (write and publish), `manifest.py` (commit-marker
+manifest, checksums), `evidence.py`, `restore.py` and `reuse.py` (restart). Persistence is
+off unless `execution.persistence.mode` is `all` or `selected`; the engine hooks are in
+`execute_plan_locally` (reuse, then save, per partition). Capabilities are registered under
+`product_handlers.<kind>.persistence.formats.<name>` with dotted `save`/`load` callables.
+Flow ships no domain codec: the histogram and diagnostic codecs live in carpenter and
+curator, and tests use `tests/toy_components/persistence.py`. Restore failures are the ten
+named errors in `runtime/persistence/errors.py`, each carrying producer, output and kind.
+
 ## Testing Expectations
 
 - Compiler changes usually need focused tests in `tests/compiler/` covering

@@ -171,7 +171,7 @@ def test_run_manifest_records_the_uri_and_checksum(tmp_path: Path) -> None:
         tmp_path / "build" / "artifacts" / "files" / "Selected" / "manifest.json"
     )
     payload = json.loads(published.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "2"
+    assert payload["schema_version"] == "3"
     assert "destination" not in payload
     [entry] = payload["datasets"]["ds"]["files"]
     assert entry["path"] == DESTINATION + "ds/0_0.root"

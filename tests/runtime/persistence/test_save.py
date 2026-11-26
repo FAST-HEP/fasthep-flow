@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 import yaml
+from tests.toy_components.persistence import KIND_CFG, persistence_workflow
 
 from hepflow.api import compile_workflow_file
 from hepflow.model.persistence import PersistenceSettings
@@ -15,22 +16,6 @@ from hepflow.registry.loaders import runtime_registry_from_config
 from hepflow.runtime.engine import execute_plan_locally
 from hepflow.runtime.persistence.manifest import read_manifest
 from hepflow.runtime.persistence.select import resolve_persistence
-
-TOY = "tests.toy_components.persistence"
-KIND_CFG = {
-    "persistence": {
-        "formats": {
-            "toy.counts": {
-                "version": "1",
-                "container": "json",
-                "payload_roles": ["data"],
-                "fidelity": "exact",
-                "save": f"{TOY}:save_toy_counts",
-                "load": f"{TOY}:load_toy_counts",
-            }
-        }
-    }
-}
 
 
 def _registry(*, representation: str = "value", with_capability: bool = True) -> Any:
@@ -113,39 +98,14 @@ def test_mode_off_overrides_a_kind_default() -> None:
     assert selection.persisted == {}
 
 
-def _workflow(toy_workflow: dict[str, Any], persistence: dict[str, Any] | None) -> Any:
-    execution: dict[str, Any] = {"persistence": persistence} if persistence else {}
-    return {
-        **toy_workflow,
-        "data": {
-            "datasets": [{"name": "toydata", "files": ["toy://events"], "nevents": 4}]
-        },
-        "execution": execution,
-        "registry": {
-            **toy_workflow["registry"],
-            "product_handlers": {
-                "histogram": {
-                    "boundary": {"retain": True, "representation": "value"},
-                    "combine": "tests.toy_components.transforms:combine_toy_histograms",
-                    "merge": "tests.toy_components.transforms:merge_toy_histograms",
-                    **KIND_CFG,
-                }
-            },
-        },
-        "analysis": {
-            "stages": [
-                {"id": "RecoilHist", "op": "hep.hist", "params": {"name": "recoil"}}
-            ]
-        },
-    }
-
-
 def _run(
     toy_workflow: dict[str, Any], tmp_path: Path, persistence: dict[str, Any] | None
 ) -> tuple[ExecutionPlan, Any]:
     path = tmp_path / "workflow.yaml"
     path.write_text(
-        yaml.safe_dump(_workflow(toy_workflow, persistence), sort_keys=False),
+        yaml.safe_dump(
+            persistence_workflow(toy_workflow, persistence), sort_keys=False
+        ),
         encoding="utf-8",
     )
     plan = compile_workflow_file(path, outdir=tmp_path / "build", chunk_size=2)
@@ -208,7 +168,9 @@ def test_backend_summary_lists_persisted_and_unpersisted_products(
 
     path = tmp_path / "workflow.yaml"
     path.write_text(
-        yaml.safe_dump(_workflow(toy_workflow, {"mode": "all"}), sort_keys=False),
+        yaml.safe_dump(
+            persistence_workflow(toy_workflow, {"mode": "all"}), sort_keys=False
+        ),
         encoding="utf-8",
     )
     plan = compile_workflow_file(path, outdir=tmp_path / "build", chunk_size=2)

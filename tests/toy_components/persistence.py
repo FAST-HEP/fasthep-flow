@@ -107,3 +107,49 @@ def publish_toy_set(
         outdir=tmp_path,
     )
     return Path(saved.metadata["persisted"])
+
+
+TOY = "tests.toy_components.persistence"
+KIND_CFG = {
+    "persistence": {
+        "formats": {
+            "toy.counts": {
+                "version": "1",
+                "container": "json",
+                "payload_roles": ["data"],
+                "fidelity": "exact",
+                "save": f"{TOY}:save_toy_counts",
+                "load": f"{TOY}:load_toy_counts",
+            }
+        }
+    }
+}
+
+
+def persistence_workflow(
+    toy_workflow: dict[str, Any], persistence: dict[str, Any] | None
+) -> Any:
+    execution: dict[str, Any] = {"persistence": persistence} if persistence else {}
+    return {
+        **toy_workflow,
+        "data": {
+            "datasets": [{"name": "toydata", "files": ["toy://events"], "nevents": 4}]
+        },
+        "execution": execution,
+        "registry": {
+            **toy_workflow["registry"],
+            "product_handlers": {
+                "histogram": {
+                    "boundary": {"retain": True, "representation": "value"},
+                    "combine": "tests.toy_components.transforms:combine_toy_histograms",
+                    "merge": "tests.toy_components.transforms:merge_toy_histograms",
+                    **KIND_CFG,
+                }
+            },
+        },
+        "analysis": {
+            "stages": [
+                {"id": "RecoilHist", "op": "hep.hist", "params": {"name": "recoil"}}
+            ]
+        },
+    }

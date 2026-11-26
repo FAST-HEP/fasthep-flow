@@ -318,7 +318,7 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
             encoding="utf-8"
         )
     )
-    assert provenance_manifest["version"] == "2.0"
+    assert provenance_manifest["version"] == "3.0"
     assert provenance_manifest["run_id"] == "run-123"
     assert provenance_manifest["execution"] == "artifacts/provenance/execution.json"
     assert provenance_manifest["records"] == [
@@ -340,7 +340,7 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
     assert output.metadata["writer_manifest"]["provenance"] == writer_file["provenance"]
 
     execution = json.loads((tmp_path / provenance_manifest["execution"]).read_text())
-    assert execution["version"] == "2.0"
+    assert execution["version"] == "3.0"
     assert execution["run_id"] == "run-123"
     assert execution["workflow"] == {
         "normalized": "compile/normalized.yaml",

@@ -14,7 +14,7 @@ from hepflow.runtime.provenance import (
     write_artifact_provenance_records,
 )
 
-WRITER_MANIFEST_SCHEMA_VERSION = "2"
+WRITER_MANIFEST_SCHEMA_VERSION = "3"
 
 
 def write_writer_manifests(

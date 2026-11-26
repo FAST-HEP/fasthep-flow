@@ -53,14 +53,15 @@ def provisional_plan_hash(plan: ExecutionPlan) -> str:
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def product_folder(root: Path, product: BoundaryProduct) -> Path:
+def product_folder(
+    root: Path,
+    node_id: str,
+    output_name: str,
+    dataset: str | None,
+    partition_id: str | None,
+) -> Path:
     """``<root>/<node>/<output>/<dataset or _>/<partition>``, path-safe."""
-    parts = (
-        product.node_id,
-        product.output_name,
-        product.dataset or "_",
-        product.partition_id or "_",
-    )
+    parts = (node_id, output_name, dataset or "_", partition_id or "_")
     return root.joinpath(*(_safe(part) for part in parts))
 
 
@@ -85,7 +86,13 @@ def persist_boundary_products(
         if capability is None or capability.save is None:
             saved.append(product)
             continue
-        folder = product_folder(root, product)
+        folder = product_folder(
+            root,
+            product.node_id,
+            product.output_name,
+            product.dataset,
+            product.partition_id,
+        )
         manifest = _save_one(
             product,
             capability,

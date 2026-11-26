@@ -41,3 +41,12 @@ def test_root_may_be_a_uri() -> None:
         {"persistence": {"mode": "all", "root": "root://eos.example//store/p"}}
     )
     assert settings.root == "root://eos.example//store/p"
+
+
+def test_reuse_is_recorded_and_must_be_boolean() -> None:
+    execution = normalize_global_execution(
+        {"persistence": {"mode": "all", "reuse": True}}
+    )
+    assert execution["persistence"] == {"mode": "all", "reuse": True}
+    with pytest.raises(ValueError, match="reuse must be a boolean"):
+        normalize_global_execution({"persistence": {"mode": "all", "reuse": "yes"}})

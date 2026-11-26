@@ -136,12 +136,15 @@ class PersistenceSettings:
     kind has a capability. ``selected`` persists products chosen in ``products`` and kinds
     whose registry boundary representation is ``persist``. An entry of ``products`` (key
     ``<node id>:<output name>``) overrides the mode: ``false`` never, ``true`` with the
-    kind's only capability, a string with that capability.
+    kind's only capability, a string with that capability. ``reuse`` lets a restarted run
+    take a partition's products from published sets of the same plan instead of running the
+    producers again (restart, not a cache: no lookup across plans).
     """
 
     mode: str = "off"
     root: str | None = None
     products: Mapping[str, bool | str] = field(default_factory=dict)
+    reuse: bool = False
 
     @classmethod
     def from_execution(cls, execution: Mapping[str, Any] | None) -> PersistenceSettings:
@@ -155,11 +158,11 @@ def normalize_persistence(raw: Any) -> dict[str, Any]:
         return {}
     if not isinstance(raw, dict):
         raise ValueError("execution.persistence must be a mapping")
-    unknown = set(raw) - {"mode", "root", "products"}
+    unknown = set(raw) - {"mode", "root", "products", "reuse"}
     if unknown:
         raise ValueError(
             f"execution.persistence has unknown keys {sorted(unknown)}; "
-            "allowed: mode, root, products"
+            "allowed: mode, root, products, reuse"
         )
     mode = raw.get("mode", "off")
     if mode not in PERSISTENCE_MODES:
@@ -183,9 +186,14 @@ def normalize_persistence(raw: Any) -> dict[str, Any]:
                 f"execution.persistence.products[{key!r}] must be true, false or a "
                 "capability name"
             )
+    reuse = raw.get("reuse", False)
+    if not isinstance(reuse, bool):
+        raise ValueError("execution.persistence.reuse must be a boolean")
     if mode == "off":
         return {}
     result: dict[str, Any] = {"mode": mode}
+    if reuse:
+        result["reuse"] = True
     if root is not None:
         result["root"] = root.strip()
     if products:

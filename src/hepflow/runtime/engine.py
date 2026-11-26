@@ -55,6 +55,8 @@ from hepflow.runtime.handlers import (
 )
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
 from hepflow.runtime.materialize import materialize_final_products
+from hepflow.runtime.persistence.evidence import EvidenceLedger
+from hepflow.runtime.persistence.reuse import reuse_partition_products
 from hepflow.runtime.persistence.save import persist_boundary_products
 from hepflow.runtime.persistence.select import resolve_persistence
 from hepflow.runtime.products import product_bindings, register_product_bindings
@@ -430,6 +432,7 @@ def execute_plan_locally(
     )
     base_ctx["_persistence"] = persistence_selection.to_dict()
     attempt_id = str(base_ctx.setdefault("_attempt_id", uuid.uuid4().hex))
+    evidence_ledger = EvidenceLedger()
     global_side_values = execute_global_side_product_nodes(
         plan,
         ctx=base_ctx,
@@ -454,32 +457,44 @@ def execute_plan_locally(
             if progress is not None:
                 progress.running(partition.id)
             try:
-                value_store = execute_plan_partition(
+                boundary_products = reuse_partition_products(
                     plan,
-                    ctx=partition_ctx,
-                    registry_cfg=registry_cfg,
-                    initial_values=partition_initial_values,
-                    skip_roles=skip_roles,
-                    hook_manager=hook_manager,
-                )
-                boundary_products = extract_boundary_products(
-                    plan,
-                    value_store,
-                    partition=partition,
+                    partition,
                     boundary=boundary_plan,
-                    runtime_registry=runtime_registry,
-                    ctx=partition_ctx,
-                )
-                boundary_products = persist_boundary_products(
-                    boundary_products,
-                    persistence_selection,
-                    plan=plan,
+                    selection=persistence_selection,
                     settings=persistence_settings,
+                    registry=runtime_registry,
                     outdir=str(base_ctx.get("outdir") or "."),
+                    ledger=evidence_ledger,
                     store=recorder.store,
-                    attempt_id=attempt_id,
                 )
-                del value_store
+                if boundary_products is None:
+                    value_store = execute_plan_partition(
+                        plan,
+                        ctx=partition_ctx,
+                        registry_cfg=registry_cfg,
+                        initial_values=partition_initial_values,
+                        skip_roles=skip_roles,
+                        hook_manager=hook_manager,
+                    )
+                    boundary_products = extract_boundary_products(
+                        plan,
+                        value_store,
+                        partition=partition,
+                        boundary=boundary_plan,
+                        runtime_registry=runtime_registry,
+                        ctx=partition_ctx,
+                    )
+                    boundary_products = persist_boundary_products(
+                        boundary_products,
+                        persistence_selection,
+                        plan=plan,
+                        settings=persistence_settings,
+                        outdir=str(base_ctx.get("outdir") or "."),
+                        store=recorder.store,
+                        attempt_id=attempt_id,
+                    )
+                    del value_store
                 boundary_result = PartitionBoundaryResult(
                     partition=partition,
                     products=boundary_products,
