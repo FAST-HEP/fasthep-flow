@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
@@ -428,6 +429,7 @@ def execute_plan_locally(
         boundary_plan, runtime_registry, persistence_settings
     )
     base_ctx["_persistence"] = persistence_selection.to_dict()
+    attempt_id = str(base_ctx.setdefault("_attempt_id", uuid.uuid4().hex))
     global_side_values = execute_global_side_product_nodes(
         plan,
         ctx=base_ctx,
@@ -474,6 +476,8 @@ def execute_plan_locally(
                     plan=plan,
                     settings=persistence_settings,
                     outdir=str(base_ctx.get("outdir") or "."),
+                    store=recorder.store,
+                    attempt_id=attempt_id,
                 )
                 del value_store
                 boundary_result = PartitionBoundaryResult(

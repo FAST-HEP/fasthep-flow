@@ -17,7 +17,13 @@ from hepflow.runtime.persistence.errors import (
     UnsupportedVersion,
     VariantMismatch,
 )
+from hepflow.runtime.persistence.evidence import (
+    EvidenceLedger,
+    import_evidence,
+    record_consumption,
+)
 from hepflow.runtime.persistence.manifest import read_manifest
+from hepflow.runtime.provenance.store import ProvenanceStore
 
 ProductKey = tuple[str, str, str | None, str]
 
@@ -29,10 +35,15 @@ class RestoredProducts:
     manifest: ProductManifest
     products: dict[ProductKey, Any] = field(default_factory=dict)
     evidence: dict[str, Any] = field(default_factory=dict)
+    ledger: EvidenceLedger = field(default_factory=EvidenceLedger)
 
 
 def restore_manifest(
-    manifest_path: Path, registry: RuntimeRegistry
+    manifest_path: Path,
+    registry: RuntimeRegistry,
+    *,
+    ledger: EvidenceLedger | None = None,
+    store: ProvenanceStore | None = None,
 ) -> RestoredProducts:
     """Validate the manifest, resolve each reader exactly, verify payloads, load.
 
@@ -58,6 +69,17 @@ def restore_manifest(
         )
         key = (entry.producer_node, entry.output_name, entry.dataset_name, entry.scope)
         restored.products[key] = value
+    ledger = ledger if ledger is not None else EvidenceLedger()
+    import_evidence(ledger, restored.evidence, store=store)
+    record_consumption(
+        ledger,
+        manifest=str(manifest_path),
+        identities=[
+            {"producer_node": e.producer_node, "output_name": e.output_name}
+            for e in manifest.products
+        ],
+    )
+    restored.ledger = ledger
     return restored
 
 

@@ -219,3 +219,20 @@ def test_backend_summary_lists_persisted_and_unpersisted_products(
     assert [(p["node"], p["capability"]) for p in persisted] == [
         ("stage.RecoilHist", "toy.counts")
     ]
+
+
+def test_published_evidence_names_the_producing_partition(
+    toy_workflow: dict[str, Any], tmp_path: Path
+) -> None:
+    _run(toy_workflow, tmp_path, {"mode": "all"})
+
+    manifests = sorted(
+        (tmp_path / "build" / "artifacts" / "products").rglob("manifest.json")
+    )
+    evidence = json.loads((manifests[0].parent / "evidence.json").read_text())
+    assert evidence["identity"]["producer_node"] == "stage.RecoilHist"
+    assert evidence["attempt"]["status"] == "succeeded"
+    # toy operations record no executions; the extraction itself is covered in
+    # test_evidence_import.test_build_evidence_collects_the_partition_execution_and_resources
+    assert evidence["identity"]["partition_id"] == manifests[0].parent.name
+    assert isinstance(evidence["executions"], dict)

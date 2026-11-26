@@ -7,7 +7,17 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from hepflow.model.persistence import SavedPayload, SaveOutcome
+from hepflow.model.persistence import (
+    PersistenceCapability,
+    PersistenceSettings,
+    SavedPayload,
+    SaveOutcome,
+)
+from hepflow.model.plan import ExecutionPlan
+from hepflow.model.products import BoundaryProduct, ProductHandlerEntry
+from hepflow.registry.runtime import RuntimeRegistry
+from hepflow.runtime.persistence.save import persist_boundary_products
+from hepflow.runtime.persistence.select import PersistenceSelection
 
 
 def save_toy_counts(
@@ -46,3 +56,54 @@ def load_echo_params(
         "params": dict(params),
         "variant": variant,
     }
+
+
+def toy_capability(**overrides: Any) -> PersistenceCapability:
+    fields: dict[str, Any] = {
+        "name": "toy.counts",
+        "version": "1",
+        "kind": "histogram",
+        "container": "json",
+        "payload_roles": ("data",),
+        "fidelity": "exact",
+        "save": save_toy_counts,
+        "load": load_echo_params,
+        "variants": (),
+        "params": {"save": {"indent": 2}, "load": {"scale": 1}},
+    }
+    fields.update(overrides)
+    return PersistenceCapability(**fields)
+
+
+def registry_with(*capabilities: PersistenceCapability) -> RuntimeRegistry:
+    handlers: dict[str, ProductHandlerEntry] = {}
+    for capability in capabilities:
+        entry = handlers.get(capability.kind, ProductHandlerEntry())
+        handlers[capability.kind] = ProductHandlerEntry(
+            persistence={**entry.persistence, capability.name: capability}
+        )
+    return RuntimeRegistry(product_handlers=handlers)
+
+
+def publish_toy_set(
+    tmp_path: Path, capability: PersistenceCapability | None = None
+) -> Path:
+    capability = capability or toy_capability()
+    product = BoundaryProduct(
+        node_id="stage.Fill",
+        output_name="hist",
+        kind="histogram",
+        dataset="Zmumu",
+        partition_id="p0",
+        representation="persist",
+        value={"entries": 3},
+    )
+    selection = PersistenceSelection(persisted={product.key(): capability})
+    [saved] = persist_boundary_products(
+        [product],
+        selection,
+        plan=ExecutionPlan(),
+        settings=PersistenceSettings(mode="all"),
+        outdir=tmp_path,
+    )
+    return Path(saved.metadata["persisted"])

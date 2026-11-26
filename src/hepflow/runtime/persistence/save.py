@@ -20,8 +20,10 @@ from hepflow.model.persistence import (
 from hepflow.model.plan import ExecutionPlan
 from hepflow.model.product_manifest import ProductEntry
 from hepflow.model.products import BoundaryProduct
+from hepflow.runtime.persistence.evidence import build_evidence, forbid_credentials
 from hepflow.runtime.persistence.manifest import describe_payload, write_product_set
 from hepflow.runtime.persistence.select import PersistenceSelection
+from hepflow.runtime.provenance.store import ProvenanceStore
 
 DEFAULT_ROOT = Path("artifacts") / "products"
 
@@ -69,7 +71,8 @@ def persist_boundary_products(
     plan: ExecutionPlan,
     settings: PersistenceSettings,
     outdir: str | Path,
-    evidence: dict[str, Any] | None = None,
+    store: ProvenanceStore | None = None,
+    attempt_id: str = "attempt-1",
 ) -> list[BoundaryProduct]:
     """Save the selected products; return the products with their manifest recorded."""
     if not selection.persisted:
@@ -84,7 +87,13 @@ def persist_boundary_products(
             continue
         folder = product_folder(root, product)
         manifest = _save_one(
-            product, capability, folder, plan_hash, evidence or {}, outdir=outdir
+            product,
+            capability,
+            folder,
+            plan_hash,
+            store or ProvenanceStore(),
+            attempt_id,
+            outdir=outdir,
         )
         saved.append(
             replace(
@@ -100,7 +109,8 @@ def _save_one(
     capability: PersistenceCapability,
     folder: Path,
     plan_hash: str,
-    evidence: dict[str, Any],
+    store: ProvenanceStore,
+    attempt_id: str,
     *,
     outdir: str | Path,
 ) -> Path:
@@ -114,6 +124,13 @@ def _save_one(
     }
     save_params = dict(dict(capability.params).get("save") or {})
     load_params = dict(dict(capability.params).get("load") or {})
+    forbid_credentials(
+        {"save": save_params, "load": load_params},
+        where="persistence params",
+        producer_node=product.node_id,
+        output_name=product.output_name,
+        kind=product.kind,
+    )
     outcome = capability.save(
         product.value, root=folder, params=save_params, identity=identity
     )
@@ -145,6 +162,9 @@ def _save_one(
         shown = str(folder.relative_to(Path(outdir)))
     except ValueError:
         shown = str(folder)
+    evidence = build_evidence(
+        store, identity=identity, attempt_id=attempt_id, status="succeeded"
+    )
     return write_product_set(folder, [entry], evidence, plan_hash=plan_hash, root=shown)
 
 
