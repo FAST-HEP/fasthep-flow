@@ -84,7 +84,7 @@ def read_manifest(path: Path) -> ProductManifest:
     path = Path(path)
     if not path.is_file():
         raise ManifestNotPublished(f"no manifest at {path}: nothing was published")
-    manifest = ProductManifest.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    manifest = _parse_manifest(json.loads(path.read_text(encoding="utf-8")))
     folder = path.parent
     if manifest.schema_version != PRODUCT_MANIFEST_SCHEMA_VERSION:
         first = manifest.products[0] if manifest.products else None
@@ -106,6 +106,27 @@ def read_manifest(path: Path) -> ProductManifest:
             kind=first.product_kind,
         )
     return manifest
+
+
+def _parse_manifest(data: dict[str, Any]) -> ProductManifest:
+    products: list[ProductEntry] = []
+    for raw in data.get("products") or []:
+        try:
+            products.append(ProductEntry.from_dict(dict(raw)))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise InvalidBinding(
+                f"product entry is malformed: {exc}",
+                producer_node=str(raw.get("producer_node", "")),
+                output_name=str(raw.get("output_name", "")),
+                kind=str(raw.get("product_kind", "")),
+            ) from exc
+    return ProductManifest(
+        schema_version=str(data.get("schema_version") or ""),
+        plan_hash=str(data.get("plan_hash", "")),
+        root=str(data.get("root", "")),
+        products=tuple(products),
+        evidence=str(data.get("evidence", "")),
+    )
 
 
 def _check_payloads(folder: Path, product: ProductEntry) -> None:

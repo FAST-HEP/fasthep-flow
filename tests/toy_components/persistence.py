@@ -30,3 +30,19 @@ def load_toy_counts(
     locator: str | None,
 ) -> Any:
     return json.loads(Path(payloads[0]).read_text(encoding="utf-8"))
+
+
+def load_echo_params(
+    root: Path,
+    payloads: Sequence[Path],
+    *,
+    params: dict[str, Any],
+    variant: str | None,
+    locator: str | None,
+) -> Any:
+    """Return the value together with the load params it was called with."""
+    return {
+        "value": json.loads(Path(payloads[0]).read_text(encoding="utf-8")),
+        "params": dict(params),
+        "variant": variant,
+    }

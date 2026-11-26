@@ -112,7 +112,11 @@ def _save_one(
         "dataset_name": product.dataset,
         "partition_id": product.partition_id,
     }
-    outcome = capability.save(product.value, root=folder, params={}, identity=identity)
+    save_params = dict(dict(capability.params).get("save") or {})
+    load_params = dict(dict(capability.params).get("load") or {})
+    outcome = capability.save(
+        product.value, root=folder, params=save_params, identity=identity
+    )
     entry = ProductEntry(
         producer_node=product.node_id,
         output_name=product.output_name,
@@ -125,8 +129,12 @@ def _save_one(
             container=capability.container,
             variant=outcome.variant,
             locator=outcome.locator,
-            save=StorageCall(_qualname(capability.save), capability.version),
-            load=StorageCall(_qualname(capability.load), capability.version),
+            save=StorageCall(
+                _qualname(capability.save), capability.version, save_params
+            ),
+            load=StorageCall(
+                _qualname(capability.load), capability.version, load_params
+            ),
         ),
         payloads=tuple(
             describe_payload(folder, payload.path, role=payload.role)
