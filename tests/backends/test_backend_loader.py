@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from hepflow.api import compile_workflow_file
 from hepflow.backends.loaders import (
@@ -36,15 +35,11 @@ def test_dask_backend_requires_fasthep_distributed_at_compile(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    write_workflow: Any,
 ) -> None:
     _force_fasthep_distributed_unavailable(monkeypatch)
-    workflow_path = _write_workflow(
-        tmp_path,
-        {
-            **toy_workflow,
-            "use": {"profiles": ["basic"]},
-            "execution": {"backend": "dask", "strategy": "local"},
-        },
+    workflow_path = write_workflow(
+        use={"profiles": ["basic"]}, execution={"backend": "dask", "strategy": "local"}
     )
 
     with pytest.raises(KeyError, match="Install fasthep-distributed"):
@@ -55,15 +50,12 @@ def test_unknown_backend_without_matching_provider_metadata_is_generic(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    write_workflow: Any,
 ) -> None:
     _force_fasthep_distributed_unavailable(monkeypatch)
-    workflow_path = _write_workflow(
-        tmp_path,
-        {
-            **toy_workflow,
-            "use": {"profiles": ["basic"]},
-            "execution": {"backend": "mystery", "strategy": "default"},
-        },
+    workflow_path = write_workflow(
+        use={"profiles": ["basic"]},
+        execution={"backend": "mystery", "strategy": "default"},
     )
 
     with pytest.raises(KeyError, match=r"Unknown backend strategy 'mystery.default'"):
@@ -74,15 +66,11 @@ def test_dask_backend_resolves_from_fasthep_distributed_profile(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    write_workflow: Any,
 ) -> None:
     _install_fake_fasthep_distributed(tmp_path, monkeypatch)
-    workflow_path = _write_workflow(
-        tmp_path,
-        {
-            **toy_workflow,
-            "use": {"profiles": ["basic"]},
-            "execution": {"backend": "dask", "strategy": "local"},
-        },
+    workflow_path = write_workflow(
+        use={"profiles": ["basic"]}, execution={"backend": "dask", "strategy": "local"}
     )
 
     plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
@@ -102,15 +90,12 @@ def test_fake_external_backend_spec_validates_and_declares_build_dirs(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    write_workflow: Any,
 ) -> None:
     _install_fake_backend_provider(tmp_path, monkeypatch)
-    workflow_path = _write_workflow(
-        tmp_path,
-        {
-            **toy_workflow,
-            "use": {"profiles": ["fake_backend:registry"]},
-            "execution": {"backend": "fake", "strategy": "cluster"},
-        },
+    workflow_path = write_workflow(
+        use={"profiles": ["fake_backend:registry"]},
+        execution={"backend": "fake", "strategy": "cluster"},
     )
 
     plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
@@ -118,9 +103,7 @@ def test_fake_external_backend_spec_validates_and_declares_build_dirs(
     assert backend_build_directories(plan.registry, plan.execution) == (
         "execution/fake/cluster",
     )
-    assert plan.provenance["backend_build_directories"] == [
-        "execution/fake/cluster"
-    ]
+    assert plan.provenance["backend_build_directories"] == ["execution/fake/cluster"]
     assert (tmp_path / "build" / "execution" / "fake" / "cluster").is_dir()
 
 
@@ -139,15 +122,11 @@ def test_dask_unsupported_strategy_errors_during_compile(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    write_workflow: Any,
 ) -> None:
     _install_fake_fasthep_distributed(tmp_path, monkeypatch)
-    workflow_path = _write_workflow(
-        tmp_path,
-        {
-            **toy_workflow,
-            "use": {"profiles": ["basic"]},
-            "execution": {"backend": "dask", "strategy": "pbs"},
-        },
+    workflow_path = write_workflow(
+        use={"profiles": ["basic"]}, execution={"backend": "dask", "strategy": "pbs"}
     )
 
     with pytest.raises(ValueError, match=r"Dask strategy 'pbs' is not implemented yet"):
@@ -158,19 +137,16 @@ def test_unsafe_backend_build_directories_are_rejected(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    write_workflow: Any,
 ) -> None:
     _install_fake_backend_provider(
         tmp_path,
         monkeypatch,
         build_directories=("../outside",),
     )
-    workflow_path = _write_workflow(
-        tmp_path,
-        {
-            **toy_workflow,
-            "use": {"profiles": ["fake_backend:registry"]},
-            "execution": {"backend": "fake", "strategy": "cluster"},
-        },
+    workflow_path = write_workflow(
+        use={"profiles": ["fake_backend:registry"]},
+        execution={"backend": "fake", "strategy": "cluster"},
     )
 
     with pytest.raises(ValueError, match="must not contain traversal"):
@@ -182,12 +158,6 @@ def test_shorthand_backend_override_splits_backend_and_strategy() -> None:
         "backend": "dask",
         "strategy": "local",
     }
-
-
-def _write_workflow(tmp_path: Path, workflow: dict[str, Any]) -> Path:
-    workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
-    return workflow_path
 
 
 def _install_fake_fasthep_distributed(
@@ -221,7 +191,7 @@ def _install_fake_fasthep_distributed(
                 "def validate_dask_execution(execution):",
                 "    strategy = execution.get('strategy', 'default')",
                 "    if strategy not in {None, '', 'default', 'local', 'htcondor', 'slurm'}:",
-                "        raise ValueError(f\"Dask strategy {strategy!r} is not implemented yet.\")",
+                '        raise ValueError(f"Dask strategy {strategy!r} is not implemented yet.")',
                 "DASK_BACKEND_SPEC = BackendSpec(",
                 "    validate_execution=validate_dask_execution,",
                 "    build_directories=(",
