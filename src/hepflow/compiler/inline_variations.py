@@ -24,9 +24,6 @@ class InlineVariationBranch:
     variation: Mapping[str, Any]
     parameter_patch: Mapping[str, Any] = dataclass_field(default_factory=dict)
     stop_before: frozenset[str] = frozenset()
-    clone_observers: bool = False
-    clone_sinks: bool = False
-    id_suffix: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +79,7 @@ def add_inline_variation_branch_to_graph(
         raise ValueError("Inline variation requires non-empty variation metadata")
 
     anchor = get_graph_node(graph, branch.anchor_node_id)
-    if not _is_cloneable_event_stream_graph_node(anchor, branch=branch):
+    if not _is_cloneable_event_stream_graph_node(anchor):
         raise ValueError(
             f"Inline variation anchor {anchor.id!r} must be an event-stream transform"
         )
@@ -99,7 +96,7 @@ def add_inline_variation_branch_to_graph(
             cloned_nodes={},
         )
 
-    suffix = branch.id_suffix or _variation_suffix(requested_variation)
+    suffix = _variation_suffix(requested_variation)
     clone_ids = {node_id: f"{node_id}@{suffix}" for node_id in clone_order}
     collisions = sorted(clone_id for clone_id in clone_ids.values() if clone_id in graph)
     if collisions:
@@ -290,9 +287,7 @@ def _variation_collection_target_stream_edge(
         upstream_id = str(upstream)
         if upstream_id not in varied_upstreams:
             continue
-        if str(edge_data.get("output") or "stream") != "stream":
-            continue
-        if str(edge_data.get("input_name") or "stream") == "dependency":
+        if not _is_stream_edge(edge_data):
             continue
         candidates.append((upstream_id, dict(edge_data)))
     if not candidates:
@@ -359,7 +354,7 @@ def _inline_graph_clone_order(
         ):
             continue
         node = get_graph_node(graph, node_id)
-        if not _is_cloneable_event_stream_graph_node(node, branch=branch):
+        if not _is_cloneable_event_stream_graph_node(node):
             continue
         if _clone_applicability_is_empty(node.meta, branch.variation):
             upstream_id = _single_stream_input(graph, node_id)
@@ -371,12 +366,19 @@ def _inline_graph_clone_order(
     return clone_order, bypassed
 
 
+def _is_stream_edge(edge_data: Mapping[str, Any]) -> bool:
+    """An event-stream edge: the output is the stream and the input is not a dependency."""
+    return (
+        str(edge_data.get("output") or "stream") == "stream"
+        and str(edge_data.get("input_name") or "stream") != "dependency"
+    )
+
+
 def _single_stream_input(graph: nx.DiGraph, node_id: str) -> str | None:
     upstreams = {
         str(upstream)
         for upstream, _, edge_data in graph.in_edges(node_id, data=True)
-        if str(edge_data.get("output") or "stream") == "stream"
-        and str(edge_data.get("input_name") or "stream") != "dependency"
+        if _is_stream_edge(edge_data)
     }
     return next(iter(upstreams)) if len(upstreams) == 1 else None
 
@@ -388,24 +390,13 @@ def _has_cloned_event_stream_graph_input(
 ) -> bool:
     return any(
         str(upstream) in cloned
-        and str(edge_data.get("output") or "stream") == "stream"
-        and str(edge_data.get("input_name") or "stream") != "dependency"
+        and _is_stream_edge(edge_data)
         for upstream, _, edge_data in graph.in_edges(node_id, data=True)
     )
 
 
-def _is_cloneable_event_stream_graph_node(
-    node: GraphNode,
-    *,
-    branch: InlineVariationBranch,
-) -> bool:
-    if node.role == "transform":
-        return node.outputs.get("stream") == "event_stream"
-    if node.role == "observer":
-        return branch.clone_observers
-    if node.role == "sink":
-        return branch.clone_sinks
-    return False
+def _is_cloneable_event_stream_graph_node(node: GraphNode) -> bool:
+    return node.role == "transform" and node.outputs.get("stream") == "event_stream"
 
 
 def _clone_graph_node(
