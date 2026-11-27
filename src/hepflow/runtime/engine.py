@@ -351,6 +351,14 @@ def _operation_context(
             ctx.pop("node_id", None)
 
 
+class PlanChangedDuringRun(RuntimeError):
+    """An operation, hook or sink changed the plan after it was compiled.
+
+    Operations read the plan; whatever they need to complete (an axis, a default) is
+    completed at compile time through their spec.
+    """
+
+
 def execute_plan_locally(
     plan: ExecutionPlan,
     *,
@@ -534,6 +542,11 @@ def execute_plan_locally(
                 raise
             if progress is not None:
                 progress.completed(partition.id)
+        if provisional_plan_hash(plan) != plan_hash:
+            raise PlanChangedDuringRun(
+                "the plan changed while it ran: an operation, hook or sink wrote to "
+                "it. Complete such values at compile time through the component spec."
+            )
         if progress is not None:
             progress.phase_completed("executing")
             progress.phase_started("finalizing")

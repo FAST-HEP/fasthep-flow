@@ -204,14 +204,13 @@ def test_provenance_documents_are_version_3(tmp_path: Path) -> None:
         load_provenance_document(old)
 
 
-def test_an_operation_that_changes_the_plan_does_not_change_the_hash(
+def test_an_operation_that_changes_the_plan_fails_the_run(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The hash is taken before any partition runs (carpenter#34: hep.hist did this)."""
+    """A plan is not changed after compile (carpenter#34: hep.hist filled its axis)."""
     workflow = _write_workflow(toy_workflow, tmp_path, reuse=True)
-    build = tmp_path / "build"
     real = engine.execute_plan_partition
 
     def mutating(plan: Any, *, ctx: dict[str, Any], **kwargs: Any) -> Any:
@@ -220,10 +219,6 @@ def test_an_operation_that_changes_the_plan_does_not_change_the_hash(
         return result
 
     monkeypatch.setattr(engine, "execute_plan_partition", mutating)
-    _run(workflow, build)
-    monkeypatch.undo()
-    calls = _count_partition_runs(monkeypatch)
 
-    _run(workflow, build)
-
-    assert calls == []
+    with pytest.raises(engine.PlanChangedDuringRun, match="changed while it ran"):
+        _run(workflow, tmp_path / "build")
