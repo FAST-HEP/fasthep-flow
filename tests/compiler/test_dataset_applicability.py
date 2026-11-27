@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 import pytest
+from tests.builders import modified_stage
 
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.normalize import normalize_workflow
@@ -22,8 +23,7 @@ def test_stage_applies_to_eventtype_normalizes(
     toy_workflow: dict[str, Any],
     eventtype: str,
 ) -> None:
-    workflow = deepcopy(toy_workflow)
-    workflow["analysis"]["stages"][0]["applies_to"] = {"eventtype": eventtype}
+    workflow = modified_stage(toy_workflow, applies_to={"eventtype": eventtype})
 
     normalized = normalize_workflow(workflow)
 
@@ -43,8 +43,7 @@ def test_stage_applies_to_rejects_unsupported_shapes(
     applies_to: Any,
     match: str,
 ) -> None:
-    workflow = deepcopy(toy_workflow)
-    workflow["analysis"]["stages"][0]["applies_to"] = applies_to
+    workflow = modified_stage(toy_workflow, applies_to=applies_to)
 
     with pytest.raises(ValueError, match=match):
         normalize_workflow(workflow)
@@ -489,11 +488,13 @@ def _data_only_workflow(toy_workflow: dict[str, Any]) -> dict[str, Any]:
 def test_stage_applies_to_dataset_groups_normalizes_sorted_and_unique(
     toy_workflow: dict[str, Any],
 ) -> None:
-    workflow = deepcopy(toy_workflow)
-    workflow["analysis"]["stages"][0]["applies_to"] = {
-        "eventtype": "MC",
-        "dataset_groups": ["QCD_Zjet", "QCD_DY", "QCD_Zjet"],
-    }
+    workflow = modified_stage(
+        toy_workflow,
+        applies_to={
+            "eventtype": "MC",
+            "dataset_groups": ["QCD_Zjet", "QCD_DY", "QCD_Zjet"],
+        },
+    )
 
     normalized = normalize_workflow(workflow)
 
@@ -506,8 +507,7 @@ def test_stage_applies_to_dataset_groups_normalizes_sorted_and_unique(
 def test_stage_applies_to_dataset_groups_without_eventtype_and_single_string(
     toy_workflow: dict[str, Any],
 ) -> None:
-    workflow = deepcopy(toy_workflow)
-    workflow["analysis"]["stages"][0]["applies_to"] = {"dataset_groups": "QCD_Wjet"}
+    workflow = modified_stage(toy_workflow, applies_to={"dataset_groups": "QCD_Wjet"})
 
     normalized = normalize_workflow(workflow)
 
@@ -531,8 +531,7 @@ def test_stage_applies_to_dataset_groups_rejects_bad_values(
     applies_to: Any,
     match: str,
 ) -> None:
-    workflow = deepcopy(toy_workflow)
-    workflow["analysis"]["stages"][0]["applies_to"] = applies_to
+    workflow = modified_stage(toy_workflow, applies_to=applies_to)
 
     with pytest.raises(ValueError, match=match):
         normalize_workflow(workflow)

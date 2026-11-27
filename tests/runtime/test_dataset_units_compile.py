@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import multiprocessing
 import shutil
 import threading
@@ -8,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.builders import modified_stage
 from tests.runtime.test_per_dataset_run import _write_workflow
 
 import hepflow
@@ -322,8 +322,7 @@ def test_a_changed_workflow_conflicts_in_the_same_root(
     workflow = _write_workflow(tmp_path, toy_workflow)
     out = tmp_path / "build"
     _compile(workflow, out, "alpha", chunk_size=2)
-    changed = copy.deepcopy(toy_workflow)
-    changed["analysis"]["stages"][0]["params"]["factor"] = 3
+    changed = modified_stage(toy_workflow, params={"factor": 3})
     workflow = _write_workflow(tmp_path, changed)
 
     with pytest.raises(PublishConflict):
@@ -522,8 +521,7 @@ def test_diff_of_two_shared_plans_still_works(
     workflow = _write_workflow(tmp_path, toy_workflow)
     _compile(workflow, tmp_path / "one", "alpha", chunk_size=2)
     _compile(workflow, tmp_path / "two", "beta")
-    changed = copy.deepcopy(toy_workflow)
-    changed["analysis"]["stages"][0]["params"]["factor"] = 3
+    changed = modified_stage(toy_workflow, params={"factor": 3})
     (tmp_path / "other").mkdir()
     changed_file = _write_workflow(tmp_path / "other", changed)
     _compile(changed_file, tmp_path / "three", "alpha", chunk_size=2)

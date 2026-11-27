@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.builders import modified_stage
 from tests.toy_components import compile_hooks
 
 import hepflow
@@ -811,9 +812,7 @@ def _workflow_with_systematics(
 
 
 def _workflow_with_weight_expr(toy_workflow: dict[str, Any]) -> dict[str, Any]:
-    workflow = deepcopy(toy_workflow)
-    workflow["analysis"]["stages"][0]["params"]["weight_expr"] = "EventWeight"
-    return workflow
+    return modified_stage(toy_workflow, params={"weight_expr": "EventWeight"})
 
 
 def _workflow_with_field_replacements(toy_workflow: dict[str, Any]) -> dict[str, Any]:

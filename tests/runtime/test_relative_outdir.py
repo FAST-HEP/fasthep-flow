@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import shutil
 import warnings
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.builders import modified_stage
 
 from hepflow.api import run_workflow_file
 from hepflow.runtime.provenance.inspect import _load_bundle
@@ -22,11 +22,13 @@ def _warnings_are_errors() -> Any:
 
 
 def _workflow(toy_workflow: dict[str, Any], tmp_path: Path) -> Path:
-    workflow = deepcopy(toy_workflow)
-    workflow["analysis"]["stages"][0]["write"] = [
-        {"kind": "toy.write_path", "path": "plain.json", "when": "final"},
-        {"kind": "toy.write_manifest", "path": "skims/part.toy", "when": "final"},
-    ]
+    workflow = modified_stage(
+        toy_workflow,
+        write=[
+            {"kind": "toy.write_path", "path": "plain.json", "when": "final"},
+            {"kind": "toy.write_manifest", "path": "skims/part.toy", "when": "final"},
+        ],
+    )
     path = tmp_path / "workflow.yaml"
     write_yaml(workflow, path)
     return path
