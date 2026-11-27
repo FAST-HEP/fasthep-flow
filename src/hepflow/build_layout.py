@@ -279,10 +279,6 @@ def render_specs_dir(root: str | Path, *, variation: str | None = None) -> Path:
     return BuildPaths(root=Path(root), variation=variation).render_specs_dir()
 
 
-def reports_dir(root: str | Path, *, variation: str | None = None) -> Path:
-    return BuildPaths(root=Path(root), variation=variation).report_dir()
-
-
 def debug_dir(root: str | Path, *, variation: str | None = None) -> Path:
     return BuildPaths(root=Path(root), variation=variation).debug_dir()
 
@@ -304,20 +300,12 @@ def cutflows_dir(root: str | Path, *, variation: str | None = None) -> Path:
     return artifact_family_dir(root, "cutflows", variation=variation)
 
 
-def tables_dir(root: str | Path, *, variation: str | None = None) -> Path:
-    return artifact_family_dir(root, "tables", variation=variation)
-
-
 def plan_path(root: str | Path) -> Path:
     return BuildPaths(root=Path(root)).compile_file("plan.yaml")
 
 
 def normalized_path(root: str | Path) -> Path:
     return BuildPaths(root=Path(root)).compile_file("normalized.yaml")
-
-
-def run_summary_path(root: str | Path) -> Path:
-    return BuildPaths(root=Path(root)).run_summary()
 
 
 def write_run_summary(
