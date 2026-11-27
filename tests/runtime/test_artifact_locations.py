@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.builders import write_file
 
 from hepflow.model.io import ArtifactManifest, OutputResult
 from hepflow.model.products import OperationResult
@@ -168,12 +169,6 @@ def test_funnel_skips_other_kinds(in_tmp: Path) -> None:
     assert _store(value, "histogram", _ctx("out")).path == "out/a.png"
 
 
-def _write(path: Path, content: bytes = b"data") -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    return path
-
-
 def test_relative_return_is_read_against_root(in_tmp: Path) -> None:
     root = in_tmp / "out" / "artifacts" / "files" / "w"
 
@@ -202,7 +197,7 @@ def test_absolute_return_ignores_root(in_tmp: Path) -> None:
 
 
 def test_stat_sets_size_bytes(in_tmp: Path) -> None:
-    _write(in_tmp / "out" / "a.png", b"12345")
+    write_file(in_tmp / "out" / "a.png", b"12345")
     ref = _part("a.png")
 
     artifacts.stat_artifacts(
@@ -252,8 +247,8 @@ def test_stat_skips_uris(in_tmp: Path) -> None:
 
 
 def test_stat_walks_manifests_and_lists(in_tmp: Path) -> None:
-    _write(in_tmp / "out" / "a.png", b"1")
-    _write(in_tmp / "out" / "b.png", b"22")
+    write_file(in_tmp / "out" / "a.png", b"1")
+    write_file(in_tmp / "out" / "b.png", b"22")
     manifest = ArtifactManifest(
         product_kind="artifact",
         producer_node="n",
@@ -272,7 +267,7 @@ def test_stat_walks_manifests_and_lists(in_tmp: Path) -> None:
 
 
 def test_adler32_only_when_requested(in_tmp: Path) -> None:
-    _write(in_tmp / "out" / "a.png", b"hello world")
+    write_file(in_tmp / "out" / "a.png", b"hello world")
     ref = _part("a.png")
 
     artifacts.stat_artifacts(

@@ -5,17 +5,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from tests.builders import write_file
 
 from hepflow.api import compile_workflow_file
 from hepflow.compiler.bundle import SOURCE_ROLES
 from hepflow.compiler.input_paths import ResolvedInput
 from hepflow.compiler.inputs_manifest import InputCollector, write_inputs_manifest
-
-
-def _write(path: Path, content: bytes) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    return path
 
 
 def _manifest(outdir: Path) -> dict[str, Any]:
@@ -92,9 +87,9 @@ def _project(tmp_path: Path) -> tuple[Path, dict[str, bytes]]:
         "x": b'{"x": 1}',
         "map": yaml.safe_dump({"version": 1, "fields": {"pt": {}}}).encode(),
     }
-    _write(tmp_path / "data" / "kfactor.json", contents["kfactor"])
-    _write(tmp_path / "data" / "x.json", contents["x"])
-    _write(tmp_path / "schemas" / "map.yaml", contents["map"])
+    write_file(tmp_path / "data" / "kfactor.json", contents["kfactor"])
+    write_file(tmp_path / "data" / "x.json", contents["x"])
+    write_file(tmp_path / "schemas" / "map.yaml", contents["map"])
     workflow = {
         "version": "1.0",
         "use": {"profiles": ["tests.toy_components:registry"]},
@@ -219,7 +214,10 @@ def test_collector_keeps_the_first_row_for_a_role_and_resolved_path() -> None:
 def test_collector_keeps_distinct_files_under_one_role() -> None:
     collector = InputCollector()
     collector.extend(
-        [_resolved("resource:m.paths", "a", "/r/a"), _resolved("resource:m.paths", "b", "/r/b")]
+        [
+            _resolved("resource:m.paths", "a", "/r/a"),
+            _resolved("resource:m.paths", "b", "/r/b"),
+        ]
     )
 
     assert [row["resolved"] for row in collector.rows()] == ["/r/a", "/r/b"]
@@ -292,7 +290,7 @@ def test_manifest_has_one_row_for_a_param_that_is_both_a_path_and_a_mapping_file
     tmp_path: Path,
 ) -> None:
     content = yaml.safe_dump({"version": 1, "fields": {"pt": {}}}).encode()
-    _write(tmp_path / "schemas" / "map.yaml", content)
+    write_file(tmp_path / "schemas" / "map.yaml", content)
     workflow = {
         "version": "1.0",
         "use": {"profiles": ["tests.toy_components:registry"]},

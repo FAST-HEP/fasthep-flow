@@ -6,18 +6,13 @@ from typing import Any
 
 import pytest
 import yaml
+from tests.builders import write_file
 
 from hepflow.api import normalise_workflow_file
 from hepflow.compiler.bundle import SOURCE_ROLES
 from hepflow.compiler.hooks.load_mapping import load_mapping
 from hepflow.compiler.hooks.model import ParamCompileHookContext
 from hepflow.compiler.input_paths import resolve_path_value
-
-
-def _write(path: Path, content: bytes = b"{}") -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    return path
 
 
 def _compile(
@@ -42,8 +37,8 @@ def _stage_params(normalized: dict[str, Any]) -> dict[str, Any]:
 def test_resolve_path_value_handles_strings_lists_and_rejects_other_types(
     tmp_path: Path,
 ) -> None:
-    _write(tmp_path / "a.json", b"a")
-    _write(tmp_path / "b.json", b"b")
+    write_file(tmp_path / "a.json", b"a")
+    write_file(tmp_path / "b.json", b"b")
 
     one, entries_one = resolve_path_value(
         "a.json", role="r", root=tmp_path, entry_dir=None
@@ -64,7 +59,7 @@ def test_path_param_is_resolved_against_root_and_recorded(
     tmp_path: Path, toy_workflow: dict[str, Any]
 ) -> None:
     content = b'{"x": 1}'
-    _write(tmp_path / "data" / "x.json", content)
+    write_file(tmp_path / "data" / "x.json", content)
 
     normalized = _compile(tmp_path, toy_workflow, {"path": "data/x.json"})
 
@@ -87,8 +82,8 @@ def test_path_param_is_resolved_against_root_and_recorded(
 def test_path_list_param_is_resolved_item_by_item(
     tmp_path: Path, toy_workflow: dict[str, Any]
 ) -> None:
-    _write(tmp_path / "a.json", b"a")
-    _write(tmp_path / "b.json", b"b")
+    write_file(tmp_path / "a.json", b"a")
+    write_file(tmp_path / "b.json", b"b")
 
     normalized = _compile(tmp_path, toy_workflow, {"paths": ["a.json", "b.json"]})
 
@@ -129,7 +124,7 @@ def test_missing_path_param_names_stage_and_param(
 
 def _mapping_file(directory: Path, name: str = "map.yaml") -> bytes:
     content = yaml.safe_dump({"fields": {"pt": {}}}).encode()
-    _write(directory / name, content)
+    write_file(directory / name, content)
     return content
 
 

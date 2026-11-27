@@ -11,7 +11,10 @@ from tests.builders import modified, write_file, write_files, write_yaml
 
 
 def test_modified_returns_a_copy_and_leaves_the_original_alone() -> None:
-    base = {"data": {"datasets": [{"name": "a"}]}, "execution": {"backend": "local"}}
+    base: dict[str, Any] = {
+        "data": {"datasets": [{"name": "a"}]},
+        "execution": {"backend": "local"},
+    }
 
     result = modified(base, execution={"strategy": "default"})
 
