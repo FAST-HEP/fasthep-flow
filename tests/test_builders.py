@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
-from tests.builders import modified, write_file, write_files
+from tests.builders import modified, modified_stage, write_file, write_files
 
 
 def test_modified_returns_a_copy_and_leaves_the_original_alone() -> None:
@@ -90,3 +91,54 @@ def test_write_workflow_fixture_takes_another_workflow(
         "version": "1.0",
         "x": {"a": 1, "b": 2},
     }
+
+
+def _two_stage_workflow() -> dict[str, Any]:
+    return {
+        "registry": {"r": 1},
+        "analysis": {
+            "stages": [
+                {"id": "A", "params": {"x": 1, "y": 2}, "write": [{"kind": "w"}]},
+                {"id": "B", "params": {"x": 5}},
+            ]
+        },
+    }
+
+
+def test_modified_stage_changes_the_first_stage_by_default() -> None:
+    result = modified_stage(_two_stage_workflow(), params={"x": 9}, applies_to={"a": 1})
+
+    first, second = result["analysis"]["stages"]
+    assert first["params"] == {"x": 9, "y": 2}
+    assert first["applies_to"] == {"a": 1}
+    assert second == {"id": "B", "params": {"x": 5}}
+    assert result["registry"] == {"r": 1}
+
+
+def test_modified_stage_finds_a_stage_by_id() -> None:
+    result = modified_stage(_two_stage_workflow(), "B", params={"x": 6})
+
+    first, second = result["analysis"]["stages"]
+    assert second["params"] == {"x": 6}
+    assert first["params"] == {"x": 1, "y": 2}
+
+
+def test_modified_stage_replaces_lists_and_removes_with_none() -> None:
+    result = modified_stage(_two_stage_workflow(), write=[{"kind": "other"}])
+    assert result["analysis"]["stages"][0]["write"] == [{"kind": "other"}]
+
+    result = modified_stage(_two_stage_workflow(), write=None)
+    assert "write" not in result["analysis"]["stages"][0]
+
+
+def test_modified_stage_leaves_the_original_alone() -> None:
+    base = _two_stage_workflow()
+
+    modified_stage(base, params={"x": 9}, write=None)
+
+    assert base == _two_stage_workflow()
+
+
+def test_modified_stage_with_an_unknown_id_says_so() -> None:
+    with pytest.raises(KeyError, match="'nope'"):
+        modified_stage(_two_stage_workflow(), "nope", params={"x": 1})

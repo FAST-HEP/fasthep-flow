@@ -25,6 +25,27 @@ def modified(base: Mapping[str, Any], **changes: Any) -> dict[str, Any]:
     return result
 
 
+def modified_stage(
+    workflow: Mapping[str, Any], stage_id: str | None = None, **changes: Any
+) -> dict[str, Any]:
+    """A deep copy of ``workflow`` with ``changes`` applied to one analysis stage.
+
+    The stage is the one with ``stage_id``, or the first stage. The rules are those of
+    ``modified``: dicts merge (``params={"factor": 3}`` keeps the other params), other
+    values replace, ``None`` removes the key.
+    """
+    result = deepcopy(dict(workflow))
+    stages = result["analysis"]["stages"]
+    if stage_id is None:
+        stage = stages[0]
+    else:
+        stage = next((item for item in stages if item.get("id") == stage_id), None)
+        if stage is None:
+            raise KeyError(stage_id)
+    _apply(stage, changes)
+    return result
+
+
 def _apply(target: dict[str, Any], changes: Mapping[str, Any]) -> None:
     for key, value in changes.items():
         if value is None:
