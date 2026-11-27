@@ -56,7 +56,7 @@ from hepflow.runtime.handlers import (
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
 from hepflow.runtime.materialize import materialize_final_products
 from hepflow.runtime.persistence.evidence import EvidenceLedger
-from hepflow.runtime.persistence.reuse import reuse_partition_products
+from hepflow.runtime.persistence.reuse import ReuseReport, reuse_partition_products
 from hepflow.runtime.persistence.save import (
     persist_boundary_products,
     provisional_plan_hash,
@@ -467,6 +467,7 @@ def execute_plan_locally(
     dataset_accumulators: dict[str, ProductAccumulator] = {}
     dataset_order: list[str] = []
     partition_summaries: list[PartitionExecutionSummary] = []
+    reuse_report = ReuseReport()
     try:
         for partition in partitions:
             partition_ctx = build_partition_context(
@@ -488,6 +489,7 @@ def execute_plan_locally(
                     ledger=evidence_ledger,
                     store=recorder.store,
                     plan_hash=plan_hash,
+                    report=reuse_report,
                 )
                 if boundary_products is None:
                     value_store = execute_plan_partition(
@@ -610,6 +612,8 @@ def execute_plan_locally(
                 base_ctx["_persistence"]["consumed"] = list(
                     evidence_ledger.consumptions
                 )
+            if persistence_settings.mode != "off" and persistence_settings.reuse:
+                base_ctx["_persistence"]["reuse"] = reuse_report.to_dict()
             ctx["_hook_summary"] = base_ctx.get("_hook_summary")
             ctx["_persistence"] = base_ctx.get("_persistence")
         return partition_summaries
