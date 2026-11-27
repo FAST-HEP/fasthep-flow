@@ -99,12 +99,17 @@ def persist_boundary_products(
     outdir: str | Path,
     store: ProvenanceStore | None = None,
     attempt_id: str = "attempt-1",
+    plan_hash: str | None = None,
 ) -> list[BoundaryProduct]:
-    """Save the selected products; return the products with their manifest recorded."""
+    """Save the selected products; return the products with their manifest recorded.
+
+    ``plan_hash`` is the hash taken before any partition ran; without it the plan is
+    hashed now, which is only right while nothing has changed it.
+    """
     if not selection.persisted:
         return products
     root = persistence_root(settings, outdir)
-    plan_hash = provisional_plan_hash(plan)
+    plan_hash = plan_hash or provisional_plan_hash(plan)
     saved: list[BoundaryProduct] = []
     for product in products:
         capability = selection.persisted.get(product.key())

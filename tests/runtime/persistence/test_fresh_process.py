@@ -202,3 +202,28 @@ def test_provenance_documents_are_version_3(tmp_path: Path) -> None:
     old.write_text(json.dumps({"version": "2.0", "records": []}), encoding="utf-8")
     with pytest.raises(ValueError, match="version"):
         load_provenance_document(old)
+
+
+def test_an_operation_that_changes_the_plan_does_not_change_the_hash(
+    toy_workflow: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The hash is taken before any partition runs (carpenter#34: hep.hist did this)."""
+    workflow = _write_workflow(toy_workflow, tmp_path, reuse=True)
+    build = tmp_path / "build"
+    real = engine.execute_plan_partition
+
+    def mutating(plan: Any, *, ctx: dict[str, Any], **kwargs: Any) -> Any:
+        result = real(plan, ctx=ctx, **kwargs)
+        plan.nodes[0].params["completed_at_runtime"] = ctx["partition"]["id"]
+        return result
+
+    monkeypatch.setattr(engine, "execute_plan_partition", mutating)
+    _run(workflow, build)
+    monkeypatch.undo()
+    calls = _count_partition_runs(monkeypatch)
+
+    _run(workflow, build)
+
+    assert calls == []

@@ -45,6 +45,7 @@ def reuse_partition_products(
     outdir: str | Path,
     ledger: EvidenceLedger,
     store: ProvenanceStore | None,
+    plan_hash: str | None = None,
 ) -> list[BoundaryProduct] | None:
     """The partition's restored boundary products, or ``None`` to run it.
 
@@ -61,7 +62,7 @@ def reuse_partition_products(
     if {spec.key() for spec in boundary} != set(selection.persisted):
         return None
     root = persistence_root(settings, outdir)
-    plan_hash = provisional_plan_hash(plan)
+    plan_hash = plan_hash or provisional_plan_hash(plan)
     paths: list[tuple[BoundaryOutputSpec, Path]] = []
     try:
         for spec in boundary:
