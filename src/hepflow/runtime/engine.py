@@ -58,7 +58,10 @@ from hepflow.runtime.materialize import materialize_final_products
 from hepflow.runtime.persistence.evidence import EvidenceLedger
 from hepflow.runtime.persistence.reuse import reuse_partition_products
 from hepflow.runtime.persistence.save import persist_boundary_products
-from hepflow.runtime.persistence.select import resolve_persistence
+from hepflow.runtime.persistence.select import (
+    global_side_product_nodes,
+    resolve_persistence,
+)
 from hepflow.runtime.products import product_bindings, register_product_bindings
 from hepflow.runtime.provenance import (
     ProvenanceRecorder,
@@ -428,7 +431,10 @@ def execute_plan_locally(
     boundary_plan = plan_partition_boundary(plan, runtime_registry=runtime_registry)
     persistence_settings = PersistenceSettings.from_execution(plan.execution)
     persistence_selection = resolve_persistence(
-        boundary_plan, runtime_registry, persistence_settings
+        boundary_plan,
+        runtime_registry,
+        persistence_settings,
+        global_nodes=global_side_product_nodes(plan),
     )
     if persistence_settings.mode != "off":
         base_ctx["_persistence"] = persistence_selection.to_dict()

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 
 from hepflow.model.persistence import PersistenceCapability, PersistenceSettings
+from hepflow.model.plan import ExecutionPlan
 from hepflow.model.products import BoundaryOutputSpec, ProductHandlerEntry
 from hepflow.registry.runtime import RuntimeRegistry
 
@@ -34,10 +36,28 @@ class PersistenceSelection:
         }
 
 
+def global_side_product_nodes(plan: ExecutionPlan) -> set[str]:
+    """Nodes whose products are global side products: run once, seeded into every partition.
+
+    They have no partition identity, so persisting them per partition would file one copy
+    per partition under the wrong dataset; they are listed as not persisted instead.
+    """
+    return {
+        node.id
+        for node in plan.nodes
+        if node.role == "transform"
+        and node.input_scope == "global"
+        and node.output_scope == "global"
+        and any(kind != "event_stream" for kind in node.outputs.values())
+    }
+
+
 def resolve_persistence(
     boundary: list[BoundaryOutputSpec],
     registry: RuntimeRegistry,
     settings: PersistenceSettings,
+    *,
+    global_nodes: Collection[str] = (),
 ) -> PersistenceSelection:
     """Apply the explicit product choices, then the mode, then the kind defaults.
 
@@ -58,6 +78,16 @@ def resolve_persistence(
             continue
         wanted = choice is not None or _wanted_by_mode(handler, settings)
         if not wanted:
+            continue
+        if spec.node_id in global_nodes:
+            left_out.append(
+                {
+                    "node": spec.node_id,
+                    "output": spec.output_name,
+                    "kind": spec.kind,
+                    "reason": "global side product",
+                }
+            )
             continue
         if not capabilities:
             if choice is not None:

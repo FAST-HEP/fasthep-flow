@@ -491,3 +491,64 @@ def test_a_file_root_is_unquoted(tmp_path: Path) -> None:
         PersistenceSettings(mode="all", root="file:///my%20dir/p"), tmp_path
     )
     assert root == Path("/my dir/p")
+
+
+# -- second review (stage 2): hash scope and global side products -----------------
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("strategy", "htcondor"),
+        ("config", {"worker_start_timeout": 999}),
+        ("pools", {"gpu": {"workers": 3}}),
+        ("environment", {"type": "shared-prefix"}),
+        ("resources", {"big": {"cpus": 8}}),
+    ],
+)
+def test_execution_settings_that_do_not_decide_a_product_keep_the_hash(
+    key: str, value: Any
+) -> None:
+    plan = _plan("A")
+    before = provisional_plan_hash(plan)
+    plan.execution[key] = value
+    assert provisional_plan_hash(plan) == before
+
+
+def test_partitioning_and_file_access_change_the_hash() -> None:
+    plan = _plan("A")
+    before = provisional_plan_hash(plan)
+    plan.execution["partitioning"] = {"chunk_size": 100}
+    chunked = provisional_plan_hash(plan)
+    plan.execution["file_access"] = [{"match": "x", "replace": "y"}]
+    assert before != chunked != provisional_plan_hash(plan)
+
+
+def test_global_side_products_are_listed_not_persisted() -> None:
+    from hepflow.runtime.persistence.select import (  # noqa: PLC0415
+        global_side_product_nodes,
+    )
+
+    plan = _plan("A", "B")
+    for node, scope in zip(plan.nodes, ("global", "partition"), strict=True):
+        node.input_scope = scope  # type: ignore[assignment]
+        node.output_scope = scope  # type: ignore[assignment]
+    nodes = global_side_product_nodes(plan)
+
+    selection = resolve_persistence(
+        [_spec("A"), _spec("B")],
+        registry_with(toy_capability()),
+        PersistenceSettings(mode="all"),
+        global_nodes=nodes,
+    )
+
+    assert nodes == {"stage.A"}
+    assert list(selection.persisted) == [("stage.B", "hist")]
+    assert selection.not_persisted == [
+        {
+            "node": "stage.A",
+            "output": "hist",
+            "kind": "histogram",
+            "reason": "global side product",
+        }
+    ]
