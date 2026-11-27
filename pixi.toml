@@ -16,6 +16,8 @@ mypy = "*"
 pre-commit = "*"
 codespell = "*"
 twine = "*"
+import-linter = "*"
+hypothesis = "*"
 
 [pypi-dependencies]
 fasthep-flow = { path = ".", editable = true }
@@ -57,6 +59,12 @@ typecheck = "mypy src tests"
 test = "pytest"
 test-perf = "FASTHEP_RUN_PERFORMANCE=1 FASTHEP_BENCHMARK_OUT=$PWD/build/benchmark pytest -v -m performance"
 build = "python -m build"
+layers = "lint-imports"
+dead-code = "python scripts/quality/ratchet.py dead-code"
+repeated-helpers = "python scripts/quality/ratchet.py repeated-helpers"
+budgets = "python scripts/quality/ratchet.py budgets"
+quality = { depends-on = ["layers", "dead-code", "repeated-helpers", "budgets"] }
+quality-update = "python scripts/quality/ratchet.py all --update"
 check = { depends-on = ["lint", "typecheck", "test"] }
 ci = { depends-on = ["check", "build"] }
 check-dist = "twine check dist/*"

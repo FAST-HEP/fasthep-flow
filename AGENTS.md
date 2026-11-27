@@ -92,6 +92,8 @@ Use Pixi from the repository root.
   `pixi run ci`
 - Distribution check after building:
   `pixi run check-dist`
+- Maintainability ratchet: `pixi run quality` (the parts are `layers`, `dead-code`,
+  `repeated-helpers`, `budgets`). It is advisory until it is added to `ci`.
 
 Current CI runs:
 
@@ -100,6 +102,30 @@ Current CI runs:
   `pixi run --environment py314 ci`.
   `ruff check src tests`, `mypy src tests` and `pytest`.
 - CD on release tags: `pixi run build` followed by `pixi run check-dist`.
+
+## Keeping The Code Small
+
+`pixi run quality` fails on new findings only. Today's findings are the baseline in
+`scripts/quality/baseline.json` and the `ignore_imports` list in `pyproject.toml`. Fix findings
+and shrink the baseline with `pixi run quality-update`; growth is refused and needs
+`--allow-growth` plus a reason in the PR.
+
+- **No orphans.** New code has a caller in `src` or a named consumer in a sibling package. Code
+  only a test calls belongs in the tests. `dead-code` lists what vulture cannot see used.
+- **Search before writing a helper.** Grep for the name and the idea first. A private helper that
+  exists in three files (`repeated-helpers`) moves to the owning module; do not add a fourth copy.
+  In tests the shared builders and fixtures live in `tests/conftest.py`: do not add another
+  `_write_workflow`, `_compile` or `_run`.
+- **No private names across packages.** A sibling that needs `_name` gets a public one, and the
+  public name is listed under Core Contracts.
+- **Layers point down.** api, backends, runtime, compiler, registry, model (`layers`). Do not add
+  an import that the contract rejects, and do not add an `ignore_imports` entry.
+- **Budgets.** A file over 600 lines, a function over 80 lines or complexity over 15 is not
+  extended; split it first (`budgets`).
+- **Tests.** Round-trips, idempotence and invariants use `hypothesis` instead of lists of
+  examples. Keep example tests for named regressions.
+- **Evidence.** The PR Evidence section states the net line change per package and, when it
+  is positive, why.
 
 ## Validation
 

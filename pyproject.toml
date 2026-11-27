@@ -131,3 +131,29 @@ testpaths = ["tests"]
 markers = [
     "performance: opt-in performance benchmarks; skipped unless explicitly enabled",
 ]
+
+[tool.importlinter]
+root_package = "hepflow"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Flow layers: api > backends > runtime > compiler > registry > model"
+type = "layers"
+layers = ["api", "backends", "runtime", "compiler", "registry", "model"]
+containers = ["hepflow"]
+# Known violations (baseline, 2026-11-27). Remove an entry when its import is fixed; never add one.
+ignore_imports = [
+  "hepflow.compiler.plan -> hepflow.backends.loaders",
+  "hepflow.compiler.artifacts -> hepflow.backends.loaders",
+  "hepflow.compiler.unit_artifacts -> hepflow.backends.loaders",
+  "hepflow.model.io -> hepflow.compiler.input_paths",
+  "hepflow.model.plan_applicability -> hepflow.registry.loaders",
+  "hepflow.runtime.partition_runs -> hepflow.backends.model",
+  "hepflow.runtime.config -> hepflow.backends.loaders",
+]
+
+[[tool.importlinter.contracts]]
+name = "Flow does not import the packages built on it"
+type = "forbidden"
+source_modules = ["hepflow"]
+forbidden_modules = ["fasthep_carpenter", "fasthep_curator", "fasthep_render", "fasthep_distributed", "fasthep_cli"]
