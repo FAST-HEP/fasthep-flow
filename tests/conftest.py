@@ -7,6 +7,8 @@ import pytest
 import yaml
 
 from hepflow.compiler.hooks import software as software_module
+from hepflow.utils import write_yaml
+from tests.builders import modified
 
 # A test module that sets ``REAL_SOFTWARE_CAPTURE = True`` runs the real distribution scan
 # and git capture of the flow.software hook; every other test gets a cheap stub so that
@@ -45,32 +47,32 @@ def toy_registry() -> dict[str, Any]:
 
 @pytest.fixture
 def toy_workflow(toy_registry: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "version": "1.0",
-        "registry": toy_registry,
-        "sources": {
-            "events": {
-                "kind": "toy.source",
-                "stream_type": "event_stream",
-            }
-        },
-        "analysis": {
-            "stages": [
-                {
-                    "id": "Scale",
-                    "op": "toy.scale",
-                    "params": {"factor": 2},
-                    "write": [
-                        {
-                            "kind": "toy.write",
-                            "path": "output.json",
-                            "when": "final",
-                        }
-                    ],
-                }
-            ]
-        },
-    }
+    """tests/fixtures/workflows/toy_workflow.yaml with the toy registry; a fresh copy per test."""
+    path = Path(__file__).parent / "fixtures" / "workflows" / "toy_workflow.yaml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return {"version": document.pop("version"), "registry": toy_registry, **document}
+
+
+@pytest.fixture
+def write_workflow(tmp_path: Path, toy_workflow: dict[str, Any]) -> Any:
+    """``write_workflow(workflow=None, *, filename="workflow.yaml", **changes) -> Path``.
+
+    Writes ``workflow`` (default: the toy workflow) below ``tmp_path`` with ``changes``
+    applied (see ``tests.builders.modified``).
+    """
+
+    def write(
+        workflow: dict[str, Any] | None = None,
+        *,
+        filename: str = "workflow.yaml",
+        **changes: Any,
+    ) -> Path:
+        base = toy_workflow if workflow is None else workflow
+        path = tmp_path / filename
+        write_yaml(modified(base, **changes), path)
+        return path
+
+    return write
 
 
 @pytest.fixture

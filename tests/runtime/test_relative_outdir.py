@@ -3,15 +3,15 @@ from __future__ import annotations
 import json
 import shutil
 import warnings
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
+from tests.builders import modified_stage
 
 from hepflow.api import run_workflow_file
 from hepflow.runtime.provenance.inspect import _load_bundle
+from hepflow.utils import write_yaml
 
 
 @pytest.fixture(autouse=True)
@@ -22,13 +22,15 @@ def _warnings_are_errors() -> Any:
 
 
 def _workflow(toy_workflow: dict[str, Any], tmp_path: Path) -> Path:
-    workflow = deepcopy(toy_workflow)
-    workflow["analysis"]["stages"][0]["write"] = [
-        {"kind": "toy.write_path", "path": "plain.json", "when": "final"},
-        {"kind": "toy.write_manifest", "path": "skims/part.toy", "when": "final"},
-    ]
+    workflow = modified_stage(
+        toy_workflow,
+        write=[
+            {"kind": "toy.write_path", "path": "plain.json", "when": "final"},
+            {"kind": "toy.write_manifest", "path": "skims/part.toy", "when": "final"},
+        ],
+    )
     path = tmp_path / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
     return path
 
 
@@ -114,4 +116,3 @@ def test_bundle_is_read_relocatable(
         artifact = record["artifact"]
         if artifact["path_type"] == "relative_to_outdir":
             assert (copy / artifact["path"]).is_file()
-

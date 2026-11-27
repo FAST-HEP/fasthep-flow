@@ -6,15 +6,17 @@ from re import escape
 from typing import Any
 
 import pytest
-import yaml
 
 from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
 from hepflow.runtime.engine import execute_plan_partition
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
+from hepflow.utils import write_yaml
 
 
-def test_modifier_name_resolves_through_hook_manager(toy_registry: dict[str, Any]) -> None:
+def test_modifier_name_resolves_through_hook_manager(
+    toy_registry: dict[str, Any],
+) -> None:
     plan = _plan_with_modifier(toy_registry, ["toy.A"])
     manager = HookManager.from_plan(plan)
 
@@ -96,7 +98,9 @@ def test_modifier_lifecycle_order_and_mutation(toy_registry: dict[str, Any]) -> 
     assert stream["B_after"] is True
 
 
-def test_global_hook_wraps_node_modifier_lifecycle(toy_registry: dict[str, Any]) -> None:
+def test_global_hook_wraps_node_modifier_lifecycle(
+    toy_registry: dict[str, Any],
+) -> None:
     registry = _registry_with_modifiers(
         {
             **toy_registry,
@@ -194,7 +198,7 @@ def test_runtime_executes_transform_with_modifier_hooks(
     }
 
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
     compile_workflow_file(workflow_path, outdir=build_dir)
 
@@ -202,9 +206,7 @@ def test_runtime_executes_transform_with_modifier_hooks(
 
     assert result.success is True
     payload = json.loads(
-        (build_dir / "artifacts" / "files" / "output.json").read_text(
-            encoding="utf-8"
-        )
+        (build_dir / "artifacts" / "files" / "output.json").read_text(encoding="utf-8")
     )
     assert payload["modified"] == [26, 38, 44, 58]
     assert payload["A_after"] is True
@@ -242,8 +244,7 @@ def _plan_with_modifier(
             meta={
                 "execution": {
                     "modifiers": [
-                        {"name": modifier, "params": {}}
-                        for modifier in modifiers
+                        {"name": modifier, "params": {}} for modifier in modifiers
                     ]
                 }
             },

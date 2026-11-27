@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from hepflow.api import normalise_workflow_file
 from hepflow.compiler.normalize import normalize_registry
@@ -13,6 +12,7 @@ from hepflow.registry.defaults import (
     default_runtime_registry_config,
 )
 from hepflow.registry.merge import RegistryLayer, merge_registry_layers
+from hepflow.utils import write_yaml
 
 
 def test_resource_kinds_is_a_registry_section() -> None:
@@ -110,7 +110,7 @@ def test_workflow_registry_adds_a_resource_kind_to_the_merged_registry(
         },
     }
     path = tmp_path / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
 
     normalized = normalise_workflow_file(path, outdir=tmp_path / "build", root=tmp_path)
 

@@ -9,6 +9,7 @@ import yaml
 from hepflow.api import compile_workflow_file
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.model.execution import resolve_node_resource_intent
+from hepflow.utils import write_yaml
 
 
 def test_missing_execution_block_gives_defaults(toy_workflow: dict[str, Any]) -> None:
@@ -331,7 +332,7 @@ def test_execution_metadata_propagates_to_plan(
         {"prefer": "gpu", "fallback": "default", "modifiers": ["gpu.preload"]},
     )
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
 
     plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
     plan_yaml = plan.to_dict()
@@ -342,7 +343,9 @@ def test_execution_metadata_propagates_to_plan(
         "default": {"resources": "default", "workers": 100, "config": {}},
         "gpu": {"resources": "gpu", "workers": 2, "config": {}},
     }
-    stage_node = next(node for node in plan_yaml["nodes"] if node["id"] == "stage.Scale")
+    stage_node = next(
+        node for node in plan_yaml["nodes"] if node["id"] == "stage.Scale"
+    )
     assert stage_node["meta"]["execution"] == {
         "require": None,
         "prefer": "gpu",
@@ -371,7 +374,7 @@ def test_packed_pixi_worker_environment_spec_written_at_compile(
         },
     }
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
 
     compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
@@ -417,7 +420,9 @@ def test_shared_prefix_worker_environment_normalizes(
         workflow = {**toy_workflow, "execution": {"environment": raw}}
         return normalize_workflow(workflow)["execution"]["environment"]
 
-    assert environment({"type": "shared-prefix", "prefix": "/afs/x/.pixi/envs/dev"}) == {
+    assert environment(
+        {"type": "shared-prefix", "prefix": "/afs/x/.pixi/envs/dev"}
+    ) == {
         "type": "shared-prefix",
         "mode": "shared",
         "prefix": "/afs/x/.pixi/envs/dev",
@@ -500,7 +505,7 @@ def test_node_resource_intent_resolves_gpu_resources(
         {"prefer": "gpu", "fallback": "default", "timeout": "10m"},
     )
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     intent = resolve_node_resource_intent(plan, "stage.Scale")
@@ -526,7 +531,7 @@ def test_node_resource_intent_resolves_required_gpu_resources(
 ) -> None:
     workflow = _with_stage_execution(_with_resources(toy_workflow), {"require": "gpu"})
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     intent = resolve_node_resource_intent(plan, plan.get_node("stage.Scale"))
@@ -561,7 +566,7 @@ def test_node_resource_intent_lists_candidate_pools(
         {"prefer": "gpu", "fallback": "default"},
     )
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     intent = resolve_node_resource_intent(plan, "stage.Scale")

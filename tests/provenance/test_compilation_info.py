@@ -4,19 +4,18 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 import hepflow
 from hepflow.api import compile_workflow_file, normalise_workflow_file
 from hepflow.compiler.bundle import plan_hash
 from hepflow.provenance.compilation_info import compilation_provenance
-from hepflow.utils import read_yaml
+from hepflow.utils import read_yaml, write_yaml
 
 
 def _entry(project: Path, toy_workflow: dict[str, Any]) -> Path:
     entry = project / "entry" / "workflow.yaml"
     entry.parent.mkdir(parents=True, exist_ok=True)
-    entry.write_text(yaml.safe_dump(toy_workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(toy_workflow, entry)
     return entry
 
 

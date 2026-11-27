@@ -36,6 +36,7 @@ from hepflow.runtime.persistence.select import (
     resolve_persistence,
 )
 from hepflow.runtime.provenance.recorder import ProvenanceRecorder
+from hepflow.utils import write_yaml
 
 
 def _plan(*outputs: str) -> ExecutionPlan:
@@ -123,13 +124,7 @@ def _reuse(plan: Any, partition: Any, selection: Any, settings: Any, tmp: Path) 
 
 def _workflow_file(toy_workflow: dict[str, Any], tmp_path: Path) -> Path:
     path = tmp_path / "workflow.yaml"
-    path.write_text(
-        yaml.safe_dump(
-            persistence_workflow(toy_workflow, {"mode": "all", "reuse": True}),
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
+    write_yaml(persistence_workflow(toy_workflow, {"mode": "all", "reuse": True}), path)
     return path
 
 
@@ -169,7 +164,7 @@ def test_changed_dataset_input_is_not_reused(
     _run(workflow, build, monkeypatch)
     document = yaml.safe_load(workflow.read_text())
     document["data"]["datasets"][0][section] = value
-    workflow.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    write_yaml(document, workflow)
 
     calls = _run(workflow, build, monkeypatch)
 
@@ -193,12 +188,7 @@ def test_mode_off_leaves_the_run_summary_unchanged(
     from hepflow.backends.local import LocalBackend  # noqa: PLC0415
 
     path = tmp_path / "workflow.yaml"
-    path.write_text(
-        yaml.safe_dump(
-            persistence_workflow(toy_workflow, persistence), sort_keys=False
-        ),
-        encoding="utf-8",
-    )
+    write_yaml(persistence_workflow(toy_workflow, persistence), path)
     plan = compile_workflow_file(path, outdir=tmp_path / "build", chunk_size=2)
 
     result = LocalBackend().run(plan, ctx={"outdir": str(tmp_path / "build")})

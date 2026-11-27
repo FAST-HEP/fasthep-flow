@@ -10,7 +10,7 @@ import yaml
 from hepflow.api import compile_workflow_file
 from hepflow.compiler.plan_diff.errors import InvalidPlan
 from hepflow.compiler.plan_diff.validate import validate_plan
-from hepflow.utils import read_yaml
+from hepflow.utils import read_yaml, write_yaml
 
 
 def _plan() -> dict[str, Any]:
@@ -38,7 +38,7 @@ def test_valid_compiled_plan_passes(
     tmp_path: Path, toy_workflow: dict[str, Any]
 ) -> None:
     workflow = tmp_path / "wf.yaml"
-    workflow.write_text(yaml.safe_dump(toy_workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(toy_workflow, workflow)
     compile_workflow_file(workflow, outdir=tmp_path / "build")
 
     validate_plan(read_yaml(tmp_path / "build" / "compile" / "plan.yaml"), side="old")

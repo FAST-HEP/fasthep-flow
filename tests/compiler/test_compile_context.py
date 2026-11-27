@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from hepflow.api import compile_workflow_file
 from hepflow.compiler.context import CompileContext
@@ -15,6 +14,7 @@ from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_context, build_plan_from_normalized
 from hepflow.model.component_spec import RuntimeComponentSpec
 from hepflow.model.plan import ExecutionNode, ExecutionPlan
+from hepflow.utils import write_yaml
 
 
 def test_entry_dir_is_the_parent_of_the_workflow(tmp_path: Path) -> None:
@@ -46,10 +46,9 @@ def test_from_workflow_path_defaults_the_root_to_the_entry_dir_without_checks() 
 
     assert ctx.workflow_path == Path("does/not/exist/wf.yaml")
     assert ctx.project_root == Path("does/not/exist")
-    assert (
-        CompileContext.from_workflow_path("a/wf.yaml", Path("/r")).project_root
-        == Path("/r")
-    )
+    assert CompileContext.from_workflow_path(
+        "a/wf.yaml", Path("/r")
+    ).project_root == Path("/r")
 
 
 def test_to_normalized_uses_the_existing_keys(tmp_path: Path) -> None:
@@ -92,6 +91,7 @@ def test_the_context_is_frozen(tmp_path: Path) -> None:
 
 
 # --- the context travels through the plan and the parameter hooks ---
+
 
 def record_context_hook(
     *, value: Any, options: dict[str, Any], context: ParamCompileHookContext
@@ -183,7 +183,7 @@ def test_plan_context_has_the_same_keys_as_before(
     project = tmp_path / "proj"
     entry = project / "entry" / "workflow.yaml"
     entry.parent.mkdir(parents=True)
-    entry.write_text(yaml.safe_dump(toy_workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(toy_workflow, entry)
 
     plan = compile_workflow_file(entry, outdir=tmp_path / "build", root=project)
 

@@ -6,19 +6,14 @@ from pathlib import Path
 
 import pytest
 from fasthep_toolbench.misc import file_fingerprint
+from tests.builders import write_file
 
 from hepflow.compiler.input_paths import is_uri, resolve_input_path
 
 
-def _write(path: Path, content: bytes) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    return path
-
-
 def test_relative_path_resolves_against_root_and_is_hashed(tmp_path: Path) -> None:
     content = b'{"a": 1}\n'
-    _write(tmp_path / "data" / "a.json", content)
+    write_file(tmp_path / "data" / "a.json", content)
 
     result = resolve_input_path("data/a.json", role="resource:x.path", root=tmp_path)
 
@@ -43,7 +38,7 @@ def test_missing_root_relative_path_raises_file_not_found_error(
 
 def test_absolute_path_is_kept_and_hashed_when_readable(tmp_path: Path) -> None:
     content = b"abc"
-    path = _write(tmp_path / "outside" / "b.json", content)
+    path = write_file(tmp_path / "outside" / "b.json", content)
     root = tmp_path / "root"
     root.mkdir()
 
@@ -95,7 +90,7 @@ def test_is_uri_accepts_scheme_forms_and_rejects_paths() -> None:
 
 def test_tilde_expands_to_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
-    _write(home / "x509" / "p.txt", b"proxy")
+    write_file(home / "x509" / "p.txt", b"proxy")
     monkeypatch.setenv("HOME", str(home))
 
     result = resolve_input_path("~/x509/p.txt", role="r", root=tmp_path / "root")
@@ -109,7 +104,7 @@ def test_environment_variables_are_not_expanded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
-    _write(tmp_path / "x", b"x")
+    write_file(tmp_path / "x", b"x")
 
     with pytest.raises(FileNotFoundError) as excinfo:
         resolve_input_path("$HOME/x", role="r", root=tmp_path)
@@ -138,7 +133,7 @@ def test_falls_back_to_entry_dir_with_deprecation_warning(tmp_path: Path) -> Non
     entry_dir = tmp_path / "root" / "skim"
     entry_dir.mkdir(parents=True)
     content = b"profile"
-    _write(entry_dir / "shared.yaml", content)
+    write_file(entry_dir / "shared.yaml", content)
 
     with pytest.warns(FutureWarning, match="entry"):
         result = resolve_input_path(
@@ -153,8 +148,8 @@ def test_falls_back_to_entry_dir_with_deprecation_warning(tmp_path: Path) -> Non
 def test_root_wins_over_entry_dir_without_warning(tmp_path: Path) -> None:
     root = tmp_path / "root"
     entry_dir = root / "skim"
-    _write(root / "shared.yaml", b"root")
-    _write(entry_dir / "shared.yaml", b"entry")
+    write_file(root / "shared.yaml", b"root")
+    write_file(entry_dir / "shared.yaml", b"entry")
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -167,7 +162,7 @@ def test_root_wins_over_entry_dir_without_warning(tmp_path: Path) -> None:
 
 
 def test_dotdot_is_collapsed_without_resolving_symlinks(tmp_path: Path) -> None:
-    _write(tmp_path / "data" / "a.json", b"a")
+    write_file(tmp_path / "data" / "a.json", b"a")
     (tmp_path / "sub").mkdir()
 
     result = resolve_input_path("sub/../data/a.json", role="r", root=tmp_path)
@@ -176,7 +171,7 @@ def test_dotdot_is_collapsed_without_resolving_symlinks(tmp_path: Path) -> None:
 
 
 def test_hash_matches_toolbench_fingerprint(tmp_path: Path) -> None:
-    path = _write(tmp_path / "abc.bin", b"abc")
+    path = write_file(tmp_path / "abc.bin", b"abc")
 
     row = resolve_input_path(str(path), role="r", root=tmp_path)
 

@@ -15,6 +15,7 @@ from hepflow.api import compile_workflow_file
 from hepflow.runtime import engine
 from hepflow.runtime.persistence.manifest import MANIFEST_NAME
 from hepflow.runtime.provenance import PROVENANCE_VERSION, load_provenance_document
+from hepflow.utils import write_yaml
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -69,10 +70,7 @@ def _write_workflow(
 ) -> Path:
     path = tmp_path / "workflow.yaml"
     config = {"mode": "all", **persistence}
-    path.write_text(
-        yaml.safe_dump(persistence_workflow(toy_workflow, config), sort_keys=False),
-        encoding="utf-8",
-    )
+    write_yaml(persistence_workflow(toy_workflow, config), path)
     return path
 
 
@@ -171,7 +169,7 @@ def test_a_changed_plan_is_not_reused(
     _run(workflow, build)
     document = yaml.safe_load(workflow.read_text())
     document["analysis"]["stages"][0]["params"]["name"] = "changed"
-    workflow.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    write_yaml(document, workflow)
     calls = _count_partition_runs(monkeypatch)
 
     _run(workflow, build)

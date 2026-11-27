@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 import hepflow.api as api
 from hepflow.api import (
@@ -20,7 +19,7 @@ from hepflow.compiler.includes import load_workflow_with_includes
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
-from hepflow.utils import read_yaml
+from hepflow.utils import read_yaml, write_yaml
 
 
 def test_public_api_exports_stable_facade_symbols() -> None:
@@ -80,9 +79,7 @@ def test_normalize_preserves_typed_dataset_chunk_size_outside_meta(
     workflow = {
         **toy_workflow,
         "data": {
-            "datasets": [
-                {"name": "sample", "files": ["sample.root"], "chunk_size": 29}
-            ]
+            "datasets": [{"name": "sample", "files": ["sample.root"], "chunk_size": 29}]
         },
     }
 
@@ -169,9 +166,7 @@ def test_source_less_product_plan_preserves_datasets_and_spec_outputs() -> None:
     assert graph_node.outputs == {"product": "toy_product"}
     assert plan.partitions == []
     assert plan.context["datasets"]["sample"]["files"] == ["sample.root"]
-    assert plan.context["datasets"]["sample"]["meta"] == {
-        "implementation": "fasthep"
-    }
+    assert plan.context["datasets"]["sample"]["meta"] == {"implementation": "fasthep"}
 
 
 def test_transform_stage_accepts_multiple_product_inputs() -> None:
@@ -273,8 +268,7 @@ def test_partition_transform_accepts_global_side_product_input() -> None:
     assert plan.get_node("stage.Product").output_scope == "global"
     assert use_product.input_scope == "partition"
     assert {
-        (ref.node_id, ref.output_name, ref.input_name)
-        for ref in use_product.inputs
+        (ref.node_id, ref.output_name, ref.input_name) for ref in use_product.inputs
     } == {
         ("read.events", "stream", "stream"),
         ("stage.Product", "product", "weights"),
@@ -330,9 +324,9 @@ def test_standalone_sink_stage_resolves_from_sink_registry(
         "keep": ["scaled_pt"],
         "when": "partition_end",
     }
-    assert [(ref.node_id, ref.output_name, ref.input_name) for ref in plan_node.inputs] == [
-        ("stage.Scale", "stream", "target")
-    ]
+    assert [
+        (ref.node_id, ref.output_name, ref.input_name) for ref in plan_node.inputs
+    ] == [("stage.Scale", "stream", "target")]
 
 
 def test_nodes_without_role_remain_transforms_with_transform_registry(
@@ -476,7 +470,9 @@ def test_global_side_product_bound_as_stream_fails_during_compilation() -> None:
         }
     )
 
-    with pytest.raises(ValueError, match=r"cannot consume .* from output scope 'global'"):
+    with pytest.raises(
+        ValueError, match=r"cannot consume .* from output scope 'global'"
+    ):
         build_plan_from_normalized(workflow)
 
 
@@ -524,7 +520,9 @@ def test_standalone_sink_requires_unambiguous_primary_stream(
         ]
     }
 
-    with pytest.raises(ValueError, match="multiple needed stages provide a primary stream"):
+    with pytest.raises(
+        ValueError, match="multiple needed stages provide a primary stream"
+    ):
         lower_workflow_to_graph(normalize_workflow(workflow))
 
 
@@ -590,21 +588,15 @@ def test_include_handling_then_normalization(
     tmp_path: Path, toy_registry: dict[str, Any]
 ) -> None:
     include_path = tmp_path / "registry.yaml"
-    include_path.write_text(
-        yaml.safe_dump({"registry": toy_registry}, sort_keys=False),
-        encoding="utf-8",
-    )
+    write_yaml({"registry": toy_registry}, include_path)
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        yaml.safe_dump(
-            {
-                "include": ["registry.yaml"],
-                "sources": {"events": {"kind": "toy.source"}},
-                "analysis": {"stages": []},
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
+    write_yaml(
+        {
+            "include": ["registry.yaml"],
+            "sources": {"events": {"kind": "toy.source"}},
+            "analysis": {"stages": []},
+        },
+        workflow_path,
     )
 
     loaded = load_workflow_with_includes(workflow_path)
@@ -615,32 +607,26 @@ def test_include_handling_then_normalization(
 
 def test_include_dataset_mapping_then_normalization(tmp_path: Path) -> None:
     include_path = tmp_path / "datasets.yaml"
-    include_path.write_text(
-        yaml.safe_dump(
-            {
-                "datasets": {
-                    "DoubleMuon": {
-                        "eventtype": "data",
-                        "files": ["root://example.test/events.root"],
-                    }
+    write_yaml(
+        {
+            "datasets": {
+                "DoubleMuon": {
+                    "eventtype": "data",
+                    "files": ["root://example.test/events.root"],
                 }
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
+            }
+        },
+        include_path,
     )
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        yaml.safe_dump(
-            {
-                "include": ["datasets.yaml"],
-                "data": {"defaults": {"eventtype": "mc", "tree_primary": "Events"}},
-                "sources": {"events": {"kind": "root_tree", "tree": "Events"}},
-                "analysis": {"stages": []},
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
+    write_yaml(
+        {
+            "include": ["datasets.yaml"],
+            "data": {"defaults": {"eventtype": "mc", "tree_primary": "Events"}},
+            "sources": {"events": {"kind": "root_tree", "tree": "Events"}},
+            "analysis": {"stages": []},
+        },
+        workflow_path,
     )
 
     loaded = load_workflow_with_includes(workflow_path)
@@ -658,7 +644,9 @@ def test_include_dataset_mapping_then_normalization(tmp_path: Path) -> None:
     ]
 
 
-def test_root_tree_source_preserves_reader_options(toy_workflow: dict[str, Any]) -> None:
+def test_root_tree_source_preserves_reader_options(
+    toy_workflow: dict[str, Any],
+) -> None:
     workflow = {
         **toy_workflow,
         "sources": {
@@ -735,7 +723,7 @@ def test_opt_in_component_defaults_materialize_in_normalized_and_plan(
         },
     }
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
 
     normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
@@ -777,7 +765,7 @@ def test_stage_id_default_materializes_in_normalized_and_plan(
         },
     }
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
 
     normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
@@ -828,7 +816,7 @@ def test_param_template_default_materializes_in_normalized_and_plan(
         },
     }
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
 
     normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
@@ -881,10 +869,7 @@ def test_file_backed_mapping_param_accepts_inline_mapping(
 
 
 def test_file_backed_mapping_param_loads_yaml(tmp_path: Path) -> None:
-    (tmp_path / "config.yaml").write_text(
-        yaml.safe_dump({"version": 1, "fields": {"pt": {}}}, sort_keys=False),
-        encoding="utf-8",
-    )
+    write_yaml({"version": 1, "fields": {"pt": {}}}, tmp_path / "config.yaml")
     workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
 
     normalized, plan = _compiled_mapping_config(tmp_path, workflow_path)
@@ -897,10 +882,7 @@ def test_file_backed_mapping_param_loads_yaml(tmp_path: Path) -> None:
 
 
 def test_file_backed_mapping_param_loads_yml(tmp_path: Path) -> None:
-    (tmp_path / "config.yml").write_text(
-        yaml.safe_dump({"version": 1, "fields": {"eta": {}}}, sort_keys=False),
-        encoding="utf-8",
-    )
+    write_yaml({"version": 1, "fields": {"eta": {}}}, tmp_path / "config.yml")
     workflow_path = _mapping_config_workflow(tmp_path, "config.yml")
 
     _normalized, plan = _compiled_mapping_config(tmp_path, workflow_path)
@@ -933,10 +915,7 @@ def test_inline_and_external_mapping_params_normalize_identically(
     payload = {"version": 1, "fields": {"pt": {"dtype": "float32"}}}
     external_dir = tmp_path / "external"
     external_dir.mkdir()
-    (external_dir / "config.yaml").write_text(
-        yaml.safe_dump(payload, sort_keys=False),
-        encoding="utf-8",
-    )
+    write_yaml(payload, external_dir / "config.yaml")
 
     _inline_normalized, inline_plan = _compiled_mapping_config(
         tmp_path,
@@ -947,10 +926,14 @@ def test_inline_and_external_mapping_params_normalize_identically(
         _mapping_config_workflow(external_dir, "config.yaml"),
     )
 
-    assert external_normalized["analysis"]["stages"][0]["params"]["config"] == "config.yaml"
-    assert inline_plan.get_node("stage.Config").params["config"] == external_plan.get_node(
-        "stage.Config"
-    ).params["config"]
+    assert (
+        external_normalized["analysis"]["stages"][0]["params"]["config"]
+        == "config.yaml"
+    )
+    assert (
+        inline_plan.get_node("stage.Config").params["config"]
+        == external_plan.get_node("stage.Config").params["config"]
+    )
 
 
 def test_file_backed_mapping_param_resolves_relative_to_workflow(
@@ -958,17 +941,14 @@ def test_file_backed_mapping_param_resolves_relative_to_workflow(
 ) -> None:
     project = tmp_path / "project"
     (project / "configs").mkdir(parents=True)
-    (project / "configs" / "mapping.yaml").write_text(
-        yaml.safe_dump({"version": 1, "fields": {"eta": {}}}, sort_keys=False),
-        encoding="utf-8",
+    write_yaml(
+        {"version": 1, "fields": {"eta": {}}}, project / "configs" / "mapping.yaml"
     )
     workflow_path = _mapping_config_workflow(project, "configs/mapping.yaml")
 
     _normalized, plan = _compiled_mapping_config(tmp_path, workflow_path)
 
-    assert plan.get_node("stage.Config").params["config"]["fields"] == {
-        "eta": {}
-    }
+    assert plan.get_node("stage.Config").params["config"]["fields"] == {"eta": {}}
 
 
 def test_file_backed_mapping_param_reports_malformed_yaml(tmp_path: Path) -> None:
@@ -1009,10 +989,7 @@ def test_file_backed_mapping_param_rejects_loaded_non_mapping(
     tmp_path: Path,
     payload: Any,
 ) -> None:
-    (tmp_path / "config.yaml").write_text(
-        yaml.safe_dump(payload, sort_keys=False),
-        encoding="utf-8",
-    )
+    write_yaml(payload, tmp_path / "config.yaml")
     workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
 
     with pytest.raises(ValueError, match=r"expected mapping.*config.yaml"):
@@ -1029,10 +1006,7 @@ def test_file_backed_mapping_param_rejects_inline_non_mapping(
 
 
 def test_ordinary_string_params_are_never_auto_loaded(tmp_path: Path) -> None:
-    (tmp_path / "config.yaml").write_text(
-        yaml.safe_dump({"loaded": True}, sort_keys=False),
-        encoding="utf-8",
-    )
+    write_yaml({"loaded": True}, tmp_path / "config.yaml")
     workflow_path = _string_config_workflow(tmp_path, "config.yaml")
 
     normalized = normalise_workflow_file(workflow_path, outdir=tmp_path / "build")
@@ -1044,18 +1018,20 @@ def test_file_backed_mapping_param_materializes_in_normalized_and_plan(
     tmp_path: Path,
 ) -> None:
     payload = {"version": 1, "fields": {"pt": {}}}
-    (tmp_path / "config.yaml").write_text(
-        yaml.safe_dump(payload, sort_keys=False),
-        encoding="utf-8",
-    )
+    write_yaml(payload, tmp_path / "config.yaml")
     workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
     build_dir = tmp_path / "build"
 
-    normalized, plan = _compiled_mapping_config(tmp_path, workflow_path, outdir=build_dir)
+    normalized, plan = _compiled_mapping_config(
+        tmp_path, workflow_path, outdir=build_dir
+    )
 
-    assert read_yaml(build_dir / "compile" / "normalized.yaml")["analysis"]["stages"][
-        0
-    ]["params"]["config"] == "config.yaml"
+    assert (
+        read_yaml(build_dir / "compile" / "normalized.yaml")["analysis"]["stages"][0][
+            "params"
+        ]["config"]
+        == "config.yaml"
+    )
     assert normalized["analysis"]["stages"][0]["params"]["config"] == "config.yaml"
     assert plan.get_node("stage.Config").params["config"] == payload
     hook = plan.get_node("stage.Config").meta["compile_hooks"]["config"][0]
@@ -1068,7 +1044,7 @@ def test_file_backed_mapping_param_materializes_in_normalized_and_plan(
 def test_runtime_plan_does_not_require_original_mapping_file(tmp_path: Path) -> None:
     payload = {"version": 1, "fields": {"pt": {}}}
     config_path = tmp_path / "config.yaml"
-    config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    write_yaml(payload, config_path)
     workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
 
     _normalized, plan = _compiled_mapping_config(tmp_path, workflow_path)
@@ -1096,7 +1072,10 @@ def test_compile_graph_d2_uses_readable_observer_labels(
     assert "Target: Scale" in graph_d2
     assert "observe.hep_schema_snapshot.0.stage_Scale" in graph_d2
     assert "#### observe.hep_schema_snapshot" not in graph_d2
-    assert '"stage.Scale" -> "observe.hep_schema_snapshot.0.stage_Scale": "observes stream"' in graph_d2
+    assert (
+        '"stage.Scale" -> "observe.hep_schema_snapshot.0.stage_Scale": "observes stream"'
+        in graph_d2
+    )
     assert "class: report" in graph_d2
 
 
@@ -1252,7 +1231,7 @@ def _mapping_config_workflow(base_dir: Path, config: Any) -> Path:
         },
     }
     path = base_dir / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
     return path
 
 
@@ -1288,7 +1267,7 @@ def _string_config_workflow(base_dir: Path, config: str) -> Path:
         },
     }
     path = base_dir / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
     return path
 
 

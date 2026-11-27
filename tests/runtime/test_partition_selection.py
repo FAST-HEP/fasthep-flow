@@ -4,13 +4,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from hepflow.api import compile_workflow_file, run_plan_file, run_workflow_file
 from hepflow.model.plan import ExecutionPartition
 from hepflow.progress import ProgressUpdate
 from hepflow.runtime.partitions import select_partitions
-from hepflow.utils import read_yaml
+from hepflow.utils import read_yaml, write_yaml
 
 
 def test_select_partitions_none_returns_all() -> None:
@@ -163,7 +162,7 @@ def _write_partitioned_workflow(
         },
     }
     path = tmp_path / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
     return path
 
 

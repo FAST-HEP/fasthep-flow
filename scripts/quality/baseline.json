@@ -107,7 +107,6 @@
     "tests::_registry": 3,
     "tests::_run": 8,
     "tests::_workflow": 7,
-    "tests::_write": 5,
-    "tests::_write_workflow": 5
+    "tests::_write_workflow": 3
   }
 }

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
+from tests.builders import modified_stage
 from tests.toy_components import compile_hooks
 
 import hepflow
@@ -19,7 +19,7 @@ from hepflow.api import (
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.systematics import expand_systematics
 from hepflow.runtime.config import default_run_outdir_for_plan
-from hepflow.utils import read_yaml
+from hepflow.utils import read_yaml, write_yaml
 
 
 def test_no_systematics_expands_to_one_nominal_workflow(
@@ -137,7 +137,9 @@ def test_variation_metadata_attached_to_expanded_workflow(
     }
 
 
-def test_nominal_workflow_weight_expr_is_unchanged(toy_workflow: dict[str, Any]) -> None:
+def test_nominal_workflow_weight_expr_is_unchanged(
+    toy_workflow: dict[str, Any],
+) -> None:
     workflow = _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
     normalized = normalize_workflow(workflow)
 
@@ -222,7 +224,9 @@ def test_weight_rewrite_only_updates_analysis_stages(
 
 
 def test_field_replacement_rewrites_exact_sources(toy_workflow: dict[str, Any]) -> None:
-    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow = _workflow_with_field_replacements(
+        _workflow_with_field_params(toy_workflow)
+    )
     normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
@@ -233,7 +237,9 @@ def test_field_replacement_rewrites_exact_sources(toy_workflow: dict[str, Any]) 
 
 
 def test_field_replacement_rewrites_expressions(toy_workflow: dict[str, Any]) -> None:
-    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow = _workflow_with_field_replacements(
+        _workflow_with_field_params(toy_workflow)
+    )
     normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
@@ -252,7 +258,9 @@ def test_field_replacement_rewrites_expressions(toy_workflow: dict[str, Any]) ->
 def test_field_replacement_avoids_longer_variable_names(
     toy_workflow: dict[str, Any],
 ) -> None:
-    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow = _workflow_with_field_replacements(
+        _workflow_with_field_params(toy_workflow)
+    )
     normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
@@ -264,7 +272,9 @@ def test_field_replacement_avoids_longer_variable_names(
 def test_field_replacement_rewrites_selection_list(
     toy_workflow: dict[str, Any],
 ) -> None:
-    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow = _workflow_with_field_replacements(
+        _workflow_with_field_params(toy_workflow)
+    )
     normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
@@ -280,7 +290,9 @@ def test_field_replacement_rewrites_selection_list(
 def test_field_replacement_leaves_labels_ids_and_paths_unchanged(
     toy_workflow: dict[str, Any],
 ) -> None:
-    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow = _workflow_with_field_replacements(
+        _workflow_with_field_params(toy_workflow)
+    )
     normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
@@ -310,7 +322,9 @@ def test_field_replacement_does_not_mutate_original_workflow(
 def test_nominal_workflow_field_params_are_unchanged(
     toy_workflow: dict[str, Any],
 ) -> None:
-    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow = _workflow_with_field_replacements(
+        _workflow_with_field_params(toy_workflow)
+    )
     normalized = normalize_workflow(workflow)
 
     nominal = expand_systematics(normalized)[0]
@@ -477,9 +491,10 @@ def test_expanded_workflows_preserve_normalized_sections(
 def test_compile_writes_per_variation_plans_and_summary(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
+    write_workflow: Any,
 ) -> None:
     workflow = _workflow_with_systematics(toy_workflow)
-    workflow_path = _write_workflow(tmp_path, workflow)
+    workflow_path = write_workflow(workflow)
     build_dir = tmp_path / "build"
 
     compile_workflow_file(workflow_path, outdir=build_dir)
@@ -518,8 +533,9 @@ def test_compile_writes_per_variation_plans_and_summary(
 def test_each_variation_plan_contains_variation_metadata(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
+    write_workflow: Any,
 ) -> None:
-    workflow_path = _write_workflow(tmp_path, _workflow_with_systematics(toy_workflow))
+    workflow_path = write_workflow(_workflow_with_systematics(toy_workflow))
     build_dir = tmp_path / "build"
 
     compile_workflow_file(workflow_path, outdir=build_dir)
@@ -547,9 +563,10 @@ def test_each_variation_plan_contains_variation_metadata(
 def test_variation_plan_contains_rewritten_weight_expr(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
+    write_workflow: Any,
 ) -> None:
-    workflow_path = _write_workflow(
-        tmp_path, _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
+    workflow_path = write_workflow(
+        _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
     )
     build_dir = tmp_path / "build"
 
@@ -565,9 +582,10 @@ def test_variation_plan_contains_rewritten_weight_expr(
 def test_nominal_plan_contains_original_weight_expr(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
+    write_workflow: Any,
 ) -> None:
-    workflow_path = _write_workflow(
-        tmp_path, _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
+    workflow_path = write_workflow(
+        _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
     )
     build_dir = tmp_path / "build"
 
@@ -581,9 +599,10 @@ def test_nominal_plan_contains_original_weight_expr(
 def test_variation_plan_contains_rewritten_field_params(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
+    write_workflow: Any,
 ) -> None:
-    workflow_path = _write_workflow(
-        tmp_path, _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow_path = write_workflow(
+        _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
     )
     build_dir = tmp_path / "build"
 
@@ -603,8 +622,9 @@ def test_variation_plan_contains_rewritten_field_params(
 def test_variation_plan_contains_dataset_replacement_metadata(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
+    write_workflow: Any,
 ) -> None:
-    workflow_path = _write_workflow(tmp_path, _workflow_with_dataset_replacement(toy_workflow))
+    workflow_path = write_workflow(_workflow_with_dataset_replacement(toy_workflow))
     build_dir = tmp_path / "build"
 
     compile_workflow_file(workflow_path, outdir=build_dir)
@@ -632,9 +652,7 @@ def test_make_plan_file_expands_normalized_systematics(
     workflow = _workflow_with_systematics(toy_workflow)
     normalized = normalize_workflow(workflow)
     normalized_path = tmp_path / "normalized.yaml"
-    normalized_path.write_text(
-        yaml.safe_dump(normalized, sort_keys=False), encoding="utf-8"
-    )
+    write_yaml(normalized, normalized_path)
     build_dir = tmp_path / "build"
 
     make_plan_file(normalized_path, outdir=build_dir)
@@ -646,8 +664,9 @@ def test_make_plan_file_expands_normalized_systematics(
 def test_run_plan_file_uses_variation_namespace_by_default(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
+    write_workflow: Any,
 ) -> None:
-    workflow_path = _write_workflow(tmp_path, _workflow_with_systematics(toy_workflow))
+    workflow_path = write_workflow(_workflow_with_systematics(toy_workflow))
     build_dir = tmp_path / "build"
     compile_workflow_file(workflow_path, outdir=build_dir)
 
@@ -655,9 +674,7 @@ def test_run_plan_file_uses_variation_namespace_by_default(
 
     assert result.success is True
     assert not (build_dir / "run_summary.yaml").exists()
-    assert (
-        build_dir / "reports" / "trigger_eff_up" / "run_summary.yaml"
-    ).exists()
+    assert (build_dir / "reports" / "trigger_eff_up" / "run_summary.yaml").exists()
     assert result.summary["summary_path"] == str(
         build_dir / "reports" / "trigger_eff_up" / "run_summary.yaml"
     )
@@ -677,8 +694,9 @@ def test_run_plan_file_uses_variation_namespace_by_default(
 def test_run_plan_file_explicit_outdir_overrides_variation_default(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
+    write_workflow: Any,
 ) -> None:
-    workflow_path = _write_workflow(tmp_path, _workflow_with_systematics(toy_workflow))
+    workflow_path = write_workflow(_workflow_with_systematics(toy_workflow))
     build_dir = tmp_path / "build"
     custom_dir = tmp_path / "custom"
     compile_workflow_file(workflow_path, outdir=build_dir)
@@ -691,7 +709,9 @@ def test_run_plan_file_explicit_outdir_overrides_variation_default(
     assert result.success is True
     assert (custom_dir / "reports" / "trigger_eff_up" / "run_summary.yaml").exists()
     assert (custom_dir / "artifacts" / "trigger_eff_up" / "files").exists()
-    assert not (build_dir / "artifacts" / "trigger_eff_up" / "files" / "output.json").exists()
+    assert not (
+        build_dir / "artifacts" / "trigger_eff_up" / "files" / "output.json"
+    ).exists()
 
 
 def test_no_systematics_workflows_still_compile_to_existing_plan_path(
@@ -709,8 +729,9 @@ def test_no_systematics_workflows_still_compile_to_existing_plan_path(
 def test_run_workflow_with_systematics_runs_nominal_if_present(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
+    write_workflow: Any,
 ) -> None:
-    workflow_path = _write_workflow(tmp_path, _workflow_with_systematics(toy_workflow))
+    workflow_path = write_workflow(_workflow_with_systematics(toy_workflow))
     build_dir = tmp_path / "build"
 
     result = run_workflow_file(workflow_path, outdir=build_dir)
@@ -728,6 +749,7 @@ def test_run_workflow_with_systematics_runs_nominal_if_present(
 def test_running_two_variation_plans_writes_independent_summaries(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
+    write_workflow: Any,
 ) -> None:
     workflow = _workflow_with_systematics(toy_workflow, include_nominal=False)
     workflow["systematics"]["variations"].append(
@@ -738,7 +760,7 @@ def test_running_two_variation_plans_writes_independent_summaries(
             "weight": {"multiply": "TriggerEffWeight_down"},
         }
     )
-    workflow_path = _write_workflow(tmp_path, workflow)
+    workflow_path = write_workflow(workflow)
     build_dir = tmp_path / "build"
     compile_workflow_file(workflow_path, outdir=build_dir)
 
@@ -748,19 +770,17 @@ def test_running_two_variation_plans_writes_independent_summaries(
     assert up.success is True
     assert down.success is True
     assert (build_dir / "reports" / "trigger_eff_up" / "run_summary.yaml").exists()
-    assert (
-        build_dir / "reports" / "trigger_eff_down" / "run_summary.yaml"
-    ).exists()
+    assert (build_dir / "reports" / "trigger_eff_down" / "run_summary.yaml").exists()
     assert not (build_dir / "run_summary.yaml").exists()
 
 
 def test_run_workflow_with_systematics_without_nominal_raises_clear_message(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
+    write_workflow: Any,
 ) -> None:
-    workflow_path = _write_workflow(
-        tmp_path,
-        _workflow_with_systematics(toy_workflow, include_nominal=False),
+    workflow_path = write_workflow(
+        _workflow_with_systematics(toy_workflow, include_nominal=False)
     )
 
     with pytest.raises(ValueError, match="no nominal variation was generated"):
@@ -792,9 +812,7 @@ def _workflow_with_systematics(
 
 
 def _workflow_with_weight_expr(toy_workflow: dict[str, Any]) -> dict[str, Any]:
-    workflow = deepcopy(toy_workflow)
-    workflow["analysis"]["stages"][0]["params"]["weight_expr"] = "EventWeight"
-    return workflow
+    return modified_stage(toy_workflow, params={"weight_expr": "EventWeight"})
 
 
 def _workflow_with_field_replacements(toy_workflow: dict[str, Any]) -> dict[str, Any]:
@@ -887,12 +905,6 @@ def _normalized_with_systematics(
     return normalize_workflow(workflow)
 
 
-def _write_workflow(tmp_path: Path, workflow: dict[str, Any]) -> Path:
-    workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
-    return workflow_path
-
-
 def _plan_node(plan: dict[str, Any], node_id: str) -> dict[str, Any]:
     return next(node for node in plan["nodes"] if node["id"] == node_id)
 
@@ -903,13 +915,16 @@ def test_graph_artifacts_and_hooks_are_scoped_per_plan(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     include_nominal: bool | None,
+    write_workflow: Any,
 ) -> None:
     workflow = _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
     workflow["systematics"]["include_nominal"] = include_nominal
-    workflow["systematics"]["variations"].append({
-        "name": "trigger_eff_down",
-        "weight": {"multiply": "TriggerEffWeight_down"},
-    })
+    workflow["systematics"]["variations"].append(
+        {
+            "name": "trigger_eff_down",
+            "weight": {"multiply": "TriggerEffWeight_down"},
+        }
+    )
     expected = {
         "trigger_eff_up": "(EventWeight) * (TriggerEffWeight_up)",
         "trigger_eff_down": "(EventWeight) * (TriggerEffWeight_down)",
@@ -947,12 +962,14 @@ def test_graph_artifacts_and_hooks_are_scoped_per_plan(
         return {"graph_render": {"variation": name}}
 
     monkeypatch.setattr(compile_hooks, "graph_render_hook", render)
-    compile_workflow_file(_write_workflow(tmp_path, workflow), outdir=outdir)
+    compile_workflow_file(write_workflow(workflow), outdir=outdir)
     assert sorted(calls) == sorted(expected)
     for name, weight in expected.items():
         graph_dir = outdir / "graph" / name
         graph = json.loads((graph_dir / "graph.json").read_text())
-        payload = next(node["payload"] for node in graph["nodes"] if node["id"] == "stage.Scale")
+        payload = next(
+            node["payload"] for node in graph["nodes"] if node["id"] == "stage.Scale"
+        )
         assert f"'weight_expr': '{weight}'" in payload
         assert (graph_dir / "graph.svg").read_text() == f"<svg>{name}</svg>"
         assert (outdir / "reports" / name / "graph.txt").read_text() == name
@@ -968,7 +985,10 @@ def test_graph_artifacts_and_hooks_are_scoped_per_plan(
 
 
 def test_source_graphs_survive_render_hook_failure(
-    toy_workflow: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    toy_workflow: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    write_workflow: Any,
 ) -> None:
     workflow = _workflow_with_systematics(toy_workflow)
     workflow["registry"]["compile_hooks"] = {
@@ -984,7 +1004,7 @@ def test_source_graphs_survive_render_hook_failure(
     monkeypatch.setattr(compile_hooks, "graph_render_hook", fail)
     outdir = tmp_path / "build"
     with pytest.raises(RuntimeError, match="D2 rendering failed"):
-        compile_workflow_file(_write_workflow(tmp_path, workflow), outdir=outdir)
+        compile_workflow_file(write_workflow(workflow), outdir=outdir)
     assert (outdir / "compile" / "nominal" / "plan.yaml").is_file()
     for extension in ("mmd", "dot", "json", "d2"):
         assert (outdir / "graph" / "nominal" / f"graph.{extension}").is_file()
@@ -993,8 +1013,9 @@ def test_source_graphs_survive_render_hook_failure(
 def test_every_variation_plan_records_flow_version(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
+    write_workflow: Any,
 ) -> None:
-    workflow_path = _write_workflow(tmp_path, _workflow_with_systematics(toy_workflow))
+    workflow_path = write_workflow(_workflow_with_systematics(toy_workflow))
     build_dir = tmp_path / "build"
 
     compile_workflow_file(workflow_path, outdir=build_dir)
@@ -1003,4 +1024,6 @@ def test_every_variation_plan_records_flow_version(
     assert len(summary["variations"]) == 2
     for variation in summary["variations"]:
         plan = read_yaml(build_dir / variation["plan"])
-        assert plan["provenance"]["compilation"] == {"flow_version": hepflow.__version__}
+        assert plan["provenance"]["compilation"] == {
+            "flow_version": hepflow.__version__
+        }

@@ -18,6 +18,7 @@ from hepflow.compiler.hooks import software as software_module
 from hepflow.compiler.inputs_manifest import write_inputs_manifest
 from hepflow.model.plan import ExecutionPlan
 from hepflow.registry.defaults import default_runtime_registry_config
+from hepflow.utils import write_yaml
 
 REAL_SOFTWARE_CAPTURE = True
 SOFTWARE_HOOK = {
@@ -59,7 +60,7 @@ def _project(
     }
     workflow = {"include": "parts/sources.yaml", **toy_workflow, "registry": registry}
     entry = project / "workflow.yaml"
-    entry.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, entry)
     return entry
 
 

@@ -6,11 +6,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
+from tests.builders import write_file
 
 from hepflow.api import normalise_workflow_file
 from hepflow.compiler.bundle import SOURCE_ROLES
 from hepflow.compiler.resource_paths import resolve_resource_paths
+from hepflow.utils import write_yaml
 
 REGISTRY: dict[str, Any] = {
     "resource_kinds": {
@@ -20,15 +21,9 @@ REGISTRY: dict[str, Any] = {
 }
 
 
-def _write(path: Path, content: bytes = b"{}") -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    return path
-
-
 def test_path_field_is_resolved_and_recorded(tmp_path: Path) -> None:
     content = b'{"corrections": []}'
-    _write(tmp_path / "data" / "x.json", content)
+    write_file(tmp_path / "data" / "x.json", content)
     resources = {"kfactor": {"kind": "file", "path": "data/x.json", "extra": 1}}
 
     resolved, entries = resolve_resource_paths(
@@ -50,7 +45,7 @@ def test_path_field_is_resolved_and_recorded(tmp_path: Path) -> None:
 
 def test_paths_list_field_resolves_every_item(tmp_path: Path) -> None:
     for name in ("a", "b", "c"):
-        _write(tmp_path / "masks" / f"{name}.json", name.encode())
+        write_file(tmp_path / "masks" / f"{name}.json", name.encode())
     resources = {
         "cms.lumimask": {
             "kind": "data_quality_mask",
@@ -110,7 +105,7 @@ def test_missing_file_names_resource_and_field(tmp_path: Path) -> None:
 
 
 def test_empty_path_item_raises_value_error(tmp_path: Path) -> None:
-    _write(tmp_path / "a.json")
+    write_file(tmp_path / "a.json", b"{}")
     resources = {"m": {"kind": "data_quality_mask", "paths": ["a.json", ""]}}
 
     with pytest.raises(ValueError, match=r"resource:m\.paths\[1\]"):
@@ -129,7 +124,7 @@ def test_non_string_path_value_raises_type_error(tmp_path: Path) -> None:
 
 
 def test_same_file_declared_twice_gives_two_entries(tmp_path: Path) -> None:
-    _write(tmp_path / "x.json", b"x")
+    write_file(tmp_path / "x.json", b"x")
     resources = {
         "one": {"kind": "file", "path": "x.json"},
         "two": {"kind": "file", "path": "x.json"},
@@ -146,7 +141,7 @@ def test_same_file_declared_twice_gives_two_entries(tmp_path: Path) -> None:
 
 
 def test_uri_and_absolute_values_are_not_rewritten(tmp_path: Path) -> None:
-    outside = _write(tmp_path / "outside" / "abs.json", b"abs")
+    outside = write_file(tmp_path / "outside" / "abs.json", b"abs")
     root = tmp_path / "root"
     root.mkdir()
     resources = {
@@ -164,7 +159,7 @@ def test_uri_and_absolute_values_are_not_rewritten(tmp_path: Path) -> None:
 
 
 def test_input_resources_are_not_mutated(tmp_path: Path) -> None:
-    _write(tmp_path / "x.json")
+    write_file(tmp_path / "x.json", b"{}")
     resources = {"r": {"kind": "file", "path": "x.json"}}
     before = copy.deepcopy(resources)
 
@@ -187,7 +182,7 @@ def test_compile_resolves_resources_and_records_inputs(
     tmp_path: Path, toy_workflow: dict[str, Any]
 ) -> None:
     content = b'{"k": 1}'
-    _write(tmp_path / "data" / "kfactor.json", content)
+    write_file(tmp_path / "data" / "kfactor.json", content)
     workflow = {
         **toy_workflow,
         "execution": {
@@ -199,7 +194,7 @@ def test_compile_resolves_resources_and_records_inputs(
     }
     entry = tmp_path / "entry" / "workflow.yaml"
     entry.parent.mkdir()
-    entry.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, entry)
 
     normalized = normalise_workflow_file(
         entry, outdir=tmp_path / "build", root=tmp_path

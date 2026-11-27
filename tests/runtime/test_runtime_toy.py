@@ -4,11 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
 from hepflow.runtime.engine import _source_should_read_metadata_only
+from hepflow.utils import write_yaml
 
 
 def test_runtime_executes_toy_source_transform_and_final_sink(
@@ -22,9 +21,7 @@ def test_runtime_executes_toy_source_transform_and_final_sink(
 
     assert result.success is True
     payload = json.loads(
-        (build_dir / "artifacts" / "files" / "output.json").read_text(
-            encoding="utf-8"
-        )
+        (build_dir / "artifacts" / "files" / "output.json").read_text(encoding="utf-8")
     )
     assert payload["pt"] == [12, 18, 21, 28]
     assert payload["scaled_pt"] == [24, 36, 42, 56]
@@ -55,7 +52,7 @@ def test_partition_dataset_and_run_end_sink_timing(
 
     workflow_path = tmp_path / "workflow.yaml"
 
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
     compile_workflow_file(workflow_path, outdir=build_dir, chunk_size=2)
 
@@ -151,7 +148,9 @@ def _schema_observer(node_id: str, *, upstream: str) -> ExecutionNode:
     )
 
 
-def _define_transform(*, upstream: str, upstream_output: str = "stream") -> ExecutionNode:
+def _define_transform(
+    *, upstream: str, upstream_output: str = "stream"
+) -> ExecutionNode:
     return ExecutionNode(
         id=f"stage.Derived.from.{upstream}",
         graph_node_id=f"stage.Derived.from.{upstream}",

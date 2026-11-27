@@ -10,9 +10,12 @@ from tests.runtime.test_per_dataset_run import _write_workflow
 from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.backends.local import LocalBackend
 from hepflow.compiler.dataset_units import PublishConflict
+from hepflow.utils import write_yaml
 
 
-def _compile(tmp_path: Path, toy_workflow: dict[str, Any], *datasets: str) -> tuple[Path, Path]:
+def _compile(
+    tmp_path: Path, toy_workflow: dict[str, Any], *datasets: str
+) -> tuple[Path, Path]:
     workflow = _write_workflow(tmp_path, toy_workflow)
     out = tmp_path / "out"
     for name in datasets:
@@ -55,7 +58,10 @@ def test_selected_partitions_only_leave_their_own_records(
 
     run_plan_file(plan, outdir=out, dataset="beta", partition_numbers=[2])
 
-    assert sorted(p.name for p in (out / "runs" / "beta").iterdir()) == ["2", "binding.json"]
+    assert sorted(p.name for p in (out / "runs" / "beta").iterdir()) == [
+        "2",
+        "binding.json",
+    ]
 
 
 def test_without_a_dataset_each_dataset_gets_a_run_root(
@@ -81,7 +87,9 @@ def test_a_rerun_replaces_the_summary_and_keeps_the_earlier_attempt(
 
     second = _summary(out, "beta", 1)["attempt"]
     assert second != first
-    attempts = sorted(p.name for p in (out / "runs" / "beta" / "1" / "attempts").iterdir())
+    attempts = sorted(
+        p.name for p in (out / "runs" / "beta" / "1" / "attempts").iterdir()
+    )
     assert attempts == sorted([first, second])
 
 
@@ -92,12 +100,15 @@ def test_a_changed_plan_fails_before_any_partition_runs(
     run_plan_file(plan, outdir=out, dataset="beta", partition_numbers=[1])
     doc = yaml.safe_load(plan.read_text(encoding="utf-8"))
     doc["marker"] = "changed"  # same manifest, different plan
-    plan.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    write_yaml(doc, plan)
 
     with pytest.raises(PublishConflict, match="plan_hash"):
         run_plan_file(plan, outdir=out, dataset="beta", partition_numbers=[2])
 
-    assert sorted(p.name for p in (out / "runs" / "beta").iterdir()) == ["1", "binding.json"]
+    assert sorted(p.name for p in (out / "runs" / "beta").iterdir()) == [
+        "1",
+        "binding.json",
+    ]
 
 
 def test_a_failed_partition_leaves_no_summary_and_stops_the_run(
@@ -135,13 +146,15 @@ def test_a_partition_run_does_not_delete_the_product_manifests_of_other_jobs(
     assert other.is_file()
 
 
-def _compile_with_writer(tmp_path: Path, toy_workflow: dict[str, Any]) -> tuple[Path, Path]:
+def _compile_with_writer(
+    tmp_path: Path, toy_workflow: dict[str, Any]
+) -> tuple[Path, Path]:
     workflow = _write_workflow(tmp_path, toy_workflow)
     doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
     doc["analysis"]["stages"][0]["write"] = [
         {"kind": "toy.write_manifest", "path": "skims/part.toy"}
     ]
-    workflow.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    write_yaml(doc, workflow)
     out = tmp_path / "out"
     compile_workflow_file(workflow, outdir=out, dataset="beta")
     return out, out / "compile" / "plan.yaml"
@@ -156,7 +169,9 @@ def test_partition_files_are_named_by_n_and_leave_no_temporary_files(
 
     files = out / "artifacts" / "files" / "skims" / "part" / "beta"
     assert sorted(p.name for p in files.iterdir()) == ["1.toy", "2.toy", "3.toy"]
-    assert not [p for p in out.rglob("*") if ".tmp-" in p.name and "attempts" not in p.parts]
+    assert not [
+        p for p in out.rglob("*") if ".tmp-" in p.name and "attempts" not in p.parts
+    ]
 
 
 def test_a_failed_writer_leaves_no_partial_file_and_a_rerun_replaces_the_file(
@@ -191,7 +206,9 @@ def test_records_of_a_partition_are_written_below_its_run_directory(
     run_plan_file(plan, outdir=out, dataset="beta", partition_numbers=[2])
 
     run_dir = out / "runs" / "beta" / "2"
-    manifest = yaml.safe_load((run_dir / "writers" / "part" / "manifest.json").read_text())
+    manifest = yaml.safe_load(
+        (run_dir / "writers" / "part" / "manifest.json").read_text()
+    )
     assert [entry["path"] for entry in manifest["datasets"]["beta"]["files"]] == [
         "artifacts/files/skims/part/beta/2.toy"
     ]
@@ -211,7 +228,7 @@ def test_writer_roots_expand_over_the_loaded_dataset_only(
     doc["analysis"]["stages"][0]["write"] = [
         {"kind": "toy.write_manifest", "path": "{dataset}/{part}.toy"}
     ]
-    workflow.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    write_yaml(doc, workflow)
     out = tmp_path / "out"
     compile_workflow_file(workflow, outdir=out)
 
@@ -242,7 +259,9 @@ def test_a_variation_and_the_nominal_share_an_out_dir_without_colliding(
     compile_workflow_file(workflow, outdir=out, dataset="beta")
 
     for variation in ("nominal", "scale_up"):
-        run_plan_file(out / "compile" / variation / "plan.yaml", outdir=out, dataset="beta")
+        run_plan_file(
+            out / "compile" / variation / "plan.yaml", outdir=out, dataset="beta"
+        )
 
     for variation in ("nominal", "scale_up"):
         binding = (out / "runs" / variation / "beta" / "binding.json").read_text()

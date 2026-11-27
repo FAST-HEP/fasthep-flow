@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.compiler.data_flow import parse_component_data_dependencies
@@ -22,6 +21,7 @@ from hepflow.runtime.hooks.loaders import (
     load_hook_spec,
 )
 from hepflow.runtime.hooks.manager import HookManager
+from hepflow.utils import write_yaml
 
 
 def test_toy_transform_spec_tracks_consumed_and_produced_symbols(
@@ -117,7 +117,7 @@ def test_data_flow_includes_sink_field_list_requirements(
         }
     ]
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
 
     plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
@@ -210,9 +210,7 @@ def test_expression_requirements_support_wildcards_and_optional_params() -> None
         )(),
     )
 
-    assert deps == DataDependencyResult(
-        consumes={"Muon_Pz", "Muon_Eta", "EventWeight"}
-    )
+    assert deps == DataDependencyResult(consumes={"Muon_Pz", "Muon_Eta", "EventWeight"})
 
 
 def test_field_prefix_expands_multiple_prefixes_and_fields_from_params() -> None:
@@ -437,7 +435,11 @@ def test_template_outputs_support_prefix_suffixes_and_guards() -> None:
                     "prefix_suffix": "_candidate",
                     "suffixes_from": "params.fields",
                 },
-                {"from": "params.output", "kind": "count", "prefix_suffix": "_candidate"},
+                {
+                    "from": "params.output",
+                    "kind": "count",
+                    "prefix_suffix": "_candidate",
+                },
                 {
                     "kind": "template",
                     "template": "{params.output}_removed",
@@ -499,7 +501,7 @@ def test_hook_context_result_symbols_are_visible_to_data_flow(
     }
 
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
     assert "events" not in plan.data_flow["required_sources"]
@@ -564,7 +566,7 @@ def test_hook_executes_lifecycle_event_and_records_summary(
         }
     ]
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
     compile_workflow_file(workflow_path, outdir=build_dir)
     result = run_plan_file(build_dir / "compile" / "plan.yaml", outdir=build_dir)

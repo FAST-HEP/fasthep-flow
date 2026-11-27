@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from hepflow.utils import write_yaml
+
 SOFTWARE_HOOK = {
     "impl": "hepflow.compiler.hooks.software:software",
     "spec": "hepflow.compiler.hooks.software:SOFTWARE_HOOK_SPEC",
@@ -80,7 +82,7 @@ def make_project(
     if systematics:
         entry_doc["systematics"] = deepcopy(SYSTEMATICS)
     entry = project / "workflow.yaml"
-    entry.write_text(yaml.safe_dump(entry_doc, sort_keys=False), encoding="utf-8")
+    write_yaml(entry_doc, entry)
     return entry
 
 

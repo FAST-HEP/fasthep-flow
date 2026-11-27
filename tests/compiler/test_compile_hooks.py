@@ -7,7 +7,6 @@ from typing import Any
 
 import networkx as nx
 import pytest
-import yaml
 
 from hepflow.api import compile_workflow_file
 from hepflow.build_layout import BuildPaths, ensure_build_layout
@@ -16,6 +15,7 @@ from hepflow.compiler.compile_hooks import run_compile_hooks
 from hepflow.compiler.normalize import normalize_registry
 from hepflow.model.plan import ExecutionPlan
 from hepflow.registry.merge import RegistryLayer, merge_registry_layers
+from hepflow.utils import write_yaml
 
 
 def test_compile_hook_registry_entry_is_resolved_and_filtered_by_phase(
@@ -110,7 +110,9 @@ def test_workflow_layer_can_switch_off_a_profile_compile_hook(tmp_path: Path) ->
             RegistryLayer(
                 name="workflow",
                 kind="workflow",
-                registry={"compile_hooks": {"toy.dataset_metadata": {"enabled": False}}},
+                registry={
+                    "compile_hooks": {"toy.dataset_metadata": {"enabled": False}}
+                },
             ),
         ]
     )
@@ -151,7 +153,7 @@ def test_workflow_can_switch_off_a_compile_hook_when_compiling(
     registry["compile_hooks"] = {"toy.graph_render": {"enabled": False}}
     workflow["registry"] = registry
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
 
     compile_workflow_file(workflow_path, outdir=build_dir)
@@ -192,7 +194,7 @@ def test_after_compile_hook_runs_after_graph_artifacts_exist(
     }
     workflow["registry"] = registry
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
 
     compile_workflow_file(workflow_path, outdir=build_dir)
