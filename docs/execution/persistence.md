@@ -52,7 +52,28 @@ manifest's `plan_hash` equals the current plan's, the set validates (payload siz
 would lose, and the plan has no execution hooks (a skipped partition skips them). The
 restored products, their evidence and a consumption record reach the run only when every
 product of the partition can be reused (`summary["persistence"]["consumed"]` lists them).
-Anything else, including a corrupt set, runs the producers. Until the semantic plan hash of
+Anything else, including a corrupt set, runs the producers.
+
+With `reuse: true`, `summary["persistence"]["reuse"]` (so `run_summary.yaml`) says what happened
+for every partition: `{"attempted": 9, "reused": 0, "skipped": [{"partition", "reason", "detail"}]}`.
+The reasons:
+
+| Reason | Meaning |
+|---|---|
+| `reuse_off` | `reuse` is not enabled |
+| `no_boundary_products` | the partition has no boundary products |
+| `execution_hooks` | the plan has execution hooks (detail: their names) |
+| `sink_or_observer` | the plan has sinks or observers (detail: their node ids) |
+| `products_not_all_persisted` | a boundary product is not persisted |
+| `not_published` | no manifest was published for a product |
+| `plan_hash_differs` | the manifest was written for another plan |
+| `identity_differs` | the manifest names another node, output, dataset or kind |
+| `validation_failed` | the set is corrupt or unreadable (detail: the error) |
+
+Hooks, sinks and observers block reuse today because a skipped partition would skip their
+effects, and every workflow that loads a required hook (for example a package's dataset-context
+hook) reuses nothing. Treating those effects as products, so reuse and caching share one
+contract, is a separate design, not decided here. Until the semantic plan hash of
 [fasthep-flow#105](https://github.com/FAST-HEP/fasthep-flow/issues/105) exists, the
 `plan_hash` is a hash of the plan's nodes, partitions (file and event range), dataset
 metadata, the registry's product handlers, the execution `partitioning` and `file_access`
@@ -230,6 +251,21 @@ Flow owns this vocabulary. The later run artifact index extends it.
    Hooks are not replayed.
 
 There is no migration and no fallback to another reader or another version.
+
+The trusted registry comes from the plan that wrote the set, so a restore in another process
+builds it the same way:
+
+```python
+from hepflow.api import load_plan_file, restore_products
+from hepflow.registry.loaders import runtime_registry_from_config
+
+plan = load_plan_file("build/compile/plan.yaml")
+registry = runtime_registry_from_config(plan.registry)
+restored = restore_products("<root>/stage.DiMuonMass/hist/data/events__data__0/manifest.json", registry=registry)
+```
+
+Without `registry=`, Flow uses its default registry, which does not know a package's
+capabilities, and the restore fails with `unknown_capability`.
 
 A capability's `params` are `{"save": {...}, "load": {...}}` defaults; they are copied
 into the published binding when the product is saved, and the recorded `load` params are
