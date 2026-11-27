@@ -4,11 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
 from hepflow.runtime.engine import _source_should_read_metadata_only
+from hepflow.utils import write_yaml
 
 
 def test_runtime_executes_toy_source_transform_and_final_sink(
@@ -55,7 +54,7 @@ def test_partition_dataset_and_run_end_sink_timing(
 
     workflow_path = tmp_path / "workflow.yaml"
 
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
     compile_workflow_file(workflow_path, outdir=build_dir, chunk_size=2)
 

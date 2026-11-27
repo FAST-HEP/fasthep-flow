@@ -10,6 +10,7 @@ from tests.runtime.test_per_dataset_run import _write_workflow
 from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.backends.local import LocalBackend
 from hepflow.compiler.dataset_units import PublishConflict
+from hepflow.utils import write_yaml
 
 
 def _compile(tmp_path: Path, toy_workflow: dict[str, Any], *datasets: str) -> tuple[Path, Path]:
@@ -92,7 +93,7 @@ def test_a_changed_plan_fails_before_any_partition_runs(
     run_plan_file(plan, outdir=out, dataset="beta", partition_numbers=[1])
     doc = yaml.safe_load(plan.read_text(encoding="utf-8"))
     doc["marker"] = "changed"  # same manifest, different plan
-    plan.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    write_yaml(doc, plan)
 
     with pytest.raises(PublishConflict, match="plan_hash"):
         run_plan_file(plan, outdir=out, dataset="beta", partition_numbers=[2])
@@ -141,7 +142,7 @@ def _compile_with_writer(tmp_path: Path, toy_workflow: dict[str, Any]) -> tuple[
     doc["analysis"]["stages"][0]["write"] = [
         {"kind": "toy.write_manifest", "path": "skims/part.toy"}
     ]
-    workflow.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    write_yaml(doc, workflow)
     out = tmp_path / "out"
     compile_workflow_file(workflow, outdir=out, dataset="beta")
     return out, out / "compile" / "plan.yaml"
@@ -211,7 +212,7 @@ def test_writer_roots_expand_over_the_loaded_dataset_only(
     doc["analysis"]["stages"][0]["write"] = [
         {"kind": "toy.write_manifest", "path": "{dataset}/{part}.toy"}
     ]
-    workflow.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    write_yaml(doc, workflow)
     out = tmp_path / "out"
     compile_workflow_file(workflow, outdir=out)
 

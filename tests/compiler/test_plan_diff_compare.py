@@ -11,6 +11,7 @@ from hepflow.api import compile_workflow_file
 from hepflow.compiler.plan_diff import diff_plan_files, diff_plans
 from hepflow.compiler.plan_diff.errors import InvalidPlan
 from hepflow.compiler.plan_diff.model import DiffKind, DiffSection, PlanDiffReport
+from hepflow.utils import write_yaml
 
 G = DiffSection.GRAPH
 D = DiffSection.DATA
@@ -370,9 +371,7 @@ def test_diff_plan_files_on_real_compiled_plans(
         directory = tmp_path / name
         directory.mkdir()
         workflow = directory / "wf.yaml"
-        workflow.write_text(
-            yaml.safe_dump(toy_workflow, sort_keys=False), encoding="utf-8"
-        )
+        write_yaml(toy_workflow, workflow)
         compile_workflow_file(workflow, outdir=directory / "build", root=directory)
         plans.append(directory / "build" / "compile" / "plan.yaml")
 

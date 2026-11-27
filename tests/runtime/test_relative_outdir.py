@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from hepflow.api import run_workflow_file
 from hepflow.runtime.provenance.inspect import _load_bundle
+from hepflow.utils import write_yaml
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +28,7 @@ def _workflow(toy_workflow: dict[str, Any], tmp_path: Path) -> Path:
         {"kind": "toy.write_manifest", "path": "skims/part.toy", "when": "final"},
     ]
     path = tmp_path / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
     return path
 
 

@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 from tests.toy_components.persistence import KIND_CFG, persistence_workflow
 
 from hepflow.api import compile_workflow_file
@@ -16,6 +15,7 @@ from hepflow.registry.loaders import runtime_registry_from_config
 from hepflow.runtime.engine import execute_plan_locally
 from hepflow.runtime.persistence.manifest import read_manifest
 from hepflow.runtime.persistence.select import resolve_persistence
+from hepflow.utils import write_yaml
 
 
 def _registry(*, representation: str = "value", with_capability: bool = True) -> Any:
@@ -102,12 +102,7 @@ def _run(
     toy_workflow: dict[str, Any], tmp_path: Path, persistence: dict[str, Any] | None
 ) -> tuple[ExecutionPlan, Any]:
     path = tmp_path / "workflow.yaml"
-    path.write_text(
-        yaml.safe_dump(
-            persistence_workflow(toy_workflow, persistence), sort_keys=False
-        ),
-        encoding="utf-8",
-    )
+    write_yaml(persistence_workflow(toy_workflow, persistence), path)
     plan = compile_workflow_file(path, outdir=tmp_path / "build", chunk_size=2)
     results = execute_plan_locally(
         plan,
@@ -167,12 +162,7 @@ def test_backend_summary_lists_persisted_and_unpersisted_products(
     from hepflow.backends.local import LocalBackend  # noqa: PLC0415
 
     path = tmp_path / "workflow.yaml"
-    path.write_text(
-        yaml.safe_dump(
-            persistence_workflow(toy_workflow, {"mode": "all"}), sort_keys=False
-        ),
-        encoding="utf-8",
-    )
+    write_yaml(persistence_workflow(toy_workflow, {"mode": "all"}), path)
     plan = compile_workflow_file(path, outdir=tmp_path / "build", chunk_size=2)
 
     result = LocalBackend().run(plan, ctx={"outdir": str(tmp_path / "build")})

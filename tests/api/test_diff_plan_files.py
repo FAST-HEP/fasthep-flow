@@ -4,17 +4,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from hepflow import api
 from hepflow.compiler.plan_diff.model import DiffSection
+from hepflow.utils import write_yaml
 
 
 def _compile(tmp_path: Path, name: str, workflow: dict[str, Any]) -> Path:
     directory = tmp_path / name
     directory.mkdir()
     path = directory / "wf.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
     api.compile_workflow_file(path, outdir=directory / "build", root=directory)
     return directory / "build" / "compile" / "plan.yaml"
 

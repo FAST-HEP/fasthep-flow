@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from hepflow.api import compile_workflow_file
+from hepflow.utils import write_yaml
 
 
 def _project(tmp_path: Path, toy_workflow: dict[str, Any]) -> Path:
@@ -21,7 +22,7 @@ def _project(tmp_path: Path, toy_workflow: dict[str, Any]) -> Path:
     }
     entry = project / "entry" / "workflow.yaml"
     entry.parent.mkdir()
-    entry.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, entry)
     return entry
 
 

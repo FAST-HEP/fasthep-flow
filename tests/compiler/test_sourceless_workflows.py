@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from hepflow.api import run_workflow_file
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.spec_resolver import SpecResolver
+from hepflow.utils import write_yaml
 
 HERE = "tests.compiler.test_sourceless_workflows"
 WRITE = {"kind": "toy.write", "path": "o.json", "when": "final"}
@@ -140,7 +140,7 @@ def test_a_source_less_workflow_runs_with_an_observer_and_a_writer(tmp_path: Pat
         observers=[{"kind": "toy.observe", "at": ["stage.Product"]}],
     )
     path = tmp_path / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
 
     run_workflow_file(path, outdir=tmp_path / "out")
 
@@ -152,7 +152,7 @@ def test_a_source_less_workflow_runs_to_completion(tmp_path: Path, sources: Any)
     extra = {} if sources is None else {"sources": sources}
     workflow = _workflow([{**PRODUCT, "write": [WRITE]}], **extra)
     path = tmp_path / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
 
     run_workflow_file(path, outdir=tmp_path / "out")
 

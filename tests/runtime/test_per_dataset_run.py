@@ -12,6 +12,7 @@ from hepflow.api import (
     run_plan_file,
     run_workflow_file,
 )
+from hepflow.utils import write_yaml
 
 
 def _write_workflow(
@@ -43,7 +44,7 @@ def _write_workflow(
     if per_dataset:
         workflow["execution"] = {"partitioning": {"per_dataset": True}}
     path = tmp_path / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
     return path
 
 
@@ -109,7 +110,7 @@ def test_partition_on_single_dataset_per_dataset_workflow_is_allowed(
     path = _write_workflow(tmp_path, toy_workflow)
     doc = yaml.safe_load(path.read_text(encoding="utf-8"))
     doc["data"]["datasets"] = [doc["data"]["datasets"][1]]
-    path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    write_yaml(doc, path)
 
     result = run_workflow_file(path, outdir=tmp_path / "out", partition_numbers=[2])
 

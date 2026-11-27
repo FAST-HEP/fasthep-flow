@@ -9,6 +9,7 @@ import yaml
 from hepflow.api import compile_workflow_file, normalise_workflow_file
 from hepflow.compiler.context import CompileContext
 from hepflow.compiler.workflow_config import resolve_workflow_config
+from hepflow.utils import write_yaml
 
 
 def _write_profile(path: Path, marker: str) -> None:
@@ -22,7 +23,7 @@ def _entry(project: Path, toy_workflow: dict[str, Any], profiles: list[str]) -> 
     entry = project / "entry" / "workflow.yaml"
     entry.parent.mkdir(parents=True, exist_ok=True)
     workflow = {**toy_workflow, "use": {"profiles": profiles}}
-    entry.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, entry)
     return entry
 
 

@@ -17,6 +17,7 @@ from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
 from hepflow.model.plan_applicability import resolve_active_input_ref
+from hepflow.utils import write_yaml
 
 
 def test_no_needs_keeps_implicit_previous_stage_dependency(
@@ -175,7 +176,7 @@ def test_dependency_only_edges_are_not_bound_as_runtime_inputs(
         ],
     )
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
 
     result = run_workflow_file(workflow_path, outdir=tmp_path / "build")
 
@@ -202,7 +203,7 @@ def test_empty_event_stream_still_publishes_stream_value(
         datasets={"empty": {"files": ["empty.root"], "nevents": "0"}},
     )
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
 
     result = run_workflow_file(workflow_path, outdir=tmp_path / "build")
 

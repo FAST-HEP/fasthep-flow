@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 from tests.builders import write_file
 
 from hepflow.api import normalise_workflow_file
 from hepflow.compiler.bundle import SOURCE_ROLES
 from hepflow.compiler.resource_paths import resolve_resource_paths
+from hepflow.utils import write_yaml
 
 REGISTRY: dict[str, Any] = {
     "resource_kinds": {
@@ -194,7 +194,7 @@ def test_compile_resolves_resources_and_records_inputs(
     }
     entry = tmp_path / "entry" / "workflow.yaml"
     entry.parent.mkdir()
-    entry.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, entry)
 
     normalized = normalise_workflow_file(
         entry, outdir=tmp_path / "build", root=tmp_path

@@ -9,12 +9,13 @@ import yaml
 
 from hepflow.api import compile_workflow_file, normalise_workflow_file
 from hepflow.compiler.bundle import plan_hash, read_invocation, write_invocation
+from hepflow.utils import write_yaml
 
 
 def _write_project(project: Path, workflow: dict[str, Any]) -> Path:
     project.mkdir(parents=True, exist_ok=True)
     entry = project / "workflow.yaml"
-    entry.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, entry)
     return entry
 
 

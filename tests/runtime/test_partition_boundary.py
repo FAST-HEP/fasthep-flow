@@ -6,7 +6,6 @@ import weakref
 from typing import Any, Literal
 
 import pytest
-import yaml
 
 from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.model.io import ArtifactManifest, OutputResult
@@ -37,6 +36,7 @@ from hepflow.runtime.boundary import (
     plan_partition_boundary,
 )
 from hepflow.runtime.engine import execute_plan_locally
+from hepflow.utils import write_yaml
 
 
 def test_product_handler_boundary_policy_defaults_are_backward_compatible() -> None:
@@ -788,7 +788,7 @@ def test_histogram_execution_policy_is_partition_scoped(
         },
     }
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
 
     from hepflow.api import compile_workflow_file  # noqa: PLC0415
 
@@ -821,7 +821,7 @@ def test_local_histogram_only_execution_prunes_event_streams_before_merge(
         },
     )
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
     compile_workflow_file(workflow_path, outdir=build_dir, chunk_size=1)
 
@@ -864,7 +864,7 @@ def test_local_execution_retains_wider_scope_event_stream_and_invokes_merge(
         {"kind": "toy.write", "path": "dataset.json", "when": "dataset"},
     ]
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
     compile_workflow_file(workflow_path, outdir=build_dir, chunk_size=1)
 
@@ -960,7 +960,7 @@ def test_execute_plan_locally_returns_partition_boundary_results(
 ) -> None:
     workflow = _histogram_workflow(toy_workflow)
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     plan = compile_workflow_file(workflow_path, outdir=tmp_path / "build", chunk_size=2)
 
     results = execute_plan_locally(

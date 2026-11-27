@@ -20,7 +20,7 @@ from hepflow.compiler.includes import load_workflow_with_includes
 from hepflow.compiler.lower_graph import lower_workflow_to_graph
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
-from hepflow.utils import read_yaml
+from hepflow.utils import read_yaml, write_yaml
 
 
 def test_public_api_exports_stable_facade_symbols() -> None:
@@ -735,7 +735,7 @@ def test_opt_in_component_defaults_materialize_in_normalized_and_plan(
         },
     }
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
 
     normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
@@ -777,7 +777,7 @@ def test_stage_id_default_materializes_in_normalized_and_plan(
         },
     }
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
 
     normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
@@ -828,7 +828,7 @@ def test_param_template_default_materializes_in_normalized_and_plan(
         },
     }
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
 
     normalized = normalise_workflow_file(workflow_path, outdir=build_dir)
@@ -1068,7 +1068,7 @@ def test_file_backed_mapping_param_materializes_in_normalized_and_plan(
 def test_runtime_plan_does_not_require_original_mapping_file(tmp_path: Path) -> None:
     payload = {"version": 1, "fields": {"pt": {}}}
     config_path = tmp_path / "config.yaml"
-    config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    write_yaml(payload, config_path)
     workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
 
     _normalized, plan = _compiled_mapping_config(tmp_path, workflow_path)
@@ -1252,7 +1252,7 @@ def _mapping_config_workflow(base_dir: Path, config: Any) -> Path:
         },
     }
     path = base_dir / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
     return path
 
 
@@ -1288,7 +1288,7 @@ def _string_config_workflow(base_dir: Path, config: str) -> Path:
         },
     }
     path = base_dir / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
     return path
 
 

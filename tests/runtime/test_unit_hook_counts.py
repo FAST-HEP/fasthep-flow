@@ -6,13 +6,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from hepflow.api import compile_workflow_file, list_workflow_partitions, load_plan_file
 from hepflow.compiler.compile_hooks import counting_hook_names
 from hepflow.compiler.dataset_units import PublishConflict
 from hepflow.compiler.hooks.registry import hook_scope, phase_compile_hook_entries
-from hepflow.utils import read_yaml
+from hepflow.utils import read_yaml, write_yaml
 
 _TOY = "tests.toy_components.compile_hooks"
 _COUNTS = {"toy://a0": 5, "toy://a1": 4}
@@ -60,7 +59,7 @@ def _workflow(
         },
     }
     path = tmp_path / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, path)
     return path
 
 

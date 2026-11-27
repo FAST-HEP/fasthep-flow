@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import yaml
 from tests.runtime.persistence.test_review_fixes import (
     _plan,
     _publish_two,
@@ -25,6 +24,7 @@ from hepflow.runtime.persistence.evidence import EvidenceLedger
 from hepflow.runtime.persistence.reuse import ReuseReport, reuse_partition_products
 from hepflow.runtime.persistence.save import persistence_root, product_folder
 from hepflow.runtime.provenance.recorder import ProvenanceRecorder
+from hepflow.utils import write_yaml
 
 
 def _reuse(
@@ -224,7 +224,7 @@ def _compile_run(
 def _toy_workflow_file(toy_workflow: dict[str, Any], tmp_path: Path) -> Path:
     path = tmp_path / "workflow.yaml"
     document = persistence_workflow(toy_workflow, {"mode": "all", "reuse": True})
-    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    write_yaml(document, path)
     return path
 
 
@@ -264,7 +264,7 @@ def test_no_reuse_section_when_reuse_is_off(
 ) -> None:
     path = tmp_path / "workflow.yaml"
     document = persistence_workflow(toy_workflow, {"mode": "all"})
-    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    write_yaml(document, path)
 
     ctx = _compile_run(path, tmp_path / "build")
 

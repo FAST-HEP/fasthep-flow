@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from hepflow.api import compile_workflow_file
 from hepflow.build_layout import partition_output_roots
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.plan import build_plan_from_normalized
+from hepflow.utils import write_yaml
 
 
 def test_duplicate_attached_render_out_fails(toy_registry: dict[str, Any]) -> None:
@@ -220,9 +220,7 @@ def test_duplicate_recoil_debug_workflow_fails_before_render_output(
         ],
     )
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8"
-    )
+    write_yaml(workflow, workflow_path)
 
     with pytest.raises(ValueError, match=r"RecoilDebug\.png"):
         compile_workflow_file(workflow_path, outdir=tmp_path / "build")

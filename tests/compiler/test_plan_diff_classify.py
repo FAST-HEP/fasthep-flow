@@ -14,7 +14,7 @@ from hepflow.compiler.plan_diff.classify import (
     classify,
 )
 from hepflow.compiler.plan_diff.model import DiffSection, Index, Key, Selector
-from hepflow.utils import read_yaml
+from hepflow.utils import read_yaml, write_yaml
 
 G, D, E, R, P, U = (
     DiffSection.GRAPH,
@@ -70,14 +70,14 @@ def _mapping_project(tmp_path: Path) -> Path:
     }
     entry = tmp_path / "entry" / "workflow.yaml"
     entry.parent.mkdir()
-    entry.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, entry)
     return entry
 
 
 def _plans(tmp_path: Path, toy_workflow: dict[str, Any]) -> list[dict[str, Any]]:
     plans = []
     toy = tmp_path / "toy.yaml"
-    toy.write_text(yaml.safe_dump(toy_workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(toy_workflow, toy)
     compile_workflow_file(toy, outdir=tmp_path / "b1")
     plans.append(read_yaml(tmp_path / "b1" / "compile" / "plan.yaml"))
 
@@ -98,7 +98,7 @@ def _plans(tmp_path: Path, toy_workflow: dict[str, Any]) -> list[dict[str, Any]]
         },
     }
     sys_path = tmp_path / "sys.yaml"
-    sys_path.write_text(yaml.safe_dump(systematic, sort_keys=False), encoding="utf-8")
+    write_yaml(systematic, sys_path)
     compile_workflow_file(sys_path, outdir=tmp_path / "b2")
     for name in ("nominal", "up"):
         plans.append(read_yaml(tmp_path / "b2" / "compile" / name / "plan.yaml"))

@@ -11,6 +11,7 @@ from hepflow.api import compile_workflow_file
 from hepflow.compiler.bundle import SOURCE_ROLES
 from hepflow.compiler.input_paths import ResolvedInput
 from hepflow.compiler.inputs_manifest import InputCollector, write_inputs_manifest
+from hepflow.utils import write_yaml
 
 
 def _manifest(outdir: Path) -> dict[str, Any]:
@@ -71,7 +72,7 @@ def test_workflow_without_inputs_writes_empty_list_and_root(
     tmp_path: Path, toy_workflow: dict[str, Any]
 ) -> None:
     entry = tmp_path / "workflow.yaml"
-    entry.write_text(yaml.safe_dump(toy_workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(toy_workflow, entry)
 
     compile_workflow_file(entry, outdir=tmp_path / "build", root=tmp_path)
 
@@ -114,7 +115,7 @@ def _project(tmp_path: Path) -> tuple[Path, dict[str, bytes]]:
     }
     entry = tmp_path / "entry" / "workflow.yaml"
     entry.parent.mkdir(parents=True, exist_ok=True)
-    entry.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, entry)
     return entry, contents
 
 
@@ -307,7 +308,7 @@ def test_manifest_has_one_row_for_a_param_that_is_both_a_path_and_a_mapping_file
     }
     entry = tmp_path / "entry" / "workflow.yaml"
     entry.parent.mkdir(parents=True)
-    entry.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, entry)
 
     compile_workflow_file(entry, outdir=tmp_path / "build", root=tmp_path)
 

@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-import yaml
 
 from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.model.plan import ExecutionPartition
 from hepflow.progress import PartitionState, ProgressReporter, ProgressUpdate
+from hepflow.utils import write_yaml
 
 
 def test_reporter_state_machine_timing_and_serialization() -> None:
@@ -144,7 +144,7 @@ def test_local_backend_emits_partition_and_finalization_progress(
         "data": {"datasets": [{"name": "toydata", "files": ["toy://events"], "nevents": 4}]},
     }
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
     compile_workflow_file(workflow_path, outdir=build_dir, chunk_size=2)
     sink = _CollectSink()
@@ -184,7 +184,7 @@ def test_local_backend_reports_failed_partition_and_propagates_error(
     }
     workflow["analysis"]["stages"][0]["params"]["source"] = "missing"
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
     compile_workflow_file(workflow_path, outdir=build_dir, chunk_size=2)
     sink = _CollectSink()

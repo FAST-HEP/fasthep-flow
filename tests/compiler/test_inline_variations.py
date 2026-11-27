@@ -343,7 +343,7 @@ def test_authored_inline_variation_compiles_to_one_plan_and_runs(
         },
     }
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
 
     compile_workflow_file(workflow_path, outdir=build_dir)
@@ -878,7 +878,7 @@ def test_inline_variation_compile_scales_to_thousand_node_graph(
 ) -> None:
     workflow = _large_inline_variation_workflow(toy_registry)
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
 
     compile_workflow_file(workflow_path, outdir=tmp_path / "build")
 
@@ -1152,7 +1152,7 @@ def _write_inline_export_workflow(
                 stage.update(update)
         workflow = normalized
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     return workflow_path
 
 

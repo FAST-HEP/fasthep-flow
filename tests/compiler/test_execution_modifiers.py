@@ -6,12 +6,12 @@ from re import escape
 from typing import Any
 
 import pytest
-import yaml
 
 from hepflow.api import compile_workflow_file, run_plan_file
 from hepflow.model.plan import ExecutionNode, ExecutionPlan, PlanInputRef
 from hepflow.runtime.engine import execute_plan_partition
 from hepflow.runtime.hooks.manager import HookDispatchError, HookManager
+from hepflow.utils import write_yaml
 
 
 def test_modifier_name_resolves_through_hook_manager(toy_registry: dict[str, Any]) -> None:
@@ -194,7 +194,7 @@ def test_runtime_executes_transform_with_modifier_hooks(
     }
 
     workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, workflow_path)
     build_dir = tmp_path / "build"
     compile_workflow_file(workflow_path, outdir=build_dir)
 

@@ -13,6 +13,7 @@ from hepflow.compiler.bundle import SOURCE_ROLES
 from hepflow.compiler.hooks.load_mapping import load_mapping
 from hepflow.compiler.hooks.model import ParamCompileHookContext
 from hepflow.compiler.input_paths import resolve_path_value
+from hepflow.utils import write_yaml
 
 
 def _compile(
@@ -26,7 +27,7 @@ def _compile(
     }
     entry = tmp_path / "entry" / "workflow.yaml"
     entry.parent.mkdir(parents=True, exist_ok=True)
-    entry.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    write_yaml(workflow, entry)
     return normalise_workflow_file(entry, outdir=tmp_path / "build", root=tmp_path)
 
 
