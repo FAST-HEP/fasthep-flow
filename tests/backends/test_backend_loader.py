@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.builders import write_files
 
 from hepflow.api import compile_workflow_file
 from hepflow.backends.loaders import (
@@ -160,70 +161,66 @@ def test_shorthand_backend_override_splits_backend_and_strategy() -> None:
     }
 
 
+def _make_importable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, package: str
+) -> None:
+    """Put ``tmp_path`` on the import path and forget any earlier import of ``package``."""
+    for module_name in list(sys.modules):
+        if module_name == package or module_name.startswith(f"{package}."):
+            monkeypatch.delitem(sys.modules, module_name, raising=False)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+
+
 def _install_fake_fasthep_distributed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    package = tmp_path / "fasthep_distributed"
-    profiles = package / "profiles"
-    dask_package = package / "_dask"
-    profiles.mkdir(parents=True)
-    dask_package.mkdir()
-    (package / "__init__.py").write_text("", encoding="utf-8")
-    (profiles / "__init__.py").write_text("", encoding="utf-8")
-    (dask_package / "__init__.py").write_text("", encoding="utf-8")
-    (profiles / "registry.yaml").write_text(
-        "\n".join(
-            [
-                "registry:",
-                "  backends:",
-                "    dask:",
-                "      spec: fasthep_distributed._dask._spec:DASK_BACKEND_SPEC",
-                "      impl: fasthep_distributed._dask._common:DaskBackend",
-            ]
-        ),
-        encoding="utf-8",
+    write_files(
+        tmp_path,
+        {
+            "fasthep_distributed/__init__.py": "",
+            "fasthep_distributed/profiles/__init__.py": "",
+            "fasthep_distributed/_dask/__init__.py": "",
+            "fasthep_distributed/profiles/registry.yaml": "\n".join(
+                [
+                    "registry:",
+                    "  backends:",
+                    "    dask:",
+                    "      spec: fasthep_distributed._dask._spec:DASK_BACKEND_SPEC",
+                    "      impl: fasthep_distributed._dask._common:DaskBackend",
+                ]
+            ),
+            "fasthep_distributed/_dask/_spec.py": "\n".join(
+                [
+                    "from hepflow.backends.model import BackendSpec",
+                    "def validate_dask_execution(execution):",
+                    "    strategy = execution.get('strategy', 'default')",
+                    "    if strategy not in {None, '', 'default', 'local', 'htcondor', 'slurm'}:",
+                    '        raise ValueError(f"Dask strategy {strategy!r} is not implemented yet.")',
+                    "DASK_BACKEND_SPEC = BackendSpec(",
+                    "    validate_execution=validate_dask_execution,",
+                    "    build_directories=(",
+                    "        'execution/dask/htcondor/submit',",
+                    "        'execution/dask/htcondor/logs',",
+                    "        'execution/dask/htcondor/out',",
+                    "        'execution/dask/htcondor/err',",
+                    "        'debug/dask',",
+                    "    ),",
+                    ")",
+                ]
+            ),
+            "fasthep_distributed/_dask/_common.py": "\n".join(
+                [
+                    "class DaskBackend:",
+                    "    name = 'dask'",
+                    "    def run(self, *args, **kwargs):",
+                    "        raise NotImplementedError",
+                ]
+            ),
+        },
     )
-    (dask_package / "_spec.py").write_text(
-        "\n".join(
-            [
-                "from hepflow.backends.model import BackendSpec",
-                "def validate_dask_execution(execution):",
-                "    strategy = execution.get('strategy', 'default')",
-                "    if strategy not in {None, '', 'default', 'local', 'htcondor', 'slurm'}:",
-                '        raise ValueError(f"Dask strategy {strategy!r} is not implemented yet.")',
-                "DASK_BACKEND_SPEC = BackendSpec(",
-                "    validate_execution=validate_dask_execution,",
-                "    build_directories=(",
-                "        'execution/dask/htcondor/submit',",
-                "        'execution/dask/htcondor/logs',",
-                "        'execution/dask/htcondor/out',",
-                "        'execution/dask/htcondor/err',",
-                "        'debug/dask',",
-                "    ),",
-                ")",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    (dask_package / "_common.py").write_text(
-        "\n".join(
-            [
-                "class DaskBackend:",
-                "    name = 'dask'",
-                "    def run(self, *args, **kwargs):",
-                "        raise NotImplementedError",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    for module_name in list(sys.modules):
-        if module_name == "fasthep_distributed" or module_name.startswith(
-            "fasthep_distributed."
-        ):
-            monkeypatch.delitem(sys.modules, module_name, raising=False)
-    monkeypatch.syspath_prepend(str(tmp_path))
-    importlib.invalidate_caches()
+    _make_importable(tmp_path, monkeypatch, "fasthep_distributed")
 
 
 def _install_fake_backend_provider(
@@ -232,48 +229,38 @@ def _install_fake_backend_provider(
     *,
     build_directories: tuple[str, ...] = ("execution/fake/cluster",),
 ) -> None:
-    package = tmp_path / "fake_backend"
-    profiles = package / "profiles"
-    profiles.mkdir(parents=True)
-    (package / "__init__.py").write_text("", encoding="utf-8")
-    (profiles / "__init__.py").write_text("", encoding="utf-8")
-    (profiles / "registry.yaml").write_text(
-        "\n".join(
-            [
-                "registry:",
-                "  backends:",
-                "    fake:",
-                "      spec: fake_backend:FAKE_BACKEND_SPEC",
-                "      impl: fake_backend:FakeBackend",
-            ]
-        ),
-        encoding="utf-8",
+    write_files(
+        tmp_path,
+        {
+            "fake_backend/profiles/__init__.py": "",
+            "fake_backend/profiles/registry.yaml": "\n".join(
+                [
+                    "registry:",
+                    "  backends:",
+                    "    fake:",
+                    "      spec: fake_backend:FAKE_BACKEND_SPEC",
+                    "      impl: fake_backend:FakeBackend",
+                ]
+            ),
+            "fake_backend/__init__.py": "\n".join(
+                [
+                    "from hepflow.backends.model import BackendSpec",
+                    "class FakeBackend:",
+                    "    name = 'fake'",
+                    "    def run(self, *args, **kwargs):",
+                    "        raise NotImplementedError",
+                    "def validate_execution(execution):",
+                    "    if execution.get('strategy') != 'cluster':",
+                    "        raise ValueError('fake strategy is invalid')",
+                    "FAKE_BACKEND_SPEC = BackendSpec(",
+                    "    validate_execution=validate_execution,",
+                    f"    build_directories={build_directories!r},",
+                    ")",
+                ]
+            ),
+        },
     )
-    directories_repr = repr(build_directories)
-    (package / "__init__.py").write_text(
-        "\n".join(
-            [
-                "from hepflow.backends.model import BackendSpec",
-                "class FakeBackend:",
-                "    name = 'fake'",
-                "    def run(self, *args, **kwargs):",
-                "        raise NotImplementedError",
-                "def validate_execution(execution):",
-                "    if execution.get('strategy') != 'cluster':",
-                "        raise ValueError('fake strategy is invalid')",
-                "FAKE_BACKEND_SPEC = BackendSpec(",
-                "    validate_execution=validate_execution,",
-                f"    build_directories={directories_repr},",
-                ")",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    for module_name in list(sys.modules):
-        if module_name == "fake_backend" or module_name.startswith("fake_backend."):
-            monkeypatch.delitem(sys.modules, module_name, raising=False)
-    monkeypatch.syspath_prepend(str(tmp_path))
-    importlib.invalidate_caches()
+    _make_importable(tmp_path, monkeypatch, "fake_backend")
 
 
 def _force_fasthep_distributed_unavailable(
