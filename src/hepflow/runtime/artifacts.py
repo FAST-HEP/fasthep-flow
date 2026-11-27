@@ -124,7 +124,6 @@ def wrap_artifact_results(
         return items[0]
     return ArtifactManifest(
         product_kind="artifact",
-        format=None,
         producer_node=node_id,
         output_name=output_name,
         dataset_name=dataset_name,
@@ -261,8 +260,7 @@ def merge_artifact_products(
     if not parts:
         return ArtifactManifest(
             product_kind="artifact",
-            format=None,
-            producer_node=node.id,
+                producer_node=node.id,
             output_name=output_name,
             dataset_name=dataset_name,
             parts=(),
@@ -331,7 +329,6 @@ def _with_reference_defaults(reference: ArtifactReference) -> ArtifactReference:
     return OutputResult(
         kind=reference.product_kind,
         path=reference.uri,
-        format=reference.format,
         metadata=dict(reference.metadata),
         provenance=dict(reference.provenance),
         producer_node=reference.producer_node or writer_manifest.get("node_id"),
@@ -362,7 +359,6 @@ def _manifest_for_parts(
     product_kind = _logical_product_kind(first)
     producer_node = first.producer_node or node.id
     reference_output = first.output_name or output_name
-    artifact_format = _artifact_format(first)
     seen_partitions: dict[str, ArtifactReference] = {}
 
     for part in parts:
@@ -373,7 +369,6 @@ def _manifest_for_parts(
             output_name=reference_output,
             dataset_name=dataset_name,
             enforce_dataset=enforce_dataset,
-            artifact_format=artifact_format,
         )
         partition_key = _partition_key(part)
         if partition_key in seen_partitions:
@@ -389,7 +384,6 @@ def _manifest_for_parts(
 
     return ArtifactManifest(
         product_kind=product_kind,
-        format=artifact_format,
         producer_node=producer_node,
         output_name=reference_output,
         dataset_name=dataset_name,
@@ -407,7 +401,6 @@ def _validate_part_compatible(
     output_name: str,
     dataset_name: str | None,
     enforce_dataset: str | None,
-    artifact_format: str | None,
 ) -> None:
     if _logical_product_kind(part) != product_kind:
         raise ValueError("Incompatible artifact product kinds in one manifest")
@@ -425,11 +418,6 @@ def _validate_part_compatible(
             f"Artifact reference dataset {part.dataset_name!r} does not match "
             f"dataset boundary {enforce_dataset!r}"
         )
-    if artifact_format is not None and _artifact_format(part) not in {
-        None,
-        artifact_format,
-    }:
-        raise ValueError("Incompatible artifact formats in one manifest")
 
 
 def _logical_product_kind(part: ArtifactReference) -> str:
@@ -437,15 +425,6 @@ def _logical_product_kind(part: ArtifactReference) -> str:
     if isinstance(writer_manifest, dict):
         return str(writer_manifest.get("kind") or part.product_kind)
     return str(part.product_kind)
-
-
-def _artifact_format(part: ArtifactReference) -> str | None:
-    writer_manifest = part.metadata.get("writer_manifest")
-    if isinstance(writer_manifest, dict) and writer_manifest.get("format") is not None:
-        return str(writer_manifest["format"])
-    if part.format is not None:
-        return str(part.format)
-    return None
 
 
 def _partition_key(part: ArtifactReference) -> str:

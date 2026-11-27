@@ -84,6 +84,8 @@ from hepflow.profiles.init import InitResult
 from hepflow.profiles.init import init_project as _init_project
 from hepflow.progress import ProgressReporter, ProgressSink
 from hepflow.provenance.compilation_info import compilation_provenance
+from hepflow.registry.loaders import resolve_runtime_registry
+from hepflow.registry.runtime import RuntimeRegistry
 from hepflow.runtime.config import (
     _runtime_execution_with_overrides,
     default_run_outdir_for_plan,
@@ -93,11 +95,14 @@ from hepflow.runtime.partitions import (
     describe_partition_selection,
     select_dataset_partitions,
 )
+from hepflow.runtime.persistence.evidence import EvidenceLedger
+from hepflow.runtime.persistence.restore import RestoredProducts, restore_manifest
 from hepflow.runtime.provenance import (
     format_provenance_artifact,
     format_provenance_graph,
     format_provenance_summary,
 )
+from hepflow.runtime.provenance.store import ProvenanceStore
 from hepflow.runtime.reports import run_workflow_reports
 from hepflow.runtime.run_accounting import (
     PartitionAccountingError,
@@ -106,6 +111,31 @@ from hepflow.runtime.run_accounting import (
     read_partition_runs,
 )
 from hepflow.utils import read_yaml, write_yaml
+
+
+def restore_products(
+    manifest: str | Path,
+    *,
+    registry: RuntimeRegistry | None = None,
+    ledger: EvidenceLedger | None = None,
+    store: ProvenanceStore | None = None,
+) -> RestoredProducts:
+    """Restore the products of a published product set from its ``manifest.json``.
+
+    The manifest, its payloads (size and sha256) and its evidence file are validated and
+    each product is read by the capability and version recorded with it, looked up in
+    ``registry`` (default: the built-in registry). Failures raise the named
+    persistence errors of ``hepflow.runtime.persistence.errors``. The evidence is imported
+    into ``ledger`` (and its executions into ``store``) once; the restore is recorded as a
+    consumption. Hooks do not run.
+    """
+    return restore_manifest(
+        Path(manifest),
+        registry or resolve_runtime_registry({}),
+        ledger=ledger,
+        store=store,
+    )
+
 
 __all__ = [
     "AmbiguousPlans",
@@ -126,6 +156,7 @@ __all__ = [
     "PlanDiffScope",
     "PlanDiffWarning",
     "PublishConflict",
+    "RestoredProducts",
     "compile_from_bundle",
     "compile_workflow_file",
     "diff_plan_files",
@@ -141,6 +172,7 @@ __all__ = [
     "provenance_summary_text",
     "read_partition_runs",
     "resolve_plan_input",
+    "restore_products",
     "run_plan_file",
     "run_workflow_file",
 ]

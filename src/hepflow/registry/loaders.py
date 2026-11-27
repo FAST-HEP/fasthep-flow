@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 from typing import Any, cast
 
+from hepflow.model.persistence import PersistenceCapability
 from hepflow.model.products import (
     BoundaryRepresentation,
     ProductBoundaryPolicy,
@@ -109,11 +110,65 @@ def runtime_registry_from_config(cfg: dict[str, Any] | None) -> RuntimeRegistry:
             materialize=materialize_obj,
             boundary=_product_boundary_policy(name, entry_cfg.get("boundary")),
             boundary_materialize=boundary_materialize_obj,
+            persistence=_persistence_capabilities(name, entry_cfg.get("persistence")),
         )
 
     return RuntimeRegistry(
         product_handlers=product_handlers,
     )
+
+
+_REQUIRED_DESCRIPTOR_FIELDS = ("version", "container", "payload_roles", "fidelity")
+
+
+def _persistence_capabilities(
+    kind: str, cfg: Any
+) -> dict[str, PersistenceCapability]:
+    """Parse ``product_handlers.<kind>.persistence.formats`` into capabilities."""
+    if cfg is None:
+        return {}
+    if not isinstance(cfg, dict):
+        raise TypeError(f"Product handler '{kind}'.persistence must be a mapping")
+    formats = cfg.get("formats") or {}
+    if not isinstance(formats, dict):
+        raise TypeError(f"Product handler '{kind}'.persistence.formats must be a mapping")
+
+    capabilities: dict[str, PersistenceCapability] = {}
+    for name, entry in formats.items():
+        where = f"Product handler '{kind}' persistence format '{name}'"
+        if not isinstance(entry, dict):
+            raise TypeError(f"{where} must be a mapping")
+        for key in _REQUIRED_DESCRIPTOR_FIELDS:
+            if entry.get(key) in (None, "", []):
+                raise ValueError(f"{where}: '{key}' is required")
+        declared_kind = entry.get("kind", kind)
+        if declared_kind != kind:
+            raise ValueError(
+                f"{where}: kind {declared_kind!r} does not match the handler {kind!r}"
+            )
+        capabilities[str(name)] = PersistenceCapability(
+            name=str(name),
+            version=str(entry["version"]),
+            kind=kind,
+            container=str(entry["container"]),
+            payload_roles=tuple(str(role) for role in entry["payload_roles"]),
+            fidelity=str(entry["fidelity"]),
+            save=_persistence_callable(where, "save", entry.get("save")),
+            load=_persistence_callable(where, "load", entry.get("load")),
+            variants=tuple(str(v) for v in entry.get("variants") or ()),
+            params=dict(entry.get("params") or {}),
+            bindings=dict(entry.get("bindings") or {}),
+        )
+    return capabilities
+
+
+def _persistence_callable(where: str, side: str, spec: Any) -> Any:
+    if spec is None:
+        return None
+    obj = load_object(spec) if isinstance(spec, str) else None
+    if obj is None or not callable(obj):
+        raise TypeError(f"{where}: {side} must be a callable 'module:object'")
+    return obj
 
 
 def _product_boundary_policy(
@@ -130,10 +185,10 @@ def _product_boundary_policy(
         raise TypeError(f"Product handler boundary '{name}'.retain must be boolean")
 
     representation = cfg.get("representation", "value")
-    if representation not in {"value", "reference", "materialize"}:
+    if representation not in {"value", "reference", "materialize", "persist"}:
         raise ValueError(
             f"Product handler boundary '{name}'.representation must be one of "
-            "'value', 'reference', or 'materialize'; got {representation!r}"
+            "'value', 'reference', 'materialize' or 'persist'; got {representation!r}"
         )
 
     return ProductBoundaryPolicy(

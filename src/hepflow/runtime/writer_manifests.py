@@ -14,7 +14,7 @@ from hepflow.runtime.provenance import (
     write_artifact_provenance_records,
 )
 
-WRITER_MANIFEST_SCHEMA_VERSION = "2"
+WRITER_MANIFEST_SCHEMA_VERSION = "3"
 
 
 def write_writer_manifests(
@@ -137,7 +137,6 @@ def _artifact_record_from_output(
         "kind": str(
             output.metadata.get("artifact_kind")
             or output.metadata.get("kind")
-            or output.format
             or output.kind
         ),
         "node_id": str(getattr(node, "id", "")),

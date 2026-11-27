@@ -172,7 +172,6 @@ def _node() -> ExecutionNode:
 def _manifest(root: str | None, index: int) -> ArtifactManifest:
     return ArtifactManifest(
         product_kind="artifact",
-        format=None,
         producer_node=NODE,
         output_name="artifact",
         dataset_name="ds",

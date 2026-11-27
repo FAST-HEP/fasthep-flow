@@ -88,11 +88,14 @@ failed delivery is recorded; it does not fail the run.
 
 ### Bundle versions
 
-Provenance documents are version `2.0` and writer manifests carry
-`schema_version: "2"`. Bundles written before this contract are not read:
+Provenance documents are version `3.0` and writer manifests carry
+`schema_version: "3"`. Bundles of older versions are not read:
 `load_provenance_document` rejects them and they should be regenerated. Writer
-manifests no longer record `relative_to_files_root` or `destination`; a delivered
-file's location is its destination URI.
+manifests no longer record `relative_to_files_root` or `destination` (a delivered
+file's location is its destination URI), and artifact references and manifests no
+longer carry `format`; a persisted product records a typed `storage` binding instead
+([product persistence](persistence.md)). A generic artifact's provenance record `kind`
+is its product kind (a sink can set `metadata["artifact_kind"]`).
 
 ## Boundary Representations
 

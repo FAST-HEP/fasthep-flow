@@ -12,6 +12,53 @@ The implementation is tracked in
 [fasthep-flow#115](https://github.com/FAST-HEP/fasthep-flow/issues/115). The
 decision is [fasthep-flow#152](https://github.com/FAST-HEP/fasthep-flow/issues/152).
 
+## Turning it on
+
+Persistence is off unless asked. `execution.persistence` is the run-level switch:
+
+```yaml
+execution:
+  persistence:
+    mode: selected        # off (default) | all | selected
+    root: artifacts/products   # default; a local path or file:// URI
+    reuse: false          # true: a restarted run reuses published sets of the same plan
+    products:             # explicit choices, keyed "<node id>:<output name>"
+      "stage.RecoilHist:hist": true     # true, false, or a capability name
+```
+
+| Mode | Persisted |
+|---|---|
+| `off` | nothing; plans and runs are unchanged |
+| `all` | every boundary product whose kind has a registered capability |
+| `selected` | products named in `products`, and kinds whose registry boundary representation is `persist` |
+
+An entry in `products` overrides the mode (`false` never persists). A kind without a
+capability is listed as `not persisted: no capability` in the backend summary
+(`summary["persistence"]`), never skipped silently; asking for it explicitly is an error.
+A kind with several capabilities needs a name in `products`.
+
+Publishing a set again over an existing one removes its `manifest.json` first, so a crash
+leaves it unpublished. Each persisted partition product is published as one product set below
+`<root>/<node>/<output>/<dataset>/<partition>/`: the payloads, then `evidence.json`,
+then `manifest.json`. The value also stays in memory, so the run continues as before.
+Remote roots (`root://`, `https://`) are a backend's job and are refused here.
+
+`reuse: true` is restart, not a cache. Before running a partition, Flow takes its
+boundary products from the published sets when every boundary product is persisted, the
+manifest's `plan_hash` equals the current plan's, the set validates (payload sizes and
+`sha256`) and the plan has no sink or observer whose side effects a skipped partition
+would lose, and the plan has no execution hooks (a skipped partition skips them). The
+restored products, their evidence and a consumption record reach the run only when every
+product of the partition can be reused (`summary["persistence"]["consumed"]` lists them).
+Anything else, including a corrupt set, runs the producers. Until the semantic plan hash of
+[fasthep-flow#105](https://github.com/FAST-HEP/fasthep-flow/issues/105) exists, the
+`plan_hash` is a hash of the plan's nodes, partitions (file and event range), dataset
+metadata, the registry's product handlers, the execution settings (not `persistence`) and
+the execution hooks. Code behind an unchanged `impl` name is not covered.
+
+`hepflow.api.restore_products(manifest, registry=None, ledger=None, store=None)` restores
+a published set in another process (see "Restoring").
+
 ## Three levels
 
 | Level | Where | What it holds |
@@ -86,6 +133,7 @@ One result manifest describes one published product set. It extends
 | `root` | yes | the location of the product set, by the location rule |
 | `products` | yes | one entry per product instance: identity, `storage` and its payload references |
 | `evidence` | yes | one location of the shared evidence file |
+| `evidence_sha256` | yes | checksum of the evidence file, verified on load |
 
 Each entry of `products`:
 
@@ -178,6 +226,10 @@ Flow owns this vocabulary. The later run artifact index extends it.
 
 There is no migration and no fallback to another reader or another version.
 
+A capability's `params` are `{"save": {...}, "load": {...}}` defaults; they are copied
+into the published binding when the product is saved, and the recorded `load` params are
+the ones used on restore.
+
 ## Errors
 
 Each error carries the producer node, the output name and the product kind.
@@ -202,7 +254,10 @@ Each error carries the producer node, the output name and the product kind.
 - Retries stay distinct records.
 - A failed attempt never appears as a successful producer.
 - A restore adds a consumption record and replays no hook.
-- Manifests, parameters and evidence never contain credentials.
+- Manifests, parameters and evidence never contain credentials. Flow refuses credential-like
+  keys (`token`, `secret`, `password`, `x509`, `proxy`, `authorization`, `cookie`, `private_key`,
+  ...) and values (URL user info, `authz=`/`token=` query parameters) on save and on import.
+  This is a heuristic that makes common mistakes loud; it does not prove absence.
 
 ## Breaking change
 
@@ -211,9 +266,15 @@ This is an alpha change with no shim.
 - `ArtifactReference.format` is removed, and with it `ArtifactManifest.format` (a manifest's
   format was derived from its parts). The storage binding's `capability`, `container` and
   `variant` replace them. `OutputResult.format`, the field a sink sets, goes with it.
-- `schema_version` changes once, in the implementation of
+- The versions changed once, in the implementation of
   [fasthep-flow#115](https://github.com/FAST-HEP/fasthep-flow/issues/115), after the
-  bump of the [location contract](artifacts.md) ("Bundle versions").
+  bump of the [location contract](artifacts.md): provenance documents are `3.0`, writer
+  manifests `"3"`, the result manifest starts at `"1"`.
+- A generic artifact's provenance record `kind` is the product kind (it used to fall back
+  to `format`); a sink that wants another kind sets `metadata["artifact_kind"]`. A report
+  output record takes its `format` from `metadata["format"]` or the file suffix, so a
+  report sink that set `OutputResult.format` (render's template sink) sets
+  `metadata["format"]` instead.
 
 Code that sets or reads the artifact `format` changes in the same stack:
 

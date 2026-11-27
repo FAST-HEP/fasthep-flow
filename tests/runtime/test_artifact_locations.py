@@ -131,7 +131,6 @@ def test_funnel_output_result(in_tmp: Path) -> None:
 def test_funnel_manifest_parts(in_tmp: Path) -> None:
     manifest = ArtifactManifest(
         product_kind="artifact",
-        format=None,
         producer_node="n",
         output_name="artifact",
         dataset_name=None,
@@ -257,7 +256,6 @@ def test_stat_walks_manifests_and_lists(in_tmp: Path) -> None:
     _write(in_tmp / "out" / "b.png", b"22")
     manifest = ArtifactManifest(
         product_kind="artifact",
-        format=None,
         producer_node="n",
         output_name="artifact",
         dataset_name=None,
@@ -303,7 +301,6 @@ def test_delivery_status_recorded_on_each_file() -> None:
 def test_delivery_status_walks_manifests() -> None:
     manifest = ArtifactManifest(
         product_kind="artifact",
-        format=None,
         producer_node="n",
         output_name="artifact",
         dataset_name=None,

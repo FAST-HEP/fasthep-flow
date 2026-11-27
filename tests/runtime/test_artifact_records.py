@@ -35,7 +35,6 @@ def _group(
             OutputResult(
                 kind="artifact",
                 path=location,
-                format="png",
                 producer_node=NODE,
                 output_name="artifact",
                 dataset_name=dataset,
@@ -45,7 +44,6 @@ def _group(
         )
     manifest = ArtifactManifest(
         product_kind="artifact",
-        format=None,
         producer_node=NODE,
         output_name="artifact",
         dataset_name=None,
@@ -56,7 +54,7 @@ def _group(
 
 
 def test_provenance_version_is_2() -> None:
-    assert PROVENANCE_VERSION == "2.0"
+    assert PROVENANCE_VERSION == "3.0"
 
 
 def test_old_provenance_bundle_is_rejected(tmp_path: Path) -> None:

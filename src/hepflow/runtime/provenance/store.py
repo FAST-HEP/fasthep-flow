@@ -23,7 +23,7 @@ from hepflow.runtime.provenance.model import (
 )
 from hepflow.runtime.provenance.resources import resolved_resource_record
 
-PROVENANCE_VERSION = "2.0"
+PROVENANCE_VERSION = "3.0"
 
 
 class ProvenanceStore:

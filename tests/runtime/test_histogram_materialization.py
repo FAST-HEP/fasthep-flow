@@ -268,7 +268,6 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
     output = OutputResult(
         kind="artifact",
         path=str(tmp_path / "artifacts" / "files" / "selected" / "data" / "0_0.root"),
-        format="root",
         metadata={
             "writer_manifest": {
                 "kind": "root_tree",
@@ -319,7 +318,7 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
             encoding="utf-8"
         )
     )
-    assert provenance_manifest["version"] == "2.0"
+    assert provenance_manifest["version"] == "3.0"
     assert provenance_manifest["run_id"] == "run-123"
     assert provenance_manifest["execution"] == "artifacts/provenance/execution.json"
     assert provenance_manifest["records"] == [
@@ -341,7 +340,7 @@ def test_writer_manifests_emit_generic_provenance_records(tmp_path: Path) -> Non
     assert output.metadata["writer_manifest"]["provenance"] == writer_file["provenance"]
 
     execution = json.loads((tmp_path / provenance_manifest["execution"]).read_text())
-    assert execution["version"] == "2.0"
+    assert execution["version"] == "3.0"
     assert execution["run_id"] == "run-123"
     assert execution["workflow"] == {
         "normalized": "compile/normalized.yaml",
@@ -500,7 +499,6 @@ def test_generic_output_result_gets_provenance_record(tmp_path: Path) -> None:
     output = OutputResult(
         kind="artifact",
         path="artifacts/plots/selected.png",
-        format="png",
     )
     store = {("render.SelectedEvents.0", "artifact"): output}
 
@@ -514,7 +512,7 @@ def test_generic_output_result_gets_provenance_record(tmp_path: Path) -> None:
     assert provenance_manifest["records"] == [
         {
             "artifact": "artifacts/plots/selected.png",
-            "kind": "png",
+            "kind": "artifact",
             "node_id": "render.SelectedEvents.0",
             "record": provenance_manifest["records"][0]["record"],
             "record_hash": provenance_manifest["records"][0]["record_hash"],
@@ -539,7 +537,7 @@ def test_generic_output_result_gets_provenance_record(tmp_path: Path) -> None:
     assert record["artifact"] == {
         "path": "artifacts/plots/selected.png",
         "path_type": "relative_to_outdir",
-        "kind": "png",
+        "kind": "artifact",
     }
     assert "workflow" not in record
     assert "software" not in record

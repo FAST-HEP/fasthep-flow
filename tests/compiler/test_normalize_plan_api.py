@@ -43,6 +43,7 @@ def test_public_api_exports_stable_facade_symbols() -> None:
         "PlanDiffScope",
         "PlanDiffWarning",
         "PublishConflict",
+        "RestoredProducts",
         "compile_from_bundle",
         "compile_workflow_file",
         "diff_plan_files",
@@ -58,6 +59,7 @@ def test_public_api_exports_stable_facade_symbols() -> None:
         "provenance_summary_text",
         "read_partition_runs",
         "resolve_plan_input",
+        "restore_products",
         "run_plan_file",
         "run_workflow_file",
     ]
