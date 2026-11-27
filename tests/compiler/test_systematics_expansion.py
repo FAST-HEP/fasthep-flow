@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 from tests.toy_components import compile_hooks
 
 import hepflow
@@ -19,7 +18,7 @@ from hepflow.api import (
 from hepflow.compiler.normalize import normalize_workflow
 from hepflow.compiler.systematics import expand_systematics
 from hepflow.runtime.config import default_run_outdir_for_plan
-from hepflow.utils import read_yaml
+from hepflow.utils import read_yaml, write_yaml
 
 
 def test_no_systematics_expands_to_one_nominal_workflow(
@@ -652,9 +651,7 @@ def test_make_plan_file_expands_normalized_systematics(
     workflow = _workflow_with_systematics(toy_workflow)
     normalized = normalize_workflow(workflow)
     normalized_path = tmp_path / "normalized.yaml"
-    normalized_path.write_text(
-        yaml.safe_dump(normalized, sort_keys=False), encoding="utf-8"
-    )
+    write_yaml(normalized, normalized_path)
     build_dir = tmp_path / "build"
 
     make_plan_file(normalized_path, outdir=build_dir)
