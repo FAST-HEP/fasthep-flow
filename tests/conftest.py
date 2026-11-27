@@ -45,32 +45,10 @@ def toy_registry() -> dict[str, Any]:
 
 @pytest.fixture
 def toy_workflow(toy_registry: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "version": "1.0",
-        "registry": toy_registry,
-        "sources": {
-            "events": {
-                "kind": "toy.source",
-                "stream_type": "event_stream",
-            }
-        },
-        "analysis": {
-            "stages": [
-                {
-                    "id": "Scale",
-                    "op": "toy.scale",
-                    "params": {"factor": 2},
-                    "write": [
-                        {
-                            "kind": "toy.write",
-                            "path": "output.json",
-                            "when": "final",
-                        }
-                    ],
-                }
-            ]
-        },
-    }
+    """tests/fixtures/workflows/toy_workflow.yaml with the toy registry; a fresh copy per test."""
+    path = Path(__file__).parent / "fixtures" / "workflows" / "toy_workflow.yaml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return {"version": document.pop("version"), "registry": toy_registry, **document}
 
 
 @pytest.fixture
