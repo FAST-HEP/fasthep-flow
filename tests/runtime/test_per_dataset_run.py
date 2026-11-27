@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 import yaml
+from tests.builders import modified, modified_stage
 
 from hepflow.api import (
     compile_workflow_file,
@@ -18,19 +19,11 @@ from hepflow.utils import write_yaml
 def _write_workflow(
     tmp_path: Path, toy_workflow: dict[str, Any], *, per_dataset: bool = True
 ) -> Path:
-    stage = dict(toy_workflow["analysis"]["stages"][0])
-    stage.pop("write")
-    workflow = {
-        **toy_workflow,
-        "analysis": {"stages": [stage]},
-        "data": {
+    workflow = modified(
+        modified_stage(toy_workflow, write=None),
+        data={
             "datasets": [
-                {
-                    "name": "alpha",
-                    "files": ["toy://a"],
-                    "nevents": 4,
-                    "group": "mc",
-                },
+                {"name": "alpha", "files": ["toy://a"], "nevents": 4, "group": "mc"},
                 {
                     "name": "beta",
                     "files": ["toy://b"],
@@ -40,9 +33,8 @@ def _write_workflow(
                 },
             ]
         },
-    }
-    if per_dataset:
-        workflow["execution"] = {"partitioning": {"per_dataset": True}}
+        execution={"partitioning": {"per_dataset": True}} if per_dataset else None,
+    )
     path = tmp_path / "workflow.yaml"
     write_yaml(workflow, path)
     return path

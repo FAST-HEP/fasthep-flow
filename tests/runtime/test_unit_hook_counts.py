@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.builders import modified, modified_stage
 
 from hepflow.api import compile_workflow_file, list_workflow_partitions, load_plan_file
 from hepflow.compiler.compile_hooks import counting_hook_names
@@ -26,38 +27,36 @@ def _workflow(
     counting: str = "file_counts",
     extra_hooks: dict[str, Any] | None = None,
 ) -> Path:
-    stage = dict(toy_workflow["analysis"]["stages"][0])
-    stage.pop("write")
-    registry = dict(toy_workflow["registry"])
-    registry["compile_hooks"] = dict(extra_hooks or {})
+    compile_hooks = dict(extra_hooks or {})
     if hook is not None:
-        registry["compile_hooks"][f"toy.{counting}"] = {
+        compile_hooks[f"toy.{counting}"] = {
             "spec": f"{_TOY}:{counting.upper()}_HOOK_SPEC",
             "impl": f"{_TOY}:{counting}_hook",
             "params": hook,
         }
-    workflow = {
-        **toy_workflow,
-        "registry": registry,
-        "analysis": {"stages": [stage]},
-        "execution": {"partitioning": {"per_dataset": True}},
-        "data": {
+    alpha_dataset = {
+        "name": "alpha",
+        "files": ["toy://a0", "toy://a1"],
+        "nevents": 9,
+        "group": "mc",
+        **(alpha or {}),
+    }
+    workflow = modified(
+        modified_stage(toy_workflow, write=None),
+        registry={"compile_hooks": compile_hooks},
+        execution={"partitioning": {"per_dataset": True}},
+        data={
             "datasets": [
+                # a None override removes the key
                 {
                     key: value
-                    for key, value in {
-                        "name": "alpha",
-                        "files": ["toy://a0", "toy://a1"],
-                        "nevents": 9,
-                        "group": "mc",
-                        **(alpha or {}),
-                    }.items()
-                    if value is not None  # a None override removes the key
+                    for key, value in alpha_dataset.items()
+                    if value is not None
                 },
                 {"name": "beta", "files": ["toy://b"], "nevents": 3, "group": "data"},
             ]
         },
-    }
+    )
     path = tmp_path / "workflow.yaml"
     write_yaml(workflow, path)
     return path
