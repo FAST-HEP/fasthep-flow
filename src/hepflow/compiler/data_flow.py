@@ -164,16 +164,6 @@ class StreamState:
     lineage: StreamLineage | None = None
 
 
-@dataclass(slots=True)
-class StreamAnalysisResult:
-    required_sources: dict[str, dict[str, list[str]]]
-    consumers: dict[str, list[str]]
-    origins: dict[str, dict[str, Any]]
-    input_fields_by_node: dict[str, list[str]]
-    stream_states: dict[StreamRef, StreamState]
-    stream_lineage: dict[str, dict[str, str]]
-
-
 def _analyze_stream_data_flow(
     *,
     plan: ExecutionPlan,
@@ -321,21 +311,13 @@ def _analyze_stream_data_flow(
         for stream_id, branches in sorted(source_required_branches.items())
     }
 
-    result = StreamAnalysisResult(
-        required_sources=required_sources,
-        consumers=dict(sorted(consumers.items())),
-        origins=_public_origins(stream_states),
-        input_fields_by_node=input_fields_by_node,
-        stream_states=stream_states,
-        stream_lineage=_stream_lineage_view(stream_states),
-    )
     return {
-        "required_sources": result.required_sources,
-        "consumers": result.consumers,
-        "origins": result.origins,
-        "input_fields_by_node": result.input_fields_by_node,
-        "stream_states": result.stream_states,
-        "stream_lineage": result.stream_lineage,
+        "required_sources": required_sources,
+        "consumers": dict(sorted(consumers.items())),
+        "origins": _public_origins(stream_states),
+        "input_fields_by_node": input_fields_by_node,
+        "stream_states": stream_states,
+        "stream_lineage": _stream_lineage_view(stream_states),
     }
 
 

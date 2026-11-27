@@ -63,7 +63,6 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
             if name in named or not (isinstance(cfg, dict) and cfg.get("implicit"))
         }
 
-    stream_entry_nodes: dict[str, str] = {}
     stream_effective_nodes: dict[str, str] = {}
 
     for source_name, source_cfg_raw in sources.items():
@@ -80,7 +79,6 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
         )
         add_graph_node(graph, source_node)
 
-        stream_entry_nodes[source_name] = source_node.id
         stream_effective_nodes[source_name] = source_node.id
 
         for idx, inspect_cfg in enumerate(_as_list(source_cfg.get("inspect"))):
@@ -102,7 +100,6 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
     _insert_projection_nodes(
         graph=graph,
         workflow=workflow,
-        stream_entry_nodes=stream_entry_nodes,
         stream_effective_nodes=stream_effective_nodes,
         stream_ids=sources.keys(),
     )
@@ -144,13 +141,11 @@ def lower_workflow_to_graph(workflow: dict[str, Any]) -> nx.DiGraph:
                 input_name=inp["source"],
             )
 
-        stream_entry_nodes[join_name] = join_node.id
         stream_effective_nodes[join_name] = join_node.id
 
     _insert_projection_nodes(
         graph=graph,
         workflow=workflow,
-        stream_entry_nodes=stream_entry_nodes,
         stream_effective_nodes=stream_effective_nodes,
         stream_ids=joins.keys(),
     )
@@ -749,11 +744,9 @@ def _insert_projection_nodes(
     *,
     graph: nx.DiGraph,
     workflow: dict[str, Any],
-    stream_entry_nodes: dict[str, str],
     stream_effective_nodes: dict[str, str],
     stream_ids,
 ) -> None:
-    del stream_entry_nodes
     for stream_id in stream_ids:
         aliases = _aliases_for_stream(workflow, str(stream_id))
         if not aliases:

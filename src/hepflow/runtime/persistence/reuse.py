@@ -117,6 +117,30 @@ def reuse_partition_products(
     return products
 
 
+def _blocked(
+    plan: ExecutionPlan,
+    boundary: list[BoundaryOutputSpec],
+    selection: PersistenceSelection,
+    settings: PersistenceSettings,
+) -> tuple[str, str] | None:
+    """``(reason, detail)`` when the plan or settings rule reuse out before any manifest is read."""
+    if not settings.reuse:
+        return ("reuse_off", "")
+    if not boundary:
+        return ("no_boundary_products", "")
+    if plan.execution_hooks:  # a skipped partition would skip its hooks
+        return (
+            "execution_hooks",
+            ", ".join(_hook_label(h) for h in plan.execution_hooks),
+        )
+    effects = [n.id for n in plan.nodes if n.role in _SIDE_EFFECT_ROLES]
+    if effects:  # a skipped partition would skip their side effects
+        return ("sink_or_observer", ", ".join(effects))
+    if {spec.key() for spec in boundary} != set(selection.persisted):
+        return ("products_not_all_persisted", "")
+    return None
+
+
 def _reuse(
     plan: ExecutionPlan,
     partition: ExecutionPartition,
@@ -131,19 +155,9 @@ def _reuse(
     plan_hash: str | None,
     skip: Any,
 ) -> list[BoundaryProduct] | None:
-    if not settings.reuse:
-        return skip("reuse_off")
-    if not boundary:
-        return skip("no_boundary_products")
-    if plan.execution_hooks:  # a skipped partition would skip its hooks
-        return skip(
-            "execution_hooks", ", ".join(_hook_label(h) for h in plan.execution_hooks)
-        )
-    effects = [n.id for n in plan.nodes if n.role in _SIDE_EFFECT_ROLES]
-    if effects:  # a skipped partition would skip their side effects
-        return skip("sink_or_observer", ", ".join(effects))
-    if {spec.key() for spec in boundary} != set(selection.persisted):
-        return skip("products_not_all_persisted")
+    blocked = _blocked(plan, boundary, selection, settings)
+    if blocked is not None:
+        return skip(*blocked)
     root = persistence_root(settings, outdir)
     plan_hash = plan_hash or provisional_plan_hash(plan)
     paths: list[tuple[BoundaryOutputSpec, Path]] = []
