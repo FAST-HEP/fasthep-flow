@@ -202,3 +202,23 @@ def test_provenance_documents_are_version_3(tmp_path: Path) -> None:
     old.write_text(json.dumps({"version": "2.0", "records": []}), encoding="utf-8")
     with pytest.raises(ValueError, match="version"):
         load_provenance_document(old)
+
+
+def test_an_operation_that_changes_the_plan_fails_the_run(
+    toy_workflow: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A plan is not changed after compile (carpenter#34: hep.hist filled its axis)."""
+    workflow = _write_workflow(toy_workflow, tmp_path, reuse=True)
+    real = engine.execute_plan_partition
+
+    def mutating(plan: Any, *, ctx: dict[str, Any], **kwargs: Any) -> Any:
+        result = real(plan, ctx=ctx, **kwargs)
+        plan.nodes[0].params["completed_at_runtime"] = ctx["partition"]["id"]
+        return result
+
+    monkeypatch.setattr(engine, "execute_plan_partition", mutating)
+
+    with pytest.raises(engine.PlanChangedDuringRun, match="changed while it ran"):
+        _run(workflow, tmp_path / "build")

@@ -57,7 +57,9 @@ Anything else, including a corrupt set, runs the producers. Until the semantic p
 `plan_hash` is a hash of the plan's nodes, partitions (file and event range), dataset
 metadata, the registry's product handlers, the execution `partitioning` and `file_access`
 and the execution hooks. The backend, strategy, pools, resources and environment are not
-in it, so a run that died on a cluster can restart with other worker settings. Code behind an unchanged `impl` name is not covered.
+in it, so a run that died on a cluster can restart with other worker settings. The hash is taken once, before any partition runs. A plan does not change after it is compiled: if an
+operation, hook or sink changes it while the run executes, the run fails with `PlanChangedDuringRun`, and
+what an operation needs to complete (an axis, a default) is completed at compile time through its spec. Code behind an unchanged `impl` name is not covered.
 
 `hepflow.api.restore_products(manifest, registry=None, ledger=None, store=None)` restores
 a published set in another process (see "Restoring").
