@@ -46,10 +46,9 @@ def test_from_workflow_path_defaults_the_root_to_the_entry_dir_without_checks() 
 
     assert ctx.workflow_path == Path("does/not/exist/wf.yaml")
     assert ctx.project_root == Path("does/not/exist")
-    assert (
-        CompileContext.from_workflow_path("a/wf.yaml", Path("/r")).project_root
-        == Path("/r")
-    )
+    assert CompileContext.from_workflow_path(
+        "a/wf.yaml", Path("/r")
+    ).project_root == Path("/r")
 
 
 def test_to_normalized_uses_the_existing_keys(tmp_path: Path) -> None:
@@ -92,6 +91,7 @@ def test_the_context_is_frozen(tmp_path: Path) -> None:
 
 
 # --- the context travels through the plan and the parameter hooks ---
+
 
 def record_context_hook(
     *, value: Any, options: dict[str, Any], context: ParamCompileHookContext

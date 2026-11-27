@@ -80,9 +80,7 @@ def test_normalize_preserves_typed_dataset_chunk_size_outside_meta(
     workflow = {
         **toy_workflow,
         "data": {
-            "datasets": [
-                {"name": "sample", "files": ["sample.root"], "chunk_size": 29}
-            ]
+            "datasets": [{"name": "sample", "files": ["sample.root"], "chunk_size": 29}]
         },
     }
 
@@ -169,9 +167,7 @@ def test_source_less_product_plan_preserves_datasets_and_spec_outputs() -> None:
     assert graph_node.outputs == {"product": "toy_product"}
     assert plan.partitions == []
     assert plan.context["datasets"]["sample"]["files"] == ["sample.root"]
-    assert plan.context["datasets"]["sample"]["meta"] == {
-        "implementation": "fasthep"
-    }
+    assert plan.context["datasets"]["sample"]["meta"] == {"implementation": "fasthep"}
 
 
 def test_transform_stage_accepts_multiple_product_inputs() -> None:
@@ -273,8 +269,7 @@ def test_partition_transform_accepts_global_side_product_input() -> None:
     assert plan.get_node("stage.Product").output_scope == "global"
     assert use_product.input_scope == "partition"
     assert {
-        (ref.node_id, ref.output_name, ref.input_name)
-        for ref in use_product.inputs
+        (ref.node_id, ref.output_name, ref.input_name) for ref in use_product.inputs
     } == {
         ("read.events", "stream", "stream"),
         ("stage.Product", "product", "weights"),
@@ -330,9 +325,9 @@ def test_standalone_sink_stage_resolves_from_sink_registry(
         "keep": ["scaled_pt"],
         "when": "partition_end",
     }
-    assert [(ref.node_id, ref.output_name, ref.input_name) for ref in plan_node.inputs] == [
-        ("stage.Scale", "stream", "target")
-    ]
+    assert [
+        (ref.node_id, ref.output_name, ref.input_name) for ref in plan_node.inputs
+    ] == [("stage.Scale", "stream", "target")]
 
 
 def test_nodes_without_role_remain_transforms_with_transform_registry(
@@ -476,7 +471,9 @@ def test_global_side_product_bound_as_stream_fails_during_compilation() -> None:
         }
     )
 
-    with pytest.raises(ValueError, match=r"cannot consume .* from output scope 'global'"):
+    with pytest.raises(
+        ValueError, match=r"cannot consume .* from output scope 'global'"
+    ):
         build_plan_from_normalized(workflow)
 
 
@@ -524,7 +521,9 @@ def test_standalone_sink_requires_unambiguous_primary_stream(
         ]
     }
 
-    with pytest.raises(ValueError, match="multiple needed stages provide a primary stream"):
+    with pytest.raises(
+        ValueError, match="multiple needed stages provide a primary stream"
+    ):
         lower_workflow_to_graph(normalize_workflow(workflow))
 
 
@@ -658,7 +657,9 @@ def test_include_dataset_mapping_then_normalization(tmp_path: Path) -> None:
     ]
 
 
-def test_root_tree_source_preserves_reader_options(toy_workflow: dict[str, Any]) -> None:
+def test_root_tree_source_preserves_reader_options(
+    toy_workflow: dict[str, Any],
+) -> None:
     workflow = {
         **toy_workflow,
         "sources": {
@@ -947,10 +948,14 @@ def test_inline_and_external_mapping_params_normalize_identically(
         _mapping_config_workflow(external_dir, "config.yaml"),
     )
 
-    assert external_normalized["analysis"]["stages"][0]["params"]["config"] == "config.yaml"
-    assert inline_plan.get_node("stage.Config").params["config"] == external_plan.get_node(
-        "stage.Config"
-    ).params["config"]
+    assert (
+        external_normalized["analysis"]["stages"][0]["params"]["config"]
+        == "config.yaml"
+    )
+    assert (
+        inline_plan.get_node("stage.Config").params["config"]
+        == external_plan.get_node("stage.Config").params["config"]
+    )
 
 
 def test_file_backed_mapping_param_resolves_relative_to_workflow(
@@ -966,9 +971,7 @@ def test_file_backed_mapping_param_resolves_relative_to_workflow(
 
     _normalized, plan = _compiled_mapping_config(tmp_path, workflow_path)
 
-    assert plan.get_node("stage.Config").params["config"]["fields"] == {
-        "eta": {}
-    }
+    assert plan.get_node("stage.Config").params["config"]["fields"] == {"eta": {}}
 
 
 def test_file_backed_mapping_param_reports_malformed_yaml(tmp_path: Path) -> None:
@@ -1051,11 +1054,16 @@ def test_file_backed_mapping_param_materializes_in_normalized_and_plan(
     workflow_path = _mapping_config_workflow(tmp_path, "config.yaml")
     build_dir = tmp_path / "build"
 
-    normalized, plan = _compiled_mapping_config(tmp_path, workflow_path, outdir=build_dir)
+    normalized, plan = _compiled_mapping_config(
+        tmp_path, workflow_path, outdir=build_dir
+    )
 
-    assert read_yaml(build_dir / "compile" / "normalized.yaml")["analysis"]["stages"][
-        0
-    ]["params"]["config"] == "config.yaml"
+    assert (
+        read_yaml(build_dir / "compile" / "normalized.yaml")["analysis"]["stages"][0][
+            "params"
+        ]["config"]
+        == "config.yaml"
+    )
     assert normalized["analysis"]["stages"][0]["params"]["config"] == "config.yaml"
     assert plan.get_node("stage.Config").params["config"] == payload
     hook = plan.get_node("stage.Config").meta["compile_hooks"]["config"][0]
@@ -1096,7 +1104,10 @@ def test_compile_graph_d2_uses_readable_observer_labels(
     assert "Target: Scale" in graph_d2
     assert "observe.hep_schema_snapshot.0.stage_Scale" in graph_d2
     assert "#### observe.hep_schema_snapshot" not in graph_d2
-    assert '"stage.Scale" -> "observe.hep_schema_snapshot.0.stage_Scale": "observes stream"' in graph_d2
+    assert (
+        '"stage.Scale" -> "observe.hep_schema_snapshot.0.stage_Scale": "observes stream"'
+        in graph_d2
+    )
     assert "class: report" in graph_d2
 
 

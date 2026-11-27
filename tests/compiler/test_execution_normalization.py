@@ -343,7 +343,9 @@ def test_execution_metadata_propagates_to_plan(
         "default": {"resources": "default", "workers": 100, "config": {}},
         "gpu": {"resources": "gpu", "workers": 2, "config": {}},
     }
-    stage_node = next(node for node in plan_yaml["nodes"] if node["id"] == "stage.Scale")
+    stage_node = next(
+        node for node in plan_yaml["nodes"] if node["id"] == "stage.Scale"
+    )
     assert stage_node["meta"]["execution"] == {
         "require": None,
         "prefer": "gpu",
@@ -418,7 +420,9 @@ def test_shared_prefix_worker_environment_normalizes(
         workflow = {**toy_workflow, "execution": {"environment": raw}}
         return normalize_workflow(workflow)["execution"]["environment"]
 
-    assert environment({"type": "shared-prefix", "prefix": "/afs/x/.pixi/envs/dev"}) == {
+    assert environment(
+        {"type": "shared-prefix", "prefix": "/afs/x/.pixi/envs/dev"}
+    ) == {
         "type": "shared-prefix",
         "mode": "shared",
         "prefix": "/afs/x/.pixi/envs/dev",

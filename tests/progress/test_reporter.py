@@ -120,7 +120,9 @@ def test_reporter_concurrent_transitions_have_unique_sequences() -> None:
         reporter.running(partition.id)
         reporter.completed(partition.id)
 
-    threads = [threading.Thread(target=worker, args=(partition,)) for partition in partitions]
+    threads = [
+        threading.Thread(target=worker, args=(partition,)) for partition in partitions
+    ]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -141,7 +143,9 @@ def test_local_backend_emits_partition_and_finalization_progress(
 ) -> None:
     workflow = {
         **toy_workflow,
-        "data": {"datasets": [{"name": "toydata", "files": ["toy://events"], "nevents": 4}]},
+        "data": {
+            "datasets": [{"name": "toydata", "files": ["toy://events"], "nevents": 4}]
+        },
     }
     workflow_path = tmp_path / "workflow.yaml"
     write_yaml(workflow, workflow_path)
@@ -158,7 +162,11 @@ def test_local_backend_emits_partition_and_finalization_progress(
     assert result.success is True
     kinds = [update.event.kind for update in sink.updates]
     assert kinds[:2] == ["run_started", "phase_started"]
-    assert [update.event.to_state for update in sink.updates if update.event.kind == "partition_state"] == [
+    assert [
+        update.event.to_state
+        for update in sink.updates
+        if update.event.kind == "partition_state"
+    ] == [
         "running",
         "completed",
         "running",
@@ -180,7 +188,9 @@ def test_local_backend_reports_failed_partition_and_propagates_error(
 ) -> None:
     workflow = {
         **toy_workflow,
-        "data": {"datasets": [{"name": "toydata", "files": ["toy://events"], "nevents": 4}]},
+        "data": {
+            "datasets": [{"name": "toydata", "files": ["toy://events"], "nevents": 4}]
+        },
     }
     workflow["analysis"]["stages"][0]["params"]["source"] = "missing"
     workflow_path = tmp_path / "workflow.yaml"
@@ -196,7 +206,11 @@ def test_local_backend_reports_failed_partition_and_propagates_error(
             progress_sinks=[sink],
         )
 
-    states = [update.event.to_state for update in sink.updates if update.event.kind == "partition_state"]
+    states = [
+        update.event.to_state
+        for update in sink.updates
+        if update.event.kind == "partition_state"
+    ]
     assert states == ["running", "failed"]
     assert sink.updates[-1].event.kind == "run_failed"
 
@@ -254,4 +268,7 @@ def _partition(partition_id: str) -> ExecutionPartition:
 
 def _assert_counts_invariant(update: ProgressUpdate) -> None:
     counts = update.snapshot.counts
-    assert counts.total == counts.pending + counts.running + counts.completed + counts.failed
+    assert (
+        counts.total
+        == counts.pending + counts.running + counts.completed + counts.failed
+    )

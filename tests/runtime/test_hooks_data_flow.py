@@ -210,9 +210,7 @@ def test_expression_requirements_support_wildcards_and_optional_params() -> None
         )(),
     )
 
-    assert deps == DataDependencyResult(
-        consumes={"Muon_Pz", "Muon_Eta", "EventWeight"}
-    )
+    assert deps == DataDependencyResult(consumes={"Muon_Pz", "Muon_Eta", "EventWeight"})
 
 
 def test_field_prefix_expands_multiple_prefixes_and_fields_from_params() -> None:
@@ -437,7 +435,11 @@ def test_template_outputs_support_prefix_suffixes_and_guards() -> None:
                     "prefix_suffix": "_candidate",
                     "suffixes_from": "params.fields",
                 },
-                {"from": "params.output", "kind": "count", "prefix_suffix": "_candidate"},
+                {
+                    "from": "params.output",
+                    "kind": "count",
+                    "prefix_suffix": "_candidate",
+                },
                 {
                     "kind": "template",
                     "template": "{params.output}_removed",

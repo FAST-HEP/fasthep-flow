@@ -67,7 +67,9 @@ def test_inline_variation_clones_branching_downstream_graph(
             _scale("B", source="a_pt", output="b_pt", upstream="A"),
             _scale("Left", source="b_pt", output="left_pt", upstream="B"),
             _scale("Right", source="b_pt", output="right_pt", upstream="B"),
-            _scale("AfterLeft", source="left_pt", output="after_left_pt", upstream="Left"),
+            _scale(
+                "AfterLeft", source="left_pt", output="after_left_pt", upstream="Left"
+            ),
         ],
         fields=["pt"],
         variations=[
@@ -117,18 +119,12 @@ def test_inline_variation_keeps_shared_nominal_side_input(
     )
 
     cloned_c = plan.get_node("stage.C@up")
-    assert {
-        (ref.input_name, ref.node_id)
-        for ref in cloned_c.inputs
-    } == {
+    assert {(ref.input_name, ref.node_id) for ref in cloned_c.inputs} == {
         ("stream", "stage.B@up"),
         ("weights", "stage.SharedWeights"),
     }
     nominal_c = plan.get_node("stage.C")
-    assert {
-        (ref.input_name, ref.node_id)
-        for ref in nominal_c.inputs
-    } == {
+    assert {(ref.input_name, ref.node_id) for ref in nominal_c.inputs} == {
         ("stream", "stage.B"),
         ("weights", "stage.SharedWeights"),
     }
@@ -920,7 +916,9 @@ def test_inline_variation_thousand_node_compile_benchmark(
     timings: dict[str, float] = {}
     compile_start = time.perf_counter()
 
-    normalized = _time_phase(timings, "normalize_workflow", normalize_workflow, workflow)
+    normalized = _time_phase(
+        timings, "normalize_workflow", normalize_workflow, workflow
+    )
 
     def lower_phase() -> Any:
         prepared = apply_component_param_defaults(normalized)
@@ -1013,7 +1011,9 @@ def test_inline_variation_thousand_node_compile_benchmark(
         )
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(metrics, indent=2, sort_keys=True), encoding="utf-8")
+    output_path.write_text(
+        json.dumps(metrics, indent=2, sort_keys=True), encoding="utf-8"
+    )
     print(json.dumps(metrics, indent=2, sort_keys=True))
 
     assert metrics["node_count"] >= 1000

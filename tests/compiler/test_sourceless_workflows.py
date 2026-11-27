@@ -76,7 +76,9 @@ def test_empty_sources_with_a_product_stage_lowers_without_a_source() -> None:
     assert list(graph.nodes) == ["stage.Product"]
 
 
-def test_absent_sources_drop_the_implicit_default_when_no_stage_needs_a_stream() -> None:
+def test_absent_sources_drop_the_implicit_default_when_no_stage_needs_a_stream() -> (
+    None
+):
     workflow = _workflow([PRODUCT])
     normalized = normalize_workflow(workflow)
 
@@ -115,7 +117,9 @@ def test_a_stage_that_names_the_default_source_keeps_it() -> None:
 def test_a_stage_that_needs_a_stream_without_a_source_is_an_error_naming_it(
     stage: dict[str, Any],
 ) -> None:
-    with pytest.raises(ValueError, match=r"Stage 'Scale' \(op 'toy\.scale'\) needs an event stream") as raised:
+    with pytest.raises(
+        ValueError, match=r"Stage 'Scale' \(op 'toy\.scale'\) needs an event stream"
+    ) as raised:
         _graph(_workflow([stage], sources={}))
 
     assert "sources:" in str(raised.value)
@@ -134,7 +138,9 @@ def test_a_stream_stage_after_a_stream_stage_is_unchanged() -> None:
     assert graph.has_edge("stage.Scale", "stage.Second")
 
 
-def test_a_source_less_workflow_runs_with_an_observer_and_a_writer(tmp_path: Path) -> None:
+def test_a_source_less_workflow_runs_with_an_observer_and_a_writer(
+    tmp_path: Path,
+) -> None:
     workflow = _workflow(
         [{**PRODUCT, "write": [WRITE]}],
         observers=[{"kind": "toy.observe", "at": ["stage.Product"]}],
@@ -148,7 +154,9 @@ def test_a_source_less_workflow_runs_with_an_observer_and_a_writer(tmp_path: Pat
 
 
 @pytest.mark.parametrize("sources", [None, {}])
-def test_a_source_less_workflow_runs_to_completion(tmp_path: Path, sources: Any) -> None:
+def test_a_source_less_workflow_runs_to_completion(
+    tmp_path: Path, sources: Any
+) -> None:
     extra = {} if sources is None else {"sources": sources}
     workflow = _workflow([{**PRODUCT, "write": [WRITE]}], **extra)
     path = tmp_path / "workflow.yaml"
@@ -159,8 +167,16 @@ def test_a_source_less_workflow_runs_to_completion(tmp_path: Path, sources: Any)
     assert (tmp_path / "out" / "artifacts" / "files" / "o.json").exists()
 
 
-NO_INPUT = {"name": "no_input", "input": None, "result": {"p": "toy_product"}, "execution": {"scope": "global"}}
-STREAM_INPUT = {"name": "stream_in", "input": {"name": "stream", "kind": "event_stream", "required": True}}
+NO_INPUT = {
+    "name": "no_input",
+    "input": None,
+    "result": {"p": "toy_product"},
+    "execution": {"scope": "global"},
+}
+STREAM_INPUT = {
+    "name": "stream_in",
+    "input": {"name": "stream", "kind": "event_stream", "required": True},
+}
 NO_INPUT_KEY = {"name": "no_key"}
 
 

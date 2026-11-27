@@ -456,7 +456,9 @@ def test_materialize_boundary_invokes_materializer_once_and_validates_result() -
         product_handlers={
             "artifact": ProductHandlerEntry(
                 materialize=materialize,
-                boundary=ProductBoundaryPolicy(retain=True, representation="materialize"),
+                boundary=ProductBoundaryPolicy(
+                    retain=True, representation="materialize"
+                ),
             )
         }
     )
@@ -484,7 +486,9 @@ def test_materialize_boundary_rejects_non_reference_result() -> None:
         product_handlers={
             "artifact": ProductHandlerEntry(
                 materialize=lambda value, **kwargs: {"path": "plain-dict.root"},
-                boundary=ProductBoundaryPolicy(retain=True, representation="materialize"),
+                boundary=ProductBoundaryPolicy(
+                    retain=True, representation="materialize"
+                ),
             )
         }
     )
@@ -516,7 +520,9 @@ def test_product_accumulator_combines_histograms_incrementally() -> None:
             )
         }
     )
-    accumulator = ProductAccumulator(plan, runtime_registry=registry, dataset_name="toy")
+    accumulator = ProductAccumulator(
+        plan, runtime_registry=registry, dataset_name="toy"
+    )
 
     for index in range(100):
         partition = _partition(index=index)
@@ -555,7 +561,9 @@ def test_product_accumulator_collects_event_streams_until_final_merge() -> None:
             )
         }
     )
-    accumulator = ProductAccumulator(plan, runtime_registry=registry, dataset_name="toy")
+    accumulator = ProductAccumulator(
+        plan, runtime_registry=registry, dataset_name="toy"
+    )
 
     for index in range(4):
         partition = _partition(index=index)
@@ -605,7 +613,9 @@ def test_product_accumulator_keeps_artifacts_collected_for_writer_manifests(
             ),
         }
     )
-    accumulator = ProductAccumulator(plan, runtime_registry=registry, dataset_name="toy")
+    accumulator = ProductAccumulator(
+        plan, runtime_registry=registry, dataset_name="toy"
+    )
 
     outputs = [
         OutputResult(
@@ -660,8 +670,7 @@ def test_product_accumulator_keeps_artifacts_collected_for_writer_manifests(
     assert accumulator.combined_count == 1
     assert accumulator.collected_count == 2
     assert [
-        (result.partition.id, result.products[0].value)
-        for result in collected
+        (result.partition.id, result.products[0].value) for result in collected
     ] == [
         ("events__toy__0", outputs[0]),
         ("events__toy__1", outputs[1]),
@@ -684,10 +693,7 @@ def test_product_accumulator_keeps_artifacts_collected_for_writer_manifests(
             encoding="utf-8"
         )
     )
-    assert [
-        item["path"]
-        for item in manifest["datasets"]["toy"]["files"]
-    ] == [
+    assert [item["path"] for item in manifest["datasets"]["toy"]["files"]] == [
         "artifacts/files/skim/toy/0_0.root",
         "artifacts/files/skim/toy/0_1.root",
     ]
@@ -716,7 +722,9 @@ def test_product_accumulator_add_result_is_atomic_when_combine_fails() -> None:
             ),
         }
     )
-    accumulator = ProductAccumulator(plan, runtime_registry=registry, dataset_name="toy")
+    accumulator = ProductAccumulator(
+        plan, runtime_registry=registry, dataset_name="toy"
+    )
     first_partition = _partition(index=0)
     second_partition = _partition(index=1)
 
@@ -880,9 +888,7 @@ def test_local_execution_retains_wider_scope_event_stream_and_invokes_merge(
         for item in outputs
     )
     payload = json.loads(
-        (build_dir / "artifacts" / "files" / "dataset.json").read_text(
-            encoding="utf-8"
-        )
+        (build_dir / "artifacts" / "files" / "dataset.json").read_text(encoding="utf-8")
     )
     assert payload["scaled_pt"] == [24, 36, 42, 56]
 
@@ -904,15 +910,15 @@ def test_partition_writer_manifest_uses_boundary_artifact_references(
         kind="root_tree",
         path="artifacts/files/skim/toy/0_0.root",
         metadata={
-                "writer_manifest": {
-                    "kind": "root_tree",
-                    "name": "skim",
-                    "node_id": "write.skim",
-                    "input_node": "stage.Select",
-                    "tree": "Events",
-                    "path": "artifacts/files/skim/toy/0_0.root",
-                    "path_type": "relative_to_outdir",
-                    "dataset": "toy",
+            "writer_manifest": {
+                "kind": "root_tree",
+                "name": "skim",
+                "node_id": "write.skim",
+                "input_node": "stage.Select",
+                "tree": "Events",
+                "path": "artifacts/files/skim/toy/0_0.root",
+                "path_type": "relative_to_outdir",
+                "dataset": "toy",
                 "partition": 0,
                 "attempt": 0,
                 "entries": 1,

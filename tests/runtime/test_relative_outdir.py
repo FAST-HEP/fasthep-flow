@@ -114,4 +114,3 @@ def test_bundle_is_read_relocatable(
         artifact = record["artifact"]
         if artifact["path_type"] == "relative_to_outdir":
             assert (copy / artifact["path"]).is_file()
-

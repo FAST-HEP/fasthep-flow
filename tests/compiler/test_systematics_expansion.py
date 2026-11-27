@@ -137,7 +137,9 @@ def test_variation_metadata_attached_to_expanded_workflow(
     }
 
 
-def test_nominal_workflow_weight_expr_is_unchanged(toy_workflow: dict[str, Any]) -> None:
+def test_nominal_workflow_weight_expr_is_unchanged(
+    toy_workflow: dict[str, Any],
+) -> None:
     workflow = _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
     normalized = normalize_workflow(workflow)
 
@@ -222,7 +224,9 @@ def test_weight_rewrite_only_updates_analysis_stages(
 
 
 def test_field_replacement_rewrites_exact_sources(toy_workflow: dict[str, Any]) -> None:
-    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow = _workflow_with_field_replacements(
+        _workflow_with_field_params(toy_workflow)
+    )
     normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
@@ -233,7 +237,9 @@ def test_field_replacement_rewrites_exact_sources(toy_workflow: dict[str, Any]) 
 
 
 def test_field_replacement_rewrites_expressions(toy_workflow: dict[str, Any]) -> None:
-    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow = _workflow_with_field_replacements(
+        _workflow_with_field_params(toy_workflow)
+    )
     normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
@@ -252,7 +258,9 @@ def test_field_replacement_rewrites_expressions(toy_workflow: dict[str, Any]) ->
 def test_field_replacement_avoids_longer_variable_names(
     toy_workflow: dict[str, Any],
 ) -> None:
-    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow = _workflow_with_field_replacements(
+        _workflow_with_field_params(toy_workflow)
+    )
     normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
@@ -264,7 +272,9 @@ def test_field_replacement_avoids_longer_variable_names(
 def test_field_replacement_rewrites_selection_list(
     toy_workflow: dict[str, Any],
 ) -> None:
-    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow = _workflow_with_field_replacements(
+        _workflow_with_field_params(toy_workflow)
+    )
     normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
@@ -280,7 +290,9 @@ def test_field_replacement_rewrites_selection_list(
 def test_field_replacement_leaves_labels_ids_and_paths_unchanged(
     toy_workflow: dict[str, Any],
 ) -> None:
-    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow = _workflow_with_field_replacements(
+        _workflow_with_field_params(toy_workflow)
+    )
     normalized = normalize_workflow(workflow)
 
     variation = expand_systematics(normalized)[1]
@@ -310,7 +322,9 @@ def test_field_replacement_does_not_mutate_original_workflow(
 def test_nominal_workflow_field_params_are_unchanged(
     toy_workflow: dict[str, Any],
 ) -> None:
-    workflow = _workflow_with_field_replacements(_workflow_with_field_params(toy_workflow))
+    workflow = _workflow_with_field_replacements(
+        _workflow_with_field_params(toy_workflow)
+    )
     normalized = normalize_workflow(workflow)
 
     nominal = expand_systematics(normalized)[0]
@@ -662,9 +676,7 @@ def test_run_plan_file_uses_variation_namespace_by_default(
 
     assert result.success is True
     assert not (build_dir / "run_summary.yaml").exists()
-    assert (
-        build_dir / "reports" / "trigger_eff_up" / "run_summary.yaml"
-    ).exists()
+    assert (build_dir / "reports" / "trigger_eff_up" / "run_summary.yaml").exists()
     assert result.summary["summary_path"] == str(
         build_dir / "reports" / "trigger_eff_up" / "run_summary.yaml"
     )
@@ -699,7 +711,9 @@ def test_run_plan_file_explicit_outdir_overrides_variation_default(
     assert result.success is True
     assert (custom_dir / "reports" / "trigger_eff_up" / "run_summary.yaml").exists()
     assert (custom_dir / "artifacts" / "trigger_eff_up" / "files").exists()
-    assert not (build_dir / "artifacts" / "trigger_eff_up" / "files" / "output.json").exists()
+    assert not (
+        build_dir / "artifacts" / "trigger_eff_up" / "files" / "output.json"
+    ).exists()
 
 
 def test_no_systematics_workflows_still_compile_to_existing_plan_path(
@@ -758,9 +772,7 @@ def test_running_two_variation_plans_writes_independent_summaries(
     assert up.success is True
     assert down.success is True
     assert (build_dir / "reports" / "trigger_eff_up" / "run_summary.yaml").exists()
-    assert (
-        build_dir / "reports" / "trigger_eff_down" / "run_summary.yaml"
-    ).exists()
+    assert (build_dir / "reports" / "trigger_eff_down" / "run_summary.yaml").exists()
     assert not (build_dir / "run_summary.yaml").exists()
 
 
@@ -906,14 +918,17 @@ def test_graph_artifacts_and_hooks_are_scoped_per_plan(
     toy_workflow: dict[str, Any],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    include_nominal: bool | None, write_workflow: Any,
+    include_nominal: bool | None,
+    write_workflow: Any,
 ) -> None:
     workflow = _workflow_with_systematics(_workflow_with_weight_expr(toy_workflow))
     workflow["systematics"]["include_nominal"] = include_nominal
-    workflow["systematics"]["variations"].append({
-        "name": "trigger_eff_down",
-        "weight": {"multiply": "TriggerEffWeight_down"},
-    })
+    workflow["systematics"]["variations"].append(
+        {
+            "name": "trigger_eff_down",
+            "weight": {"multiply": "TriggerEffWeight_down"},
+        }
+    )
     expected = {
         "trigger_eff_up": "(EventWeight) * (TriggerEffWeight_up)",
         "trigger_eff_down": "(EventWeight) * (TriggerEffWeight_down)",
@@ -956,7 +971,9 @@ def test_graph_artifacts_and_hooks_are_scoped_per_plan(
     for name, weight in expected.items():
         graph_dir = outdir / "graph" / name
         graph = json.loads((graph_dir / "graph.json").read_text())
-        payload = next(node["payload"] for node in graph["nodes"] if node["id"] == "stage.Scale")
+        payload = next(
+            node["payload"] for node in graph["nodes"] if node["id"] == "stage.Scale"
+        )
         assert f"'weight_expr': '{weight}'" in payload
         assert (graph_dir / "graph.svg").read_text() == f"<svg>{name}</svg>"
         assert (outdir / "reports" / name / "graph.txt").read_text() == name
@@ -1011,4 +1028,6 @@ def test_every_variation_plan_records_flow_version(
     assert len(summary["variations"]) == 2
     for variation in summary["variations"]:
         plan = read_yaml(build_dir / variation["plan"])
-        assert plan["provenance"]["compilation"] == {"flow_version": hepflow.__version__}
+        assert plan["provenance"]["compilation"] == {
+            "flow_version": hepflow.__version__
+        }

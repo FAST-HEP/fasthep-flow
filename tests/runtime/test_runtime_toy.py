@@ -21,9 +21,7 @@ def test_runtime_executes_toy_source_transform_and_final_sink(
 
     assert result.success is True
     payload = json.loads(
-        (build_dir / "artifacts" / "files" / "output.json").read_text(
-            encoding="utf-8"
-        )
+        (build_dir / "artifacts" / "files" / "output.json").read_text(encoding="utf-8")
     )
     assert payload["pt"] == [12, 18, 21, 28]
     assert payload["scaled_pt"] == [24, 36, 42, 56]
@@ -150,7 +148,9 @@ def _schema_observer(node_id: str, *, upstream: str) -> ExecutionNode:
     )
 
 
-def _define_transform(*, upstream: str, upstream_output: str = "stream") -> ExecutionNode:
+def _define_transform(
+    *, upstream: str, upstream_output: str = "stream"
+) -> ExecutionNode:
     return ExecutionNode(
         id=f"stage.Derived.from.{upstream}",
         graph_node_id=f"stage.Derived.from.{upstream}",

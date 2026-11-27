@@ -110,7 +110,9 @@ def test_workflow_layer_can_switch_off_a_profile_compile_hook(tmp_path: Path) ->
             RegistryLayer(
                 name="workflow",
                 kind="workflow",
-                registry={"compile_hooks": {"toy.dataset_metadata": {"enabled": False}}},
+                registry={
+                    "compile_hooks": {"toy.dataset_metadata": {"enabled": False}}
+                },
             ),
         ]
     )
