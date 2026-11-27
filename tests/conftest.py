@@ -7,7 +7,8 @@ import pytest
 import yaml
 
 from hepflow.compiler.hooks import software as software_module
-from tests.builders import modified, write_yaml
+from hepflow.utils import write_yaml
+from tests.builders import modified
 
 # A test module that sets ``REAL_SOFTWARE_CAPTURE = True`` runs the real distribution scan
 # and git capture of the flow.software hook; every other test gets a cheap stub so that
@@ -67,7 +68,9 @@ def write_workflow(tmp_path: Path, toy_workflow: dict[str, Any]) -> Any:
         **changes: Any,
     ) -> Path:
         base = toy_workflow if workflow is None else workflow
-        return write_yaml(tmp_path / filename, modified(base, **changes))
+        path = tmp_path / filename
+        write_yaml(modified(base, **changes), path)
+        return path
 
     return write
 

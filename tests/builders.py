@@ -1,5 +1,7 @@
 """Shared test builders: a workflow with a few changes, and files on disk.
 
+For YAML use ``hepflow.utils.write_yaml(data, path)``.
+
 Start from the ``toy_workflow`` fixture (``tests/fixtures/workflows/toy_workflow.yaml`` plus the
 toy registry) and state only what a test changes.
 """
@@ -10,8 +12,6 @@ from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
-
-import yaml
 
 
 def modified(base: Mapping[str, Any], **changes: Any) -> dict[str, Any]:
@@ -33,12 +33,6 @@ def _apply(target: dict[str, Any], changes: Mapping[str, Any]) -> None:
             _apply(target[key], value)
         else:
             target[key] = deepcopy(value)
-
-
-def write_yaml(path: Path, data: Any) -> Path:
-    """``data`` as YAML at ``path``, keeping key order."""
-    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    return path
 
 
 def write_file(path: Path, content: str | bytes = b"") -> Path:

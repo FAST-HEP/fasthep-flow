@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from tests.builders import modified, write_file, write_files, write_yaml
+from tests.builders import modified, write_file, write_files
 
 
 def test_modified_returns_a_copy_and_leaves_the_original_alone() -> None:
@@ -42,18 +42,6 @@ def test_modified_adds_new_keys_and_none_removes_a_key() -> None:
     result = modified(base, d=4, a=None, b={"c": None})
 
     assert result == {"b": {}, "d": 4}
-
-
-def test_write_yaml_keeps_key_order(tmp_path: Path) -> None:
-    path = write_yaml(tmp_path / "w.yaml", {"version": "1.0", "a": 1, "z": 2, "b": 3})
-
-    assert list(yaml.safe_load(path.read_text(encoding="utf-8"))) == [
-        "version",
-        "a",
-        "z",
-        "b",
-    ]
-    assert path.read_text(encoding="utf-8").startswith("version: '1.0'")
 
 
 def test_write_file_creates_parents_and_takes_text_or_bytes(tmp_path: Path) -> None:
